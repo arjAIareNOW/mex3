@@ -67,7 +67,7 @@ How you work:
   "The earlier version": restore_app_version (app_history lists them). "Show me the snake game": open_app.
 - Talk like a person: short acknowledgements, a little enthusiasm, a design opinion when it helps. Do not repeat
   what they said, do not list options, do not explain your tools.
-- You can also tell the weather or the time when asked (weather, get_time), then carry on designing.
+- You can also tell the weather or the time when asked (get_weather, get_time), then carry on designing.
 - You can also run the room when asked: lights, thermostat, timers, alarms, reminders, music and volume. They show
   on a separate Room tab; "show me the room" or "the lights panel" is show_screen room, "back to the design" is
   show_screen design. Do this only when asked, then go back to designing.
@@ -95,7 +95,7 @@ _TWEAK_SHORT = re.compile(r"^\W*(?:(?:can|could) you\s+|please\s+|now\s+|okay,?\
 # which is ~5-8 s faster with a local model; current facts still go through web_search)
 # Elkit is a designer: only the tools for making things (the server has more: weather, news, documents, device...)
 AGENT_MCP_TOOLS = ["create_app", "edit_app", "tweak_app", "undo_app_change", "app_history", "restore_app_version",
-                   "list_apps", "open_app", "app_settings", "weather", "get_time"]
+                   "list_apps", "open_app", "app_settings", "get_weather", "get_time"]   # server name: get_weather
 SLOW_TOOLS: set[str] = set()      # a short filler is spoken at once for these (photos for tweak_app are handled too)
 
 ROOM_TOOLS = {
@@ -402,7 +402,8 @@ class Agent:
             if self.ui and isinstance(st, dict):
                 self.ui.send({"type": "build", **{k: st.get(k) for k in (
                     "building", "title", "elapsed_s", "chars", "expect", "code", "step", "eta_s", "kind", "change")}})
-            for job in (st.get("finished") or []) if isinstance(st, dict) else []:
+            finished = (st.get("finished") or []) if isinstance(st, dict) else []
+            for n, job in enumerate(finished):
                 while self.io.user_speaking or self.io.bot_speaking:
                     await asyncio.sleep(0.3)
                 if job.get("state") == "ready":
@@ -417,10 +418,16 @@ class Agent:
                 else:
                     msg = f"Sorry, building {job.get('title', 'the app')} failed."
                 self._event("app_" + job.get("state", "?"), **{k: job.get(k) for k in ("title", "url", "seconds")})
-                self.context.add_message({"role": "assistant", "content": msg})
                 if job.get("settings"):
                     self.context.add_message({"role": "system", "content":
                         f"{job.get('title', 'The app')} live settings (change with tweak_app): {job['settings']}"})
+                # several edits of the same app finishing together: say it once, not once per edit
+                last_msg, last_t = getattr(self, "_last_build_msg", ("", 0.0))
+                if n < len(finished) - 1 or (msg == last_msg and time.monotonic() - last_t < 30):
+                    logger.info(f"build note not repeated: {msg[:60]!r}")
+                    continue
+                self._last_build_msg = (msg, time.monotonic())
+                self.context.add_message({"role": "assistant", "content": msg})
                 await self._announce(msg)
 
     async def close(self):

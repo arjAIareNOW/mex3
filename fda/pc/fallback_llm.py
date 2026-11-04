@@ -62,6 +62,22 @@ def clean_messages(msgs: list) -> list:
     return out
 
 
+_SKIP_SIGNATURE = {"google": {"thought_signature": "skip_thought_signature_validator"}}
+
+
+def for_gemini(msgs: list) -> list:
+    """Gemini 3 models answer 400 "Function call is missing a thought_signature" for any earlier tool call
+    without one: calls another model made (Groq), and its own (Pipecat does not keep the signature). Google's
+    documented placeholder lets those through (https://ai.google.dev/gemini-api/docs/thought-signatures)."""
+    out = []
+    for m in msgs:
+        if isinstance(m, dict) and m.get("role") == "assistant" and m.get("tool_calls"):
+            m = {**m, "tool_calls": [c if (c.get("extra_content") or {}).get("google", {}).get("thought_signature")
+                                     else {**c, "extra_content": _SKIP_SIGNATURE} for c in m["tool_calls"]]}
+        out.append(m)
+    return out
+
+
 class FallbackLLMService(OpenAILLMService):
     """OpenAILLMService that tries each entry of `chain()` in order for every turn."""
 
@@ -93,6 +109,10 @@ class FallbackLLMService(OpenAILLMService):
         for e in ready:
             extra = llmlib.reasoning_extra(e["model"])
             params = {**base, "model": e["model"], **extra}
+            if e["engine"] == "gemini" and isinstance(params.get("messages"), list):
+                params["messages"] = for_gemini(params["messages"])
+                for k in ("seed", "frequency_penalty", "presence_penalty"):   # Gemini: "Unknown name" 400
+                    params.pop(k, None)
             for k in ("max_tokens", "max_completion_tokens"):
                 params.pop(k, None)
             params["max_tokens"] = 400 if extra else 90       # thinking models count thinking in max_tokens
@@ -108,7 +128,10 @@ class FallbackLLMService(OpenAILLMService):
                 except Exception:  # noqa: BLE001
                     pass
                 e["down_until"] = time.monotonic() + wait
-                logger.warning(f"LLM {e['engine']}/{e['model']} unavailable ({code or type(err).__name__}); "
+                why = ""
+                if code == 400:                     # a 400 is our request, not their load: say what they disliked
+                    why = " " + str(getattr(err, "body", "") or err)[:160]
+                logger.warning(f"LLM {e['engine']}/{e['model']} unavailable ({code or type(err).__name__}){why}; "
                                f"next model, this one rests {wait:.0f} s")
                 last = err
                 continue

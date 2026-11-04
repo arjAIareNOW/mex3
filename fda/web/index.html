@@ -38,6 +38,9 @@
   iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; transition: opacity .3s, filter .3s; }
   iframe.updating { opacity: .45; filter: blur(1px); }
   #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 16px; text-align: center; padding: 24px; }
+  /* `display: flex` above beats the hidden attribute: without this the empty box stays over the app and eats every click and scroll */
+  #empty[hidden] { display: none; }
+  #bar, #note { pointer-events: none; }   /* overlays on the app must never block it */
   #note { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 3; background: rgba(10,12,18,.82);
           border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13px; color: var(--text);
           white-space: nowrap; max-width: 90%; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .3s; }
