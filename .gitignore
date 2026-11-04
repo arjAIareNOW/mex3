@@ -1,0 +1,13 @@
+.env
+fda.toml
+.venv/
+__pycache__/
+recordings/
+tests/last_sim_results.json
+offline_models/
+fd-benchmark/
+logs/
+apps/
+reports/
+fda/mcp_servers/node_modules/
+.claude/

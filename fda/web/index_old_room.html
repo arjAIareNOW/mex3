@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FDA</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c232c; --line:#2a323d; --text:#e6edf3; --muted:#8b96a3;
+  --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --radius:14px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:10px 12px;display:flex;flex-direction:column;gap:10px;overflow:hidden;user-select:none;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;min-height:40px}
+button:active{transform:scale(.97)}
+header{display:flex;align-items:center;gap:12px}
+.orb{width:42px;height:42px;border-radius:50%;flex:none;position:relative;background:radial-gradient(circle at 35% 35%,#9cc9ff,#2f6fd6 60%,#173a73);transition:box-shadow .08s,transform .08s}
+.orb[data-s="hearing"]{background:radial-gradient(circle at 35% 35%,#b7f7c4,#2ea043 60%,#145224)}
+.orb[data-s="thinking"]{background:radial-gradient(circle at 35% 35%,#ffe7a3,#d29922 60%,#6b4b0d);animation:spin 1s linear infinite}
+.orb[data-s="speaking"]{background:radial-gradient(circle at 35% 35%,#e3c8ff,#8957e5 60%,#3d2370)}
+.orb[data-s="starting"],.orb[data-s="offline"]{background:#444c56}
+@keyframes spin{50%{transform:scale(.9)}}
+.status{font-weight:600;font-size:18px;text-transform:capitalize}
+.sub{color:var(--muted);font-size:13px}
+.spacer{flex:1}
+.dots{display:flex;gap:10px;font-size:12px;color:var(--muted)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:4px;vertical-align:1px}
+.dot.on{background:var(--ok)}.dot.off{background:var(--bad)}
+#clock{font-variant-numeric:tabular-nums;font-size:22px;font-weight:600}
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:10px}
+@media (orientation:portrait){main{grid-template-columns:1fr;grid-template-rows:minmax(0,.8fr) minmax(0,1.2fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px;min-height:0}
+#chat{display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.msg{max-width:88%;padding:8px 11px;border-radius:12px;background:var(--panel2);word-wrap:break-word}
+.msg.user{align-self:flex-end;background:#1f3a5f}
+.msg.user.ignored{background:transparent;border:1px dashed var(--line);color:var(--muted);font-style:italic}
+.msg.fda.partial{opacity:.75}
+.msg small{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
+#room{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;overflow-y:auto;align-content:start}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.card h3{margin:0;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.big{font-size:24px;font-weight:650;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.lamp{display:flex;align-items:center;gap:10px;cursor:pointer}
+.bulb{width:52px;height:52px;border-radius:50%;flex:none;transition:all .4s;border:2px solid #333}
+.list{margin:0;padding:0;list-style:none;font-size:14px;display:flex;flex-direction:column;gap:3px}
+.list li{display:flex;justify-content:space-between;gap:8px}
+.muted{color:var(--muted)}
+.wide{grid-column:1/-1}
+#ring{position:fixed;inset:0;background:rgba(13,17,23,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:9}
+#ring .big{font-size:34px}
+#ring{animation:flash 1.2s ease-in-out infinite}
+@keyframes flash{50%{background:rgba(120,20,20,.92)}}
+#ring button{font-size:24px;padding:16px 48px;background:var(--bad);border:none}
+#sources a{color:var(--accent);text-decoration:none}
+#err{color:var(--bad);font-size:12px}
+/* game open: keep Lights + Music, the game takes the rest of the right side (fits the 800x480 7-inch display) */
+#room.has-game{align-content:stretch;grid-template-rows:auto minmax(160px,1fr)}
+#room.has-game>.card:not(.keep):not(#gameCard):not(#sourcesCard){display:none}
+#room.has-game #sourcesCard{display:none}
+#gameCard{grid-column:1/-1;grid-row:2;padding:0;overflow:hidden;position:relative;min-height:160px}
+#gameCard iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+#gameCard .tag{position:absolute;top:6px;left:8px;z-index:1;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  color:#fff;background:rgba(0,0,0,.35);padding:2px 8px;border-radius:8px;pointer-events:none}
+#gameClose{position:absolute;top:6px;right:6px;z-index:1;min-height:30px;padding:2px 10px;background:rgba(0,0,0,.4);border-color:transparent}
+/* apps the agent built (create_app): same place as the game; full screen on request */
+#room.has-app{align-content:stretch;grid-template-rows:auto minmax(160px,1fr)}
+#room.has-app>.card:not(.keep):not(#appCard):not(#buildCard){display:none}
+#appCard{grid-column:1/-1;grid-row:2;padding:0;overflow:hidden;position:relative;min-height:160px}
+#appCard iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;background:#fff}
+#appCard .tag{position:absolute;bottom:6px;left:8px;z-index:1;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  color:#fff;background:rgba(0,0,0,.45);padding:2px 8px;border-radius:8px;pointer-events:none}
+#appClose,#appFull{position:absolute;bottom:6px;z-index:1;min-height:30px;padding:2px 10px;background:rgba(0,0,0,.45);border-color:transparent;color:#fff}
+#appClose{right:6px} #appFull{right:52px}
+#appCard .buildBox{position:absolute;left:0;right:0;top:0;z-index:3;display:flex;flex-direction:column;gap:5px;
+  padding:8px 12px;background:rgba(13,17,23,.88);color:var(--text);border-bottom:1px solid var(--line)}
+#appCard .bTitle{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#appCard .bBar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+#appCard .bBar>div{height:100%;width:0;background:#7c9cff;transition:width .8s}
+#appCard .bBar.wait>div{width:30%!important;animation:bslide 1.4s ease-in-out infinite}
+@keyframes bslide{0%{margin-left:-30%}100%{margin-left:100%}}
+#appCard .bStep{font-size:11px;opacity:.75}
+#appCard iframe.updating{opacity:.35;pointer-events:none;filter:grayscale(.6)}
+#appCard.full{position:fixed;inset:0;z-index:50;border-radius:0}
+#buildCard{display:flex;align-items:center;gap:10px;font-size:13px}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="orb" id="orb" data-s="starting"></div>
+  <div>
+    <div class="status" id="status">starting</div>
+    <div class="sub" id="hint">Always listening. Just talk.</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="dots"><span><i class="dot" id="d-asr"></i>ears</span><span><i class="dot" id="d-tts"></i>voice</span><span><i class="dot" id="d-ws"></i>link</span></div>
+  <div id="clock">--:--</div>
+</header>
+<main>
+  <section class="panel" id="chat" aria-live="polite"></section>
+  <section class="panel" id="room">
+    <div class="card keep">
+      <h3>Lights</h3>
+      <div class="lamp" id="lamp"><div class="bulb" id="bulb"></div><div><div class="big" id="lightTxt">Off</div><div class="muted" id="lightSub"></div></div></div>
+      <input type="range" min="0" max="100" id="bright" aria-label="Brightness">
+    </div>
+    <div class="card">
+      <h3>Thermostat</h3>
+      <div class="row"><button id="tDown">−</button><div class="big" id="temp">--</div><button id="tUp">+</button></div>
+    </div>
+    <div class="card keep">
+      <h3>Music</h3>
+      <div id="track" class="muted">Stopped</div>
+      <div class="row"><button id="mPlay">Play</button><button id="mNext">Next</button></div>
+      <input type="range" min="0" max="100" id="vol" aria-label="Volume">
+    </div>
+    <div class="card">
+      <h3>Timers &amp; alarms</h3>
+      <ul class="list" id="timers"></ul>
+    </div>
+    <div class="card">
+      <h3>Reminders</h3>
+      <ul class="list" id="reminders"></ul>
+    </div>
+    <div class="card">
+      <h3>Phone</h3>
+      <div id="phone" class="muted">Idle</div>
+      <ul class="list" id="messages"></ul>
+    </div>
+    <div class="card" id="gameCard" hidden>
+      <span class="tag" id="gameTag">Sky Hop</span>
+      <button id="gameClose" aria-label="Close game">✕</button>
+    </div>
+    <div class="card" id="appCard" hidden>
+      <span class="tag" id="appTag">App</span>
+      <button id="appClose" aria-label="Close app">✕</button>
+      <button id="appFull" aria-label="Full screen">⛶</button>
+    </div>
+    <div class="card wide" id="buildCard" hidden><span class="spin"></span> <span id="buildTxt">Building…</span></div>
+    <div class="card wide" id="sourcesCard" hidden>
+      <h3 id="sourcesTitle">Search</h3>
+      <ul class="list" id="sources"></ul>
+    </div>
+    <div id="err" class="wide"></div>
+  </section>
+</main>
+<div id="ring" hidden><div class="big" id="ringTxt">Timer</div><button id="stopRing">Stop</button></div>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = {"warm white":"#ffd59a","cool white":"#e6f0ff","white":"#ffffff","red":"#ff4d4d","green":"#3ddc84","blue":"#4d8bff",
+  "yellow":"#ffe14d","orange":"#ff9f40","purple":"#a66bff","pink":"#ff7ac6","cyan":"#4de1ff","magenta":"#ff4dff","violet":"#9a6bff","teal":"#2bc4b4"};
+let ws, room = null, fdaBubble = null, lastFda = "";
+function send(action){ if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:"action", action})); }
+function bubble(cls, text, label){
+  const d = document.createElement("div"); d.className = "msg " + cls;
+  d.innerHTML = `<small>${label}</small>`; d.append(document.createTextNode(text));
+  $("chat").append(d); while ($("chat").children.length > 30) $("chat").firstChild.remove();
+  $("chat").scrollTop = $("chat").scrollHeight; return d;
+}
+function setText(d, text){ d.lastChild.textContent = text; $("chat").scrollTop = $("chat").scrollHeight; }
+function fmt(s){ const m = Math.floor(s/60), r = s%60; return m >= 60 ? `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}:${String(r).padStart(2,"0")}` : `${m}:${String(r).padStart(2,"0")}`; }
+function li(left, right){ const l = document.createElement("li"); l.innerHTML = `<span></span><span class="muted"></span>`; l.children[0].textContent = left; l.children[1].textContent = right || ""; return l; }
+function renderRoom(s){
+  room = s; const L = s.lights, on = L.power === "on", c = COLORS[L.color] || L.color || "#ffd59a";
+  $("bulb").style.background = on ? c : "#20262e";
+  $("bulb").style.boxShadow = on ? `0 0 ${10 + L.brightness/2.5}px ${L.brightness/6}px ${c}` : "none";
+  $("bulb").style.opacity = on ? (0.35 + 0.65 * L.brightness/100) : 1;
+  $("lightTxt").textContent = on ? `${L.brightness}%` : "Off";
+  $("lightSub").textContent = L.color;
+  if (document.activeElement !== $("bright")) $("bright").value = L.brightness;
+  $("temp").textContent = `${s.thermostat_c}°C`;
+  const m = s.music; $("track").textContent = m.state === "stopped" ? "Stopped" : `${m.state === "playing" ? "▶" : "❚❚"} ${m.track}`;
+  $("mPlay").textContent = m.state === "playing" ? "Pause" : "Play";
+  if (document.activeElement !== $("vol")) $("vol").value = s.volume;
+  const T = $("timers"); T.replaceChildren();
+  s.timers.forEach(t => T.append(li(t.label || "Timer", fmt(t.left))));
+  s.alarms.forEach(a => T.append(li("Alarm", a.time)));
+  if (!T.children.length) T.append(li("None"));
+  const R = $("reminders"); R.replaceChildren();
+  s.reminders.forEach(r => R.append(li(r.text, r.time)));
+  if (!R.children.length) R.append(li("None"));
+  $("phone").textContent = s.phone.state === "idle" ? "Idle" : `${s.phone.state === "calling" ? "Calling" : "No answer"}: ${s.phone.contact}`;
+  const M = $("messages"); M.replaceChildren(); s.messages.slice(-3).forEach(x => M.append(li(`→ ${x.to}: ${x.text}`, x.at)));
+  $("ring").hidden = !s.ringing; if (s.ringing) $("ringTxt").textContent = s.ringing;
+  renderGame(s.game);
+}
+// Sky Hop lives in the free lower-right space; every voice change is pushed into the running game (no reload)
+let gameFrame = null, gameReady = false, gameSettings = null;
+function pushGame(){ if (gameFrame && gameReady && gameSettings) gameFrame.contentWindow.postMessage({type:"sky_hop", settings:gameSettings}, "*"); }
+function renderGame(g){
+  if (!g) return;
+  const open = !!g.open;
+  $("gameCard").hidden = !open; $("room").classList.toggle("has-game", open);
+  if (open && !gameFrame){
+    gameReady = false;
+    gameFrame = document.createElement("iframe");
+    gameFrame.title = "Sky Hop"; gameFrame.src = "/games/sky_hop.html?embed=1";
+    $("gameCard").prepend(gameFrame);
+  } else if (!open && gameFrame){ gameFrame.remove(); gameFrame = null; gameReady = false; }
+  gameSettings = g; $("gameTag").textContent = g.title || "Sky Hop";
+  pushGame();
+}
+window.addEventListener("message", e => { if (e.data && e.data.type === "sky_hop_ready"){ gameReady = true; pushGame(); } });
+$("gameClose").onclick = () => send({tool:"game", action:"close"});
+let pageV = null;
+function onMsg(m){
+  switch (m.type){
+    case "hello": if (pageV === null) pageV = m.v; else if (m.v !== pageV) location.reload(); break;
+    case "status": $("orb").dataset.s = m.status; $("status").textContent = m.status; break;
+    case "level": { const k = Math.max(0, Math.min(1, (m.db + 60) / 45)); $("orb").style.transform = `scale(${1 + k*0.18})`; break; }
+    case "health": $("d-asr").className = "dot " + (m.asr ? "on" : "off"); $("d-tts").className = "dot " + (m.tts ? "on" : "off"); break;
+    case "user": if (m.ignored){ const last = $("chat").lastElementChild; if (last && last.classList.contains("user")) last.classList.add("ignored"); else bubble("user ignored", m.text, "not for me"); }
+                 else { bubble("user", m.text, "you"); } fdaBubble = null; break;
+    case "fda": if (!fdaBubble){
+                  if (m.final && lastFda === m.text) break;          // already shown: never twice
+                  fdaBubble = bubble("fda partial", m.text, "FDA"); }
+                setText(fdaBubble, m.text); lastFda = m.text;
+                if (m.final){ fdaBubble.classList.remove("partial"); fdaBubble = null; } break;
+    case "room": renderRoom(m.state); break;
+    case "sources": { $("sourcesCard").hidden = false; $("sourcesTitle").textContent = "Search: " + m.query; const S = $("sources"); S.replaceChildren();
+                 m.items.slice(0,3).forEach(x => { const l = document.createElement("li"); l.textContent = x.title; S.append(l); }); break; }
+    case "error": $("err").textContent = m.message; setTimeout(() => $("err").textContent = "", 6000); break;
+    case "app": showApp(m.url, m.title); break;
+    case "app_set": if (appFrame && appFrame.contentWindow) appFrame.contentWindow.postMessage({type: "fda_set", patch: m.patch}, "*");
+                    else if (m.url) showApp(m.url, ""); break;
+    case "build": showBuild(m); break;
+  }
+}
+// apps built by voice (create_app / edit_app): shown where the game goes; a rebuilt app reloads in place
+let appFrame = null;
+function showApp(url, title){
+  if (!url) return;
+  if (buildBox){ buildBox.remove(); buildBox = null; }
+  if (room && room.game && room.game.open) send({tool:"game", action:"close"});
+  $("appCard").hidden = false; $("room").classList.add("has-app");
+  if (!appFrame){ appFrame = document.createElement("iframe"); appFrame.title = title || "App"; $("appCard").prepend(appFrame); }
+  appFrame.classList.remove("updating");
+  appFrame.src = url + (url.includes("?") ? "&" : "?") + "v=" + Date.now();
+  $("appTag").textContent = title || "App";
+}
+// a build in progress takes the app area: title, progress bar, the code as it is written
+let buildBox = null;
+function showBuild(m){
+  $("buildCard").hidden = !m.building;
+  if (!m.building){
+    if (buildBox){ buildBox.remove(); buildBox = null; if (!appFrame) closeApp(); }
+    if (appFrame) appFrame.classList.remove("updating"); // the updated app is (re)loaded by the "app" message
+    return; }
+  const editing = m.kind === "edit";
+  if (appFrame){                                          // the old version stays in view, dimmed and frozen
+    appFrame.classList.add("updating");
+    try { appFrame.contentWindow.postMessage({type: "fda_pause"}, "*"); } catch (e) {}
+  }
+  const pct = Math.min(97, Math.round(100 * (m.chars || 0) / (m.expect || 3500)));
+  const left = m.eta_s ? Math.max(0, Math.round(m.eta_s - (m.elapsed_s || 0))) : null;
+  $("buildTxt").textContent = `${editing ? "Updating" : "Building"} ${m.title || "your app"}… ${pct}%` + (left !== null ? ` · ~${left} s left` : "");
+  $("appCard").hidden = false; $("room").classList.add("has-app");
+  if (!buildBox){
+    buildBox = document.createElement("div"); buildBox.className = "buildBox";
+    buildBox.innerHTML = '<div class="bTitle"></div><div class="bBar"><div></div></div><div class="bStep"></div>';
+    $("appCard").append(buildBox);
+  }
+  buildBox.querySelector(".bTitle").textContent = (editing ? "Updating " : "Building ") + (m.title || "your app") +
+      (editing && m.change ? ": " + m.change : "");
+  buildBox.querySelector(".bBar>div").style.width = pct + "%";
+  buildBox.querySelector(".bStep").textContent = `${m.chars ? (m.step || "writing the code") : "the AI is planning it"} · ${m.elapsed_s || 0} s` +
+      (left !== null ? ` · about ${left} s left` : "");
+  buildBox.querySelector(".bBar").classList.toggle("wait", !m.chars);     // still planning: moving bar
+}
+function closeApp(){ if (appFrame){ appFrame.remove(); appFrame = null; } $("appCard").hidden = true;
+  $("appCard").classList.remove("full"); $("room").classList.remove("has-app"); }
+$("appClose").onclick = closeApp;
+$("appFull").onclick = () => $("appCard").classList.toggle("full");
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => $("d-ws").className = "dot on";
+  ws.onclose = () => { $("d-ws").className = "dot off"; $("orb").dataset.s = "offline"; $("status").textContent = "reconnecting"; setTimeout(connect, 1500); };
+  ws.onmessage = e => onMsg(JSON.parse(e.data));
+}
+$("lamp").onclick = () => room && send({tool:"lights", power: room.lights.power === "on" ? "off" : "on"});
+$("bright").onchange = e => send({tool:"lights", brightness: +e.target.value});
+$("tDown").onclick = () => room && send({tool:"thermostat", celsius: room.thermostat_c - 0.5});
+$("tUp").onclick = () => room && send({tool:"thermostat", celsius: room.thermostat_c + 0.5});
+$("mPlay").onclick = () => room && send({tool:"music", action: room.music.state === "playing" ? "pause" : (room.music.state === "paused" ? "resume" : "play")});
+$("mNext").onclick = () => send({tool:"music", action:"next"});
+$("vol").onchange = e => send({tool:"volume", level: +e.target.value});
+$("stopRing").onclick = () => { $("ring").hidden = true; send({tool:"stop_ringing"}); };
+setInterval(() => { const d = new Date(); $("clock").textContent = d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}); }, 1000);
+connect();
+</script>
+</body>
+</html>

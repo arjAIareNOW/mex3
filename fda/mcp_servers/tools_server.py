@@ -1,0 +1,703 @@
+"""MCP server: the agent's real-world tools. Every tool here is free and needs no API key.
+
+    python -m fda.mcp_servers.tools_server                     # HTTP on 127.0.0.1:8103/mcp (default)
+
+Tools
+  create_app(description)        build a game / website / small tool as one HTML file, shown on the display
+  edit_app(change, name="")      change the app that is open (or a named one): colours, rules, text, layout
+  list_apps() / open_app(name)   the apps built so far
+  app_status()                   is a build still running (and how far)
+  get_weather(place)             Open-Meteo                     (free, no key)
+  web_search(query)              DuckDuckGo                     (free, no key)
+  get_news(topic="")             Google News RSS                (free, no key)
+  find_recipe(dish)              TheMealDB                      (free, no key)
+  calculate(expression)          safe arithmetic
+  wikipedia(topic)               Wikipedia summary              (free, no key)
+
+Building an app takes an LLM writing ~150-300 lines of HTML. Who writes it is `coder_engine` (fda.toml):
+  local  llama.cpp on this machine (offline_llm, or "qwen2.5-coder-3b" if downloaded): free, ~1-3 min on a laptop,
+         several minutes on a Pi
+  groq / gemini / openai: free tiers, ~5-15 s (GROQ_API_KEY / GEMINI_API_KEY / LLM_API_KEY in .env)
+Builds run in the background: create_app returns at once and the agent says when the app is ready.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import logging
+import operator
+import re
+import threading
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import httpx
+
+from mcp.server.mcpserver import MCPServer
+
+from ..config import ROOT, Config
+from . import live
+from . import llm as llmlib
+
+log = logging.getLogger("fda.mcp.tools")
+
+WMO = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "cloudy", 45: "foggy", 48: "foggy",
+       51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain",
+       66: "freezing rain", 67: "freezing rain", 71: "light snow", 73: "snow", 75: "heavy snow", 80: "rain showers",
+       81: "rain showers", 82: "heavy rain showers", 95: "thunderstorms", 96: "thunderstorms with hail",
+       99: "thunderstorms with hail"}
+
+APP_SYSTEM = """You write small web apps for a 800x480 touch screen. Output ONE complete HTML file and nothing else:
+<!DOCTYPE html> ... </html>, with all CSS in one <style> and all JavaScript in one <script>.
+Rules:
+- No external scripts, CDNs, fonts or network requests. Games: draw with canvas or CSS, emoji are fine.
+- It must work at once: fill the window (100vw x 100vh, no scrollbars), large readable text, big touch targets.
+- Games: one <canvas> filling the window, a requestAnimationFrame loop that moves things every frame. Start on a
+  tap/click or Space, show the score, show "Game over - tap to restart" on the canvas (never alert/confirm).
+  Work with mouse, touch AND keyboard. Anything that changes (positions, speed, score) is a let, never a const.
+- Games get their look from live settings that people change while it runs. Name each setting after a thing in the
+  game, with a colour, an emoji or a number:  const C = FDA.defaults({bird: "🐦", pipe: "#2e8b57", sky: "#87ceeb",
+  ground: "#deb887", text: "#ffffff", speed: 3, gap: 160});
+  Draw every thing with FDA.draw(ctx, "pipe", x, y, w, h) (it draws a colour, emoji or photo), the background with
+  FDA.draw(ctx, "sky", 0, 0, W, H) first in every frame, text with ctx.fillStyle = FDA.color("text").
+  Read C.speed, C.gap... every frame (never copy them into constants).
+  FDA is already loaded by the page before your script: just use it. NEVER define FDA, FDA.defaults or FDA.draw
+  yourself (no "const FDA = ..."), or the live settings stop working.
+- Websites: look like a real, polished business site. Use the real name, wording and details you are given.
+  Pages: put each page (Home, About, Services, Gallery, Contact...) in its own <section class="page" id="...">, show
+  one at a time, and make EVERY menu link and button work (switch page with location.hash / hashchange, highlight
+  the active link). Write real content: headings, short paragraphs, prices or services, a contact form that shows
+  a thank-you message.
+  Photos: real photos from https://loremflickr.com/WIDTH/HEIGHT/KEYWORD,KEYWORD?lock=N (N = 1, 2, 3... so each
+  image differs; keywords about the subject, e.g. 3dprinting,printer). Every <img> gets alt text, object-fit:cover,
+  loading="lazy" and onerror="this.style.background='linear-gradient(135deg,#ccd,#99a)';this.removeAttribute('src')"
+  so the layout still works offline. A gallery = a grid of 6+ such photos.
+  Scrolling inside the page is fine for websites.
+- Tools: a clean, modern single page (cards, rounded corners, soft shadows), working buttons/forms (save data in
+  localStorage if useful).
+- After the app's <script>, add 2-4 behaviour tests that prove the main features really work, as JSON:
+  <script type="application/json" id="fda-tests">[
+  {"name": "tap makes the bird go up", "setup": ["tap", "wait 5"], "before": "bird.y", "do": ["tap", "wait 3"],
+   "expect": "bird.y < before"},
+  {"name": "15% tip of 100 is 15", "do": ["set #bill 100", "click #tip15"],
+   "expect": "document.getElementById('tip').textContent.includes('15')"}]</script>
+  Steps: "tap", "space", "key ArrowLeft", "click #id", "set #id value", "wait N" (N frames), "run <js>" (set up a
+  situation directly, e.g. "run pipes = [{x: bird.x - 60, gapY: bird.y, scored: false}]"). "before" and "expect"
+  are JavaScript run in the app's page and can read its variables (`before` = the value of "before" just before
+  the "do" steps). Games start in "ready": put a "tap" in "setup" to start playing.
+- Put the app's short title in <title>.
+- Plain modern JavaScript, no frameworks. Make sure every function you call exists. No comments.
+- Keep it short: games and tools about 80-150 lines, websites up to about 250. Stop right after </html>.
+Game skeleton (fill it in):
+<canvas id="c"></canvas><script>
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+let W, H; function fit() { W = cv.width = innerWidth; H = cv.height = innerHeight; } fit(); addEventListener("resize", fit);
+const C = FDA.defaults({player: "🙂", enemy: "#e04040", sky: "#102030", text: "#ffffff", speed: 3});
+let state = "ready", score = 0;
+function reset() { score = 0; state = "play"; }
+function action() { if (state !== "play") { reset(); return; } }
+addEventListener("keydown", e => { if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); action(); } });
+cv.addEventListener("pointerdown", e => { e.preventDefault(); action(); });
+function update() { }
+function draw() { FDA.draw(ctx, "sky", 0, 0, W, H); ctx.fillStyle = FDA.color("text"); ctx.font = "bold 40px sans-serif";
+  ctx.textAlign = "center"; ctx.fillText(score, W / 2, 60);
+  if (state !== "play") ctx.fillText(state === "ready" ? "Tap to start" : "Game over - tap to restart", W / 2, H / 2); }
+function loop() { if (state === "play") update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>"""
+
+EDIT_SYSTEM = APP_SYSTEM + """
+You get the current HTML file and a requested change. Apply the change (and only that), keep everything else
+working, and output the whole new HTML file."""
+
+
+def _slug(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return "-".join(s.split("-")[:5]) or "app"
+
+
+def extract_html(raw: str) -> str | None:
+    """The HTML document inside the model's answer (with or without ``` fences); repaired if cut short."""
+    m = re.search(r"```(?:html)?\s*(.*?)```", raw, re.S | re.I)
+    text = m.group(1) if m else raw
+    start = re.search(r"<!DOCTYPE html|<html", text, re.I)
+    if not start:
+        return None
+    html = text[start.start():]
+    end = html.lower().rfind("</html>")
+    if end != -1:
+        return html[:end + 7]
+    for tag in ("script", "body", "html"):        # cut off by the token limit: close what is open
+        if html.lower().count(f"<{tag}") > html.lower().count(f"</{tag}>"):
+            html += f"\n</{tag}>"
+    return html
+
+
+def _looping(text: str, tail: int = 160, times: int = 3) -> bool:
+    """Small models sometimes repeat the same lines forever: the last `tail` characters occur `times`+ times."""
+    if len(text) < tail * times:
+        return False
+    return text.count(text[-tail:]) >= times
+
+
+def _html_done_or_looping(text: str) -> bool:
+    return "</html>" in text[-400:].lower() or _looping(text)
+
+
+def check_html(html: str) -> list[str]:
+    """Cheap sanity checks (the agent tells the user if the app may be broken)."""
+    problems = []
+    low = html.lower()
+    if "<script" in low:
+        js = "\n".join(re.findall(r"<script[^>]*>(.*?)</script>", html, re.S | re.I))
+        for a, b in ("()", "{}", "[]"):
+            if abs(js.count(a) - js.count(b)) > 2:
+                problems.append(f"unbalanced {a}{b} in the script")
+    if re.search(r"<script[^>]+src=|<link[^>]+href=\"http|@import", low):
+        problems.append("loads external files")
+    err = js_syntax_error(html)
+    if err:
+        problems.append(f"JavaScript syntax error: {err}")
+    return problems
+
+
+def js_syntax_error(html: str) -> str | None:
+    """`node --check` on the page's script when Node.js is installed (laptop; `sudo apt install nodejs` on a Pi)."""
+    import shutil
+    import subprocess
+    import tempfile
+    node = shutil.which("node")
+    js = live.scripts(html)
+    if not node or not js.strip():
+        return None
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(js)
+    try:
+        r = subprocess.run([node, "--check", f.name], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    finally:
+        Path(f.name).unlink(missing_ok=True)
+    if r.returncode == 0:
+        return None
+    lines = [x for x in r.stderr.splitlines() if x.strip()]
+    msg = next((x for x in lines if "Error" in x), lines[-1] if lines else "syntax error")
+    where = next((x for x in lines if re.search(r":\d+$", x)), "")
+    line_no = where.rsplit(":", 1)[-1] if where else ""
+    return f"{msg.strip()}" + (f" (script line {line_no})" if line_no else "")
+
+
+class Apps:
+    """Builds and keeps the apps. One build at a time (it is the heavy part)."""
+
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.dir = Path(cfg.apps_dir) if Path(cfg.apps_dir).is_absolute() else ROOT / cfg.apps_dir
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.coder = llmlib.make(cfg, cfg.coder_engine if cfg.coder_engine != "same" else cfg.llm_engine,
+                                 role="coder")
+        # cloud coders (Gemini 2.5 "thinks" first) get more room; a local 3B model loops if given too much
+        self.max_tokens = 4000 if self.coder.engine == "local" else 12000
+        log.info("app coder: %s / %s", self.coder.engine, self.coder.model)
+        self.job: dict | None = None
+        self.lock = threading.Lock()
+        self.current: str | None = None       # the app shown last (edit_app's default)
+        self.done: list[dict] = []            # finished builds the agent has not announced yet
+
+    # ---------------- version history (git in the apps folder) ----------------
+    def _git(self, *args: str) -> str | None:
+        import shutil
+        import subprocess
+        if not shutil.which("git"):
+            return None
+        try:
+            r = subprocess.run(["git", "-c", "user.name=Elkit", "-c", "user.email=elkit@localhost", "-C", str(self.dir),
+                                *args], capture_output=True, text=True, encoding="utf-8", timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return r.stdout if r.returncode == 0 else None
+
+    def commit(self, p: Path, message: str):
+        """Save this app's current version in the history (git), e.g. "build: snake game" or "tweak: bird -> 🦋"."""
+        try:
+            if not (self.dir / ".git").exists():
+                if self._git("init", "-q") is None:
+                    return
+                (self.dir / ".gitignore").write_text("*.prev.html\n*.tmp\n", encoding="utf-8")
+            files = [p.name] + ([p.with_suffix(".json").name] if p.with_suffix(".json").exists() else [])
+            self._git("add", "--", *files)
+            self._git("commit", "-q", "-m", message[:120], "--", *files)
+        except Exception as e:  # noqa: BLE001
+            log.warning("git commit failed: %s", e)
+
+    def history(self, p: Path, n: int = 10) -> list[dict]:
+        out = self._git("log", f"-{n}", "--format=%h|%cr|%s", "--", p.name) or ""
+        return [dict(zip(("id", "when", "what"), line.split("|", 2))) for line in out.splitlines() if line.count("|") >= 2]
+
+    def restore(self, p: Path, steps_back: int) -> dict:
+        hist = self.history(p, 50)
+        if steps_back < 1 or steps_back >= len(hist):
+            return {"ok": False, "message": f"There are only {max(0, len(hist) - 1)} earlier versions."}
+        target = hist[steps_back]
+        for f in (p.name, p.with_suffix(".json").name):
+            if self._git("checkout", target["id"], "--", f) is None and f == p.name:
+                return {"ok": False, "message": "I couldn't restore that version."}
+        self.commit(p, f"restore: back to '{target['what']}' ({target['when']})")
+        self.current = p.stem
+        return {"ok": True, "url": f"/apps/{p.name}", "message": f"Back to the version from {target['when']}: {target['what']}.",
+                "settings": self.describe(self._meta(p).get("live") or {})}
+
+    def path(self, name: str) -> Path:
+        return self.dir / f"{_slug(name)}.html"
+
+    def list(self) -> list[dict]:
+        out = []
+        for p in sorted(self.dir.glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True):
+            meta = self._meta(p)
+            out.append({"name": p.stem, "title": meta.get("title", p.stem), "url": f"/apps/{p.name}",
+                        "about": meta.get("description", "")})
+        return out
+
+    def _meta(self, p: Path) -> dict:
+        m = p.with_suffix(".json")
+        try:
+            return json.loads(m.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    @staticmethod
+    def describe(settings: dict) -> str:
+        """'bird=..., pipe=#2e8b57, speed=3' (photos shown as 'photo') for the agent."""
+        return ", ".join(f"{k}={'photo' if isinstance(v, str) and v.startswith(('data:', '(photo')) else v}"
+                         for k, v in settings.items())
+
+    def tweak(self, changes: dict, name: str, web) -> dict:
+        p = self.find(name)
+        if p is None:
+            return {"ok": False, "message": "There is no app to change yet."}
+        meta = self._meta(p)
+        settings = dict(meta.get("live") or {})
+        if not settings:
+            return {"ok": False, "message": f"{meta.get('title', p.stem)} has no live settings; use edit_app."}
+        patch, said, unknown = {}, [], []
+        for k, v in (changes or {}).items():
+            key = live.match_key(str(k), list(settings))
+            if key is None:
+                unknown.append(str(k))
+                continue
+            val, how = live.resolve_value(v, settings.get(key), web)
+            if val is None:
+                said.append(f"{key}: {how}")
+                continue
+            patch[key] = val
+            said.append(f"{key} -> {how}")
+        if not patch:
+            return {"ok": False, "message": ("I couldn't change that. " + "; ".join(said)).strip()
+                    + f" This app's settings: {self.describe(settings)}. Bigger changes: edit_app."}
+        settings.update(patch)
+        meta["live"], meta["updated"] = settings, time.time()
+        html = p.read_text(encoding="utf-8")
+        p.write_text(live.inject_live(html, settings), encoding="utf-8")
+        p.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        self.current = p.stem
+        self.commit(p, "tweak: " + "; ".join(said))
+        return {"ok": True, "url": f"/apps/{p.name}", "patch": patch, "changed": "; ".join(said),
+                "message": "Changed it live." + (f" Not found: {', '.join(unknown)}." if unknown else "")}
+
+    def find(self, name: str) -> Path | None:
+        if not name:
+            return self.path(self.current) if self.current and self.path(self.current).exists() else None
+        p = self.path(name)
+        if p.exists():
+            return p
+        stop = {"a", "an", "the", "my", "app", "page", "site", "website", "game", "of", "for", "and", "to", "type"}
+        words = {w for w in _slug(name).split("-") if len(w) > 1 and w not in stop}
+
+        def score(q):
+            title = _slug(self._meta(q).get("title", ""))
+            return len(words & (set(q.stem.split("-")) | set(title.split("-"))))
+        cur = self.path(self.current) if self.current and self.path(self.current).exists() else None
+        cands = [q for q in self.dir.glob("*.html") if not q.name.endswith(".prev.html")]
+        best = max(cands, key=score, default=None)
+        if best is None or score(best) == 0 or (cur is not None and score(cur) >= score(best)):
+            return cur                    # no clear other app named: the one on screen
+        return best
+
+    def start(self, kind: str, description: str, name: str, base: Path | None = None) -> dict:
+        with self.lock:
+            if self.job and self.job["state"] == "building":
+                return {"ok": False, "message": f"Still building {self.job['title']}; one at a time."}
+            title = name or description
+            self.job = {"state": "building", "kind": kind, "title": title, "name": _slug(name or description),
+                        "t0": time.time(), "description": description}
+        threading.Thread(target=self._build, args=(kind, description, base), daemon=True).start()
+        return {"ok": True, "building": True, "name": self.job["name"], "eta_s": self.coder.eta_s(kind),
+                "message": f"Started {kind} of {title}."}
+
+    def _build(self, kind: str, description: str, base: Path | None):
+        job = self.job
+        try:
+            if kind == "edit":
+                old = live.strip_live(base.read_text(encoding="utf-8"))
+                msgs = [{"role": "system", "content": EDIT_SYSTEM},
+                        {"role": "user", "content": f"Current file:\n```html\n{old}\n```\n\nChange: {description}"}]
+                job["name"] = base.stem
+            else:
+                msgs = [{"role": "system", "content": APP_SYSTEM},
+                        {"role": "user", "content": f"Make this: {description}"}]
+            html = None
+            job["expect"] = max(2500, len(old) if kind == "edit" else 3500)     # rough size, for the progress bar
+
+            def progress(text: str) -> bool:                  # called while the code streams in
+                job["chars"], job["code"] = len(text), text[-600:]
+                return _html_done_or_looping(text)
+
+            for attempt in range(2):
+                job["attempt"] = attempt + 1
+                job["chars"], job["code"] = 0, ""
+                raw = self.coder.complete(msgs, max_tokens=self.max_tokens, temperature=0.2 if attempt == 0 else 0.6,
+                                          stop_when=progress)
+                if _looping(raw):
+                    log.warning("the model started repeating itself; trying again")
+                    continue
+                html = extract_html(raw)
+                if html:
+                    break
+            if not html:
+                raise RuntimeError("the model did not write an HTML file")
+            game = live.is_game(description if kind != "edit" else job["title"] + " " + description, html)
+            for round_ in range(2):          # repair rounds: show the model its own error
+                err = js_syntax_error(html)
+                if err:
+                    err = f"Syntax error: {err}"
+                else:
+                    err = live.runtime_problem(live.run_check(html), game)
+                if not err:
+                    break
+                log.warning("problem in the new app (%s): asking the model to fix it", err)
+                job["fixing"] = err
+                job["chars"], job["code"] = 0, ""
+                fix = msgs + [{"role": "assistant", "content": html},
+                              {"role": "user", "content": f"{err}. Fix it and output the whole corrected HTML file."}]
+                fixed = extract_html(self.coder.complete(fix, max_tokens=self.max_tokens, temperature=0.2,
+                                                         stop_when=progress) or "")
+                if not fixed:
+                    break
+                html = fixed
+            res = live.run_check(html) or {}
+            settings = res.get("settings") or {}
+            still = js_syntax_error(html) or live.runtime_problem(res, game)
+            p = self.dir / f"{job['name']}.html"
+            if kind == "edit" and p.exists():         # keep the previous version (undo)
+                p.replace(p.with_suffix(".prev.html"))
+            meta = self._meta(p) if kind == "edit" and p.exists() else {"description": description}
+            saved = {k: v for k, v in (meta.get("live") or {}).items() if k in settings}   # keep earlier tweaks
+            p.write_text(live.inject_live(html, saved), encoding="utf-8")
+            t = re.search(r"<title>(.*?)</title>", html, re.S | re.I)
+            meta.update({"title": (t.group(1).strip() if t else job["title"])[:60], "updated": time.time(),
+                         "live": {**settings, **saved}})
+            p.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+            problems = check_html(html) + ([still] if still else [])
+            tests = res.get("tests") or []
+            job["tests"] = (f"{sum(bool(t.get('ok')) for t in tests)}/{len(tests)} behaviour tests passed"
+                            if tests else "no behaviour tests")
+            job.update(state="ready", url=f"/apps/{p.name}", title=meta["title"], problems=problems,
+                       seconds=round(time.time() - job["t0"], 1), settings=self.describe(meta["live"]))
+            self.current = p.stem
+            self.commit(p, f"{kind}: {description[:90]} ({job['tests']})")
+            log.info("%s %s ready in %.1f s (%d chars), %s%s", kind, p.name, job["seconds"], len(html), job["tests"],
+                     f" problems: {problems}" if problems else "")
+        except Exception as e:  # noqa: BLE001
+            log.exception("build failed")
+            job.update(state="failed", error=str(e)[:200])
+        with self.lock:
+            self.done.append(dict(job))
+
+
+def _calc(expr: str) -> float:
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+           ast.Pow: operator.pow, ast.Mod: operator.mod, ast.FloorDiv: operator.floordiv, ast.USub: operator.neg,
+           ast.UAdd: operator.pos}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            if isinstance(n.op, ast.Pow) and abs(ev(n.right)) > 100:
+                raise ValueError("exponent too large")
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError("only numbers and + - * / % ** ( )")
+
+    expr = expr.replace("^", "**").replace("x", "*").replace("×", "*").replace("÷", "/")
+    expr = re.sub(r"(\d+(?:\.\d+)?)\s*%\s*of\s*", r"\1/100*", expr)
+    return ev(ast.parse(expr, mode="eval").body)
+
+
+def build(cfg: Config) -> tuple[MCPServer, Apps]:
+    mcp = MCPServer("fda-tools", instructions="Real-world tools for the FDA voice agent. All free, no API keys.")
+    web = httpx.Client(timeout=8.0, headers={"User-Agent": "FDAVoiceAgent/1.0 (student project) httpx/0.28.1"}, follow_redirects=True)
+    apps = Apps(cfg)
+    geo: dict[str, tuple] = {}
+
+    @mcp.tool()
+    def create_app(description: str, name: str = "") -> dict:
+        """Build a new app, game or simple website from a description (e.g. "a snake game with a neon look",
+        "a tip calculator", "a page about our coffee shop with a menu"). Runs in the background; the app appears on
+        the display when ready. name: a short name for it (optional)."""
+        return apps.start("build", description, name)
+
+    @mcp.tool()
+    def edit_app(change: str, name: str = "") -> dict:
+        """Change an app that was built before: "make the snake red", "add a high score", "bigger buttons".
+        name: which app (default: the one built or opened last)."""
+        p = apps.find(name)
+        if p is None:
+            return {"ok": False, "message": "There is no app to change yet. Ask me to build one first."}
+        return apps.start("edit", change, p.stem, base=p)
+
+    @mcp.tool()
+    def undo_app_change(name: str = "") -> dict:
+        """Go back to the version of an app before its last change."""
+        p = apps.find(name)
+        if p is None or not p.with_suffix(".prev.html").exists():
+            return {"ok": False, "message": "Nothing to undo."}
+        prev = p.with_suffix(".prev.html")
+        tmp = p.with_suffix(".tmp")
+        p.replace(tmp); prev.replace(p); tmp.replace(prev)
+        return {"ok": True, "url": f"/apps/{p.name}", "message": "Back to the previous version."}
+
+    @mcp.tool()
+    def app_history(name: str = "") -> dict:
+        """The saved versions of an app, newest first (every build, change and tweak is saved)."""
+        p = apps.find(name)
+        if p is None:
+            return {"ok": False, "message": "There is no app yet."}
+        return {"ok": True, "title": apps._meta(p).get("title", p.stem), "versions": apps.history(p)}
+
+    @mcp.tool()
+    def restore_app_version(steps_back: int = 1, name: str = "") -> dict:
+        """Bring back an earlier version of an app: steps_back=1 is the version before the last change,
+        2 the one before that ("go back two versions"). Use app_history to see them."""
+        p = apps.find(name)
+        if p is None:
+            return {"ok": False, "message": "There is no app yet."}
+        return apps.restore(p, int(steps_back))
+
+    @mcp.tool()
+    def tweak_app(changes: dict, name: str = "") -> dict:
+        """Change how a built app or game looks while it runs - instant, no rebuild. changes: setting -> new value,
+        e.g. {"bird": "butterfly"}, {"bird": "red"}, {"pipe": "photo of bamboo"}, {"sky": "#000033"},
+        {"speed": "faster"}. Values: a colour, a thing (becomes an emoji or picture), "photo of ...", or a number.
+        name: which app (default: the one shown last). For new features or rules use edit_app instead."""
+        return apps.tweak(changes, name, web)
+
+    @mcp.tool()
+    def app_settings(name: str = "") -> dict:
+        """The live settings of a built app or game (what tweak_app can change)."""
+        p = apps.find(name)
+        if p is None:
+            return {"ok": False, "message": "There is no app yet."}
+        meta = apps._meta(p)
+        return {"ok": True, "title": meta.get("title", p.stem), "settings": apps.describe(meta.get("live") or {})}
+
+    @mcp.tool()
+    def list_apps() -> list[dict]:
+        """The apps, games and websites built so far (newest first)."""
+        return apps.list()[:15]
+
+    @mcp.tool()
+    def open_app(name: str) -> dict:
+        """Show an app that was built before on the display."""
+        p = apps.find(name)
+        if p is None:
+            return {"ok": False, "message": f"I don't have an app called {name}."}
+        apps.current = p.stem
+        meta = apps._meta(p)
+        return {"ok": True, "url": f"/apps/{p.name}", "title": meta.get("title", p.stem),
+                "settings": apps.describe(meta.get("live") or {})}
+
+    @mcp.tool()
+    def app_status() -> dict:
+        """Whether an app is being built right now, and the builds that finished since the last call."""
+        with apps.lock:
+            done, apps.done = apps.done, []
+        job = apps.job if apps.job and apps.job["state"] == "building" else None
+        st = {"building": bool(job), "elapsed_s": round(time.time() - job["t0"]) if job else 0,
+              "title": job["title"] if job else "", "finished": done}
+        if job:
+            st.update(kind=job.get("kind", "build"), change=job.get("description", "") if job.get("kind") == "edit" else "",
+                      chars=job.get("chars", 0), expect=job.get("expect", 3500), code=job.get("code", ""),
+                      step="fixing a bug" if job.get("fixing") else
+                           ("second try" if job.get("attempt", 1) > 1 else "writing the code"),
+                      eta_s=apps.coder.eta_s(job["kind"]))
+        return st
+
+    @mcp.tool()
+    def get_weather(place: str = "") -> str:
+        """Current weather and today's forecast for a place (default: the user's home)."""
+        place = (place or cfg.location).strip()
+        try:
+            if place not in geo:
+                g = (web.get("https://geocoding-api.open-meteo.com/v1/search",
+                             params={"name": place, "count": 1}).json().get("results") or [None])[0]
+                if not g:
+                    return f"I couldn't find a place called {place}."
+                geo[place] = (g["latitude"], g["longitude"], g["name"])
+            lat, lon, name = geo[place]
+            w = web.get("https://api.open-meteo.com/v1/forecast", params={
+                "latitude": lat, "longitude": lon, "timezone": "auto",
+                "current": "temperature_2m,weather_code,apparent_temperature",
+                "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                "forecast_days": 1}).json()
+            c, d = w["current"], w["daily"]
+            rain = d["precipitation_probability_max"][0]
+            return (f"In {name} it's {round(c['temperature_2m'])} degrees and {WMO.get(int(c['weather_code']), '')}, "
+                    f"feels like {round(c['apparent_temperature'])}. Today's high is "
+                    f"{round(d['temperature_2m_max'][0])}" + (f", {rain} percent chance of rain." if rain is not None
+                                                              else "."))
+        except Exception as e:  # noqa: BLE001
+            log.warning("weather: %s", e)
+            return "The weather service is not reachable right now."
+
+    from .device import Device
+    from .docs import Docs
+    here = lambda d: Path(d) if Path(d).is_absolute() else ROOT / d      # noqa: E731
+    docs = Docs(here(cfg.docs_dir))
+    device = Device(here(cfg.reports_dir))
+
+    @mcp.tool()
+    def ask_documents(question: str) -> dict:
+        """Search the user's own documents (PDF, Word, Excel, CSV, notes in the docs folder) for the answer to a
+        question, offline. Returns the best passages with file and section: answer in one or two sentences from
+        them and say which file (and page/section) it came from. If nothing fits, say it is not in the documents."""
+        try:
+            hits = docs.search(question)
+        except Exception as e:  # noqa: BLE001
+            log.warning("docs: %s", e)
+            return {"ok": False, "message": "I couldn't read the documents."}
+        if not docs.files:
+            return {"ok": False, "message": f"There are no documents yet. Put files in the {cfg.docs_dir} folder."}
+        return {"ok": bool(hits), "passages": hits} if hits else {"ok": False, "message": "Nothing about that in the documents."}
+
+    @mcp.tool()
+    def list_documents() -> dict:
+        """The documents FDA can answer questions about."""
+        return {"folder": cfg.docs_dir, "documents": docs.list()}
+
+    @mcp.tool()
+    def device_check() -> dict:
+        """A read-only health and security check of this device (the Pi): services open to the network, waiting
+        updates, SSH settings, files anyone can change, disk, memory, temperature and power. Nothing is changed.
+        Say the summary and the most important finding with its fix, briefly."""
+        try:
+            return device.check()
+        except Exception as e:  # noqa: BLE001
+            log.exception("device check")
+            return {"summary": f"The check failed: {e}"}
+
+    @mcp.tool()
+    def web_search(query: str) -> list[dict] | str:
+        """Search the web (current facts, prices, schedules, people). Returns the top results."""
+        try:
+            from ddgs import DDGS
+            res = DDGS().text(query, max_results=3)
+        except Exception as e:  # noqa: BLE001
+            log.warning("search: %s", e)
+            return "The search is not reachable right now."
+        return [{"title": r.get("title", "")[:90], "snippet": r.get("body", "")[:220]} for r in res] or "No results."
+
+    @mcp.tool()
+    def get_news(topic: str = "") -> list[dict] | str:
+        """Latest news headlines, optionally about a topic (Philippines by default)."""
+        url = ("https://news.google.com/rss/search" if topic else "https://news.google.com/rss")
+        params = {"hl": "en-PH", "gl": "PH", "ceid": "PH:en", **({"q": topic} if topic else {})}
+        try:
+            root = ET.fromstring(web.get(url, params=params).content)
+        except Exception as e:  # noqa: BLE001
+            log.warning("news: %s", e)
+            return "The news feed is not reachable right now."
+        items = []
+        for it in root.iter("item"):
+            title = (it.findtext("title") or "").rsplit(" - ", 1)
+            items.append({"headline": title[0][:110], "source": title[1] if len(title) > 1 else ""})
+            if len(items) == 4:
+                break
+        return items or "No news found."
+
+    @mcp.tool()
+    def find_recipe(dish: str) -> dict | str:
+        """A recipe for a dish: ingredients and steps."""
+        try:
+            meals = web.get("https://www.themealdb.com/api/json/v1/1/search.php", params={"s": dish}).json()["meals"]
+        except Exception as e:  # noqa: BLE001
+            log.warning("recipe: %s", e)
+            return "The recipe service is not reachable right now."
+        if not meals:
+            return f"No recipe found for {dish}. Try web_search."
+        m = meals[0]
+        ingredients = [f"{(m.get(f'strMeasure{i}') or '').strip()} {m[f'strIngredient{i}'].strip()}".strip()
+                       for i in range(1, 21) if (m.get(f"strIngredient{i}") or "").strip()]
+        steps = [s.strip() for s in re.split(r"\r?\n+|(?<=\.)\s+(?=[A-Z])", m.get("strInstructions") or "") if
+                 len(s.strip()) > 3]
+        return {"name": m["strMeal"], "ingredients": ingredients[:12], "steps": [x[:160] for x in steps[:8]]}
+
+    @mcp.tool()
+    def wikipedia(topic: str) -> str:
+        """A short encyclopedia summary of a topic, person or place."""
+        try:
+            hits = web.get("https://en.wikipedia.org/w/api.php", params={      # exact title first (case matters)
+                "action": "opensearch", "search": topic, "limit": 1, "format": "json"}).json()[1]
+            if not hits:
+                return f"Wikipedia has no page on {topic}."
+            r = web.get("https://en.wikipedia.org/api/rest_v1/page/summary/" + hits[0].replace(" ", "_"))
+            text = r.json().get("extract") or ""
+            return " ".join(re.split(r"(?<=[.!?])\s+", text)[:3])[:500] or f"Wikipedia has no summary of {topic}."
+        except Exception as e:  # noqa: BLE001   (Wikimedia sometimes refuses scripted clients: use the search)
+            log.warning("wikipedia: %s; using web search", e)
+            try:
+                from ddgs import DDGS
+                res = DDGS().text(f"{topic} wikipedia", max_results=2)
+                return " ".join(r.get("body", "") for r in res)[:800] or f"Nothing found on {topic}."
+            except Exception:  # noqa: BLE001
+                return "Wikipedia is not reachable right now."
+
+    @mcp.tool()
+    def calculate(expression: str) -> str:
+        """Exact arithmetic: "17.5 * 3", "2 ** 10", "15 % of 240", "(3 + 4) / 7"."""
+        try:
+            v = _calc(expression)
+        except Exception as e:  # noqa: BLE001
+            return f"I can't calculate that: {e}"
+        return f"{v:,.6g}" if isinstance(v, float) else f"{v:,}"
+
+    @mcp.tool()
+    def get_time() -> str:
+        """The current local time, day and date (for "what time is it", "what day is today")."""
+        return time.strftime("%I:%M %p, %A %B %d %Y").lstrip("0")
+
+    return mcp, apps
+
+
+def main():
+    ap = argparse.ArgumentParser(description="FDA tools MCP server")
+    ap.add_argument("--transport", default="streamable-http", choices=["streamable-http", "stdio"])
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8103)
+    args = ap.parse_args()
+    cfg = Config.load()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    for noisy in ("httpx", "httpcore", "primp", "ddgs"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+    mcp, _ = build(cfg)
+    if args.transport == "stdio":
+        mcp.run("stdio")
+    else:
+        mcp.run("streamable-http", host=args.host, port=args.port)
+
+
+if __name__ == "__main__":
+    main()

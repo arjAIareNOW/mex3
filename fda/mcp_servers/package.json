@@ -1,0 +1,1 @@
+{ "name": "fda-runcheck", "private": true, "description": "Runs built apps in a stand-in browser page to test them", "dependencies": { "jsdom": "26.1.0" } }

@@ -1,0 +1,206 @@
+"""Pipecat services backed by FDA's MCP servers: speech-to-text and text-to-speech are MCP tool calls.
+
+    McpSTTService : one `transcribe` call per VAD-segmented utterance (asr MCP server)
+    McpTTSService : one `synthesize` call per sentence (tts MCP server); Pipecat splits the reply into sentences,
+                    so the first sentence plays while the LLM is still writing the rest
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import re
+import time
+from typing import AsyncGenerator
+
+import numpy as np
+from loguru import logger
+
+from mcp.client.client import Client
+from pipecat.frames.frames import ErrorFrame, Frame, TranscriptionFrame
+from pipecat.services.settings import STTSettings, TTSSettings
+from pipecat.services.stt_service import SegmentedSTTService
+from pipecat.services.tts_service import TTSService
+from pipecat.transcriptions.language import Language
+from pipecat.utils.time import time_now_iso8601
+
+
+class McpConnection:
+    """A persistent MCP session to one streamable-HTTP server, owned by a dedicated task (MCP sessions are
+    task-bound). call() can be used from any task on the same loop and reconnects after a dropped session."""
+
+    def __init__(self, url: str, name: str = ""):
+        self.url, self.name = url, name or url
+        self.client: Client | None = None
+        self._task: asyncio.Task | None = None
+        self._ready: asyncio.Future | None = None
+        self._closing: asyncio.Event | None = None
+        self._lock = asyncio.Lock()
+
+    async def start(self):
+        async with self._lock:
+            if self.client is not None:
+                return
+            loop = asyncio.get_running_loop()
+            self._ready, self._closing = loop.create_future(), asyncio.Event()
+            self._task = asyncio.create_task(self._own(self._ready, self._closing))
+            await self._ready
+
+    async def _own(self, ready, closing):
+        try:
+            async with Client(self.url, read_timeout_seconds=600) as c:
+                self.client = c
+                ready.set_result(True)
+                await closing.wait()
+        except Exception as e:  # noqa: BLE001
+            if not ready.done():
+                ready.set_exception(e)
+            else:
+                logger.warning(f"MCP {self.name}: session ended: {e}")
+        finally:
+            self.client = None
+
+    async def call(self, tool: str, args: dict, timeout: float = 120.0):
+        """Returns the tool's structured result if it has one, else its text."""
+        for attempt in range(2):
+            if self.client is None:
+                await self.start()
+            try:
+                r = await asyncio.wait_for(self.client.call_tool(tool, args), timeout)
+                break
+            except asyncio.TimeoutError:
+                raise
+            except Exception as e:  # noqa: BLE001  (dropped session: reconnect once)
+                if attempt:
+                    raise
+                logger.warning(f"MCP {self.name}.{tool} failed ({e}); reconnecting")
+                await self.close()
+        if r.is_error:
+            raise RuntimeError(" ".join(getattr(c, "text", "") for c in r.content)[:300])
+        sc = r.structured_content
+        if sc is not None:
+            return sc.get("result", sc) if isinstance(sc, dict) and set(sc) == {"result"} else sc
+        text = "".join(getattr(c, "text", "") for c in r.content)
+        try:
+            return json.loads(text)
+        except ValueError:
+            return text
+
+    async def close(self):
+        if self._closing is not None:
+            self._closing.set()
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(self._task, 5)
+            except Exception:  # noqa: BLE001
+                self._task.cancel()
+        self.client, self._task = None, None
+
+
+class McpSTTService(SegmentedSTTService):
+    """Speech-to-text through the asr MCP server (Moonshine offline, or Groq Whisper)."""
+
+    @property
+    def wants_wav_segments(self) -> bool:
+        return False                     # raw 16-bit PCM at 16 kHz
+
+    def __init__(self, conn: McpConnection, far_db: float = 10.0, on_ignored=None, own_name: str = "FDA", **kwargs):
+        super().__init__(sample_rate=16000, settings=STTSettings(model="mcp-asr", language=Language.EN), **kwargs)
+        self.conn = conn
+        self.last_ms = 0.0
+        self.far_db = far_db             # quieter than the user's usual level by this much -> background (0 = off)
+        self.user_db: float | None = None
+        self.far_dropped = 0
+        self.on_ignored = on_ignored
+        self.own_name = own_name
+
+    def can_generate_metrics(self) -> bool:
+        return True
+
+    @staticmethod
+    def level_db(audio: bytes) -> float:
+        """Speech level of a segment: RMS of its loudest 30 % of 20 ms frames, in dBFS."""
+        x = np.frombuffer(audio, np.int16).astype(np.float32) / 32768
+        n = len(x) // 320
+        if n == 0:
+            return -100.0
+        rms = np.sqrt(np.mean(x[: n * 320].reshape(n, 320) ** 2, axis=1) + 1e-12)
+        top = np.sort(rms)[-max(1, int(n * 0.3)):]
+        return float(20 * np.log10(np.mean(top) + 1e-9))
+
+    async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame, None]:
+        await self.start_processing_metrics()
+        t = time.perf_counter()
+        try:
+            text = await self.conn.call("transcribe", {"audio_b64": base64.b64encode(audio).decode(),
+                                                       "sample_rate": 16000}, timeout=30)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"{self} transcribe failed: {e}")
+            yield ErrorFrame(error=f"ASR MCP server: {e}")
+            return
+        finally:
+            await self.stop_processing_metrics()
+        self.last_ms = (time.perf_counter() - t) * 1000
+        text = (text or "").strip() if isinstance(text, str) else str(text)
+        if text:
+            lvl = self.level_db(audio)
+            logger.info(f"heard ({self.last_ms:.0f} ms, {len(audio) / 32000:.1f} s, {lvl:.0f} dB): {text}")
+            if self.far_db and self.user_db is not None and lvl < self.user_db - self.far_db and \
+                    self.own_name.lower() not in text.lower():          # "FDA, ..." from across the room still counts
+                self.far_dropped += 1                      # TV / radio / someone across the room
+                logger.info(f"far-away speech ({lvl:.0f} dB vs user {self.user_db:.0f} dB), ignored")
+                if self.on_ignored:
+                    self.on_ignored()
+                return
+            self.user_db = lvl if self.user_db is None else 0.7 * self.user_db + 0.3 * lvl
+            yield TranscriptionFrame(text, self._user_id, time_now_iso8601(), Language.EN)
+
+
+def speakable(text: str) -> str:
+    """Markdown and links read badly aloud: "[HappyCow](https://...)" -> "HappyCow"."""
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)          # [label](url) -> label
+    t = re.sub(r"https?://\S+|www\.\S+", "", t)                  # bare urls
+    t = re.sub(r"(^|\s)[-*#>]+\s+", r"\1", t)                    # list bullets, headings, quotes
+    t = re.sub(r"[*_`]+", "", t)                                 # bold / italics / code
+    return re.sub(r"\s{2,}", " ", t)
+
+
+class McpTTSService(TTSService):
+    """Text-to-speech through the tts MCP server (Piper offline, or Deepgram Aura)."""
+
+    def __init__(self, conn: McpConnection, **kwargs):
+        super().__init__(push_start_frame=True, push_stop_frames=True,
+                         settings=TTSSettings(model="mcp-tts", voice=None, language=None), **kwargs)
+        self.conn = conn
+
+    def can_generate_metrics(self) -> bool:
+        return True
+
+    async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
+        text = speakable(text)
+        if not text.strip():
+            return
+        try:
+            await self.start_tts_usage_metrics(text)
+            r = await self.conn.call("synthesize", {"text": text}, timeout=60)
+            pcm = base64.b64decode(r["audio_b64"])
+            rate = int(r["sample_rate"])
+
+            async def chunks():
+                step = rate // 5 * 2                  # 200 ms per frame
+                for i in range(0, len(pcm), step):
+                    yield pcm[i:i + step]
+
+            async for frame in self._stream_audio_frames_from_iterator(chunks(), in_sample_rate=rate,
+                                                                      context_id=context_id):
+                await self.stop_ttfb_metrics()
+                yield frame
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"{self} synthesize failed: {e}")
+            yield ErrorFrame(error=f"TTS MCP server: {e}")
+        finally:
+            await self.stop_ttfb_metrics()
+
+
+def pcm_to_float(pcm: bytes) -> np.ndarray:
+    return np.frombuffer(pcm, "<i2").astype(np.float32) / 32768.0

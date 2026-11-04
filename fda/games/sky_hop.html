@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Sky Hop</title>
+<style>
+  :root { --paper: #fffaf2; }
+  html, body { margin: 0; height: 100%; background: #1d1630; overflow: hidden; touch-action: none;
+               font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; inset: 0; pointer-events: none; display: flex; flex-direction: column;
+         align-items: center; color: var(--paper); text-shadow: 0 2px 6px rgba(0,0,0,.35); }
+  #score { margin-top: 3vh; font-size: clamp(28px, 10vh, 84px); font-weight: 800; }
+  #msg { margin-top: auto; margin-bottom: 14vh; text-align: center; padding: 0 16px; }
+  #msg h1 { margin: 0 0 .25em; font-size: clamp(22px, 8vh, 64px); font-weight: 800; }
+  #msg p { margin: .15em 0; font-size: clamp(13px, 3.4vh, 22px); opacity: .92; }
+  #paused { position: fixed; top: 50%; left: 0; right: 0; text-align: center; transform: translateY(-50%);
+            font-size: clamp(22px, 9vh, 60px); font-weight: 800; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="score">0</div>
+  <div id="msg">
+    <h1 id="title">Sky Hop</h1>
+    <p id="line1">Tap, click or press Space to fly</p>
+    <p id="line2">Slip through the gaps in the cloud towers</p>
+  </div>
+</div>
+<div id="paused" class="hidden">Paused</div>
+<script>
+// Sky Hop: an original tap-to-fly game for FDA (paper plane, cloud towers).
+// Settings change live: from FDA's display via postMessage({type:"sky_hop", settings:{...}}), or as URL options
+// (?plane_color=red&sky=night&speed=1.2&gap=1.1&gravity=0.9&size=1.3&tower_color=teal&title=My+Game).
+(() => {
+  const SKIES = {
+    sunset: ["#2b2150", "#a3477a", "#ff9a62", "#ffd27a", "rgba(255,226,150,.9)"],
+    day:    ["#3b82d6", "#6fb3f0", "#b7e0ff", "#e8f6ff", "rgba(255,248,200,.95)"],
+    night:  ["#05070f", "#111a3a", "#1f2d5c", "#2f3f72", "rgba(235,240,255,.9)"],
+    space:  ["#000000", "#0b0420", "#1a0b3a", "#2a1450", "rgba(255,200,120,.9)"],
+  };
+  const NAMED = { "warm white": "#ffe7c2", "cool white": "#eef4ff", "gold": "#ffcf40", "sky blue": "#7cc4ff",
+                  "dark blue": "#1f3f99", "light blue": "#9fd4ff", "dark green": "#1d7a3a", "light green": "#9be89b" };
+  function css(c, fallback) {
+    if (!c) return fallback;
+    c = String(c).trim().toLowerCase();
+    if (NAMED[c]) return NAMED[c];
+    const flat = c.replace(/\s+/g, "");
+    return (window.CSS && CSS.supports("color", flat)) ? flat : fallback;
+  }
+  const S = { plane_color: "#fffaf2", tower_color: "#f0c8de", sky: "sunset", speed: 1, gap: 1, gravity: 1, size: 1,
+              paused: false, restart: 0, title: "Sky Hop" };
+  function apply(o) {
+    if (!o) return;
+    const before = S.restart;
+    if (o.plane_color !== undefined) S.plane_color = css(o.plane_color, S.plane_color);
+    if (o.tower_color !== undefined) S.tower_color = css(o.tower_color, S.tower_color);
+    if (o.sky && SKIES[o.sky]) S.sky = o.sky;
+    for (const k of ["speed", "gap", "gravity", "size"]) if (o[k] !== undefined && isFinite(+o[k])) S[k] = Math.max(0.4, Math.min(2.5, +o[k]));
+    if (o.paused !== undefined) S.paused = !!o.paused;
+    if (o.title) { S.title = String(o.title).slice(0, 40); document.title = S.title;
+                   if (state !== "over") document.getElementById("title").textContent = S.title; }
+    if (o.restart !== undefined) S.restart = o.restart;
+    document.getElementById("paused").classList.toggle("hidden", !S.paused || state !== "play");
+    if (S.restart !== before && before !== undefined && started) { reset(); state = "ready"; showStart(); }
+  }
+  window.addEventListener("message", e => { if (e.data && e.data.type === "sky_hop") apply(e.data.settings); });
+
+  const cv = document.getElementById("c"), cx = cv.getContext("2d");
+  const scoreEl = document.getElementById("score"), msg = document.getElementById("msg");
+  const line1 = document.getElementById("line1"), line2 = document.getElementById("line2");
+  let W = 0, H = 0;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr; cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (plane) plane.x = W * 0.28;
+  }
+  const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+                  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+  let best = parseInt(store.get("skyhop-best") || "0", 10) || 0;
+
+  const U = () => H / 100;                 // world units follow the screen height
+  let state = "ready", plane, towers, score, t, spawnIn, clouds, stars, started = false;
+  function reset() {
+    plane = { x: W * 0.28, y: H * 0.45, vy: 0, rot: 0 };
+    towers = []; score = 0; t = 0; spawnIn = 0; scoreEl.textContent = "0";
+  }
+  function showStart() {
+    document.getElementById("title").textContent = S.title;
+    line1.textContent = "Tap, click or press Space to fly"; line2.textContent = "Slip through the gaps in the cloud towers";
+    msg.classList.remove("hidden");
+  }
+  window.addEventListener("resize", resize); resize();
+  clouds = Array.from({ length: 9 }, () => ({ x: Math.random(), y: 0.08 + Math.random() * 0.55, s: 0.6 + Math.random() * 1.2,
+                                             v: 0.004 + Math.random() * 0.01 }));
+  stars = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random() * 0.8, r: Math.random() * 1.4 + 0.3 }));
+  reset();
+  apply(Object.fromEntries(new URLSearchParams(location.search)));
+  started = true;
+
+  function flap() {
+    if (S.paused) return;
+    if (state === "ready") { state = "play"; msg.classList.add("hidden"); }
+    if (state === "over") { if (t > 0.6) { reset(); state = "play"; msg.classList.add("hidden"); } return; }
+    plane.vy = -38 * U() * Math.sqrt(S.gravity);
+  }
+  window.addEventListener("pointerdown", e => { e.preventDefault(); window.focus(); flap(); });
+  window.addEventListener("keydown", e => {
+    if (e.code === "Space" || e.code === "ArrowUp" || e.code === "Enter") { e.preventDefault(); flap(); }
+  });
+
+  function addTower() {
+    const gap = Math.max(20, (34 - score * 0.35) * S.gap) * U();
+    const margin = 10 * U();
+    const cy = margin + gap / 2 + Math.random() * Math.max(1, H - 2 * margin - gap);
+    towers.push({ x: W + 10 * U(), w: 15 * U(), cy, gap, passed: false });
+  }
+  function crash() {
+    state = "over"; t = 0;
+    if (score > best) { best = score; store.set("skyhop-best", String(best)); }
+    document.getElementById("title").textContent = score >= best && score > 0 ? "New best!" : S.title;
+    line1.textContent = `Score ${score}  ·  Best ${best}`; line2.textContent = "Tap to fly again";
+    msg.classList.remove("hidden"); document.getElementById("paused").classList.add("hidden");
+  }
+  function update(dt) {
+    t += dt;
+    if (S.paused && state === "play") return;
+    for (const c of clouds) { c.x -= c.v * dt * (state === "play" ? 3 : 1); if (c.x < -0.2) { c.x = 1.2; c.y = 0.08 + Math.random() * 0.55; } }
+    if (state === "ready") { plane.y = H * 0.45 + Math.sin(t * 3) * 2 * U(); plane.rot = Math.sin(t * 3) * 0.08; return; }
+    const g = 140 * U() * S.gravity;
+    if (state === "over") { if (plane.y < H - 4 * U()) { plane.vy += g * dt; plane.y += plane.vy * dt; } return; }
+    plane.vy = Math.min(plane.vy + g * dt, 90 * U());
+    plane.y += plane.vy * dt;
+    plane.rot = Math.max(-0.5, Math.min(1.1, plane.vy / (90 * U())));
+    const speed = (32 + Math.min(score, 30) * 0.5) * S.speed;
+    spawnIn -= dt;
+    if (spawnIn <= 0) { addTower(); spawnIn = 1.55 / S.speed; }
+    const r = 3.2 * U() * S.size;
+    for (const tw of towers) {
+      tw.x -= speed * U() * dt;
+      if (!tw.passed && tw.x + tw.w < plane.x) { tw.passed = true; score++; scoreEl.textContent = score; }
+      const inX = plane.x + r > tw.x && plane.x - r < tw.x + tw.w;
+      const inGap = plane.y - r > tw.cy - tw.gap / 2 && plane.y + r < tw.cy + tw.gap / 2;
+      if (inX && !inGap) crash();
+    }
+    towers = towers.filter(tw => tw.x + tw.w > -20);
+    if (plane.y + r > H - 2 * U() || plane.y - r < 0) crash();
+  }
+  function puff(x, y, s, col) {
+    cx.fillStyle = col;
+    for (const [dx, dy, rr] of [[0, 0, 1], [0.9, 0.15, 0.75], [-0.9, 0.2, 0.7], [0.3, -0.45, 0.65]]) {
+      cx.beginPath(); cx.arc(x + dx * s, y + dy * s, rr * s, 0, Math.PI * 2); cx.fill();
+    }
+  }
+  function roundRect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, Math.abs(h) / 2);
+    cx.beginPath(); cx.moveTo(x + r, y); cx.arcTo(x + w, y, x + w, y + h, r); cx.arcTo(x + w, y + h, x, y + h, r);
+    cx.arcTo(x, y + h, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath(); cx.fill();
+  }
+  function draw() {
+    const sky = SKIES[S.sky] || SKIES.sunset;
+    const g = cx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, sky[0]); g.addColorStop(0.45, sky[1]); g.addColorStop(0.8, sky[2]); g.addColorStop(1, sky[3]);
+    cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+    if (S.sky === "night" || S.sky === "space") {
+      cx.fillStyle = "rgba(255,255,255,.8)";
+      for (const s of stars) { cx.beginPath(); cx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2); cx.fill(); }
+    }
+    cx.fillStyle = sky[4]; cx.beginPath(); cx.arc(W * 0.78, H * (S.sky === "sunset" ? 0.82 : 0.2), 12 * U(), 0, Math.PI * 2); cx.fill();
+    if (S.sky !== "space") for (const c of clouds) puff(c.x * W, c.y * H, 5 * U() * c.s, "rgba(255,240,235,.18)");
+
+    for (const tw of towers) {
+      const top = tw.cy - tw.gap / 2, bot = tw.cy + tw.gap / 2;
+      cx.fillStyle = S.tower_color;
+      roundRect(tw.x, -20, tw.w, top + 20, tw.w * 0.45); roundRect(tw.x, bot, tw.w, H - bot + 20, tw.w * 0.45);
+      cx.fillStyle = "rgba(0,0,0,.12)";                 // shade on the right side
+      cx.fillRect(tw.x + tw.w * 0.62, -20, tw.w * 0.3, top + 20 - tw.w * 0.3);
+      cx.fillRect(tw.x + tw.w * 0.62, bot + tw.w * 0.3, tw.w * 0.3, H - bot);
+      puff(tw.x + tw.w / 2, top - 1 * U(), tw.w * 0.42, S.tower_color);
+      puff(tw.x + tw.w / 2, bot + 1.5 * U(), tw.w * 0.42, S.tower_color);
+    }
+    cx.save();
+    cx.translate(plane.x, plane.y); cx.rotate(plane.rot);
+    const s = 4.2 * U() * S.size;
+    cx.fillStyle = S.plane_color; cx.strokeStyle = "rgba(43,33,64,.6)"; cx.lineWidth = Math.max(1, 0.25 * U());
+    cx.beginPath(); cx.moveTo(1.6 * s, 0); cx.lineTo(-1.2 * s, -0.95 * s); cx.lineTo(-0.55 * s, 0); cx.closePath(); cx.fill(); cx.stroke();
+    cx.globalAlpha = 0.8;
+    cx.beginPath(); cx.moveTo(1.6 * s, 0); cx.lineTo(-1.2 * s, 0.7 * s); cx.lineTo(-0.55 * s, 0); cx.closePath(); cx.fill(); cx.stroke();
+    cx.restore();
+    cx.fillStyle = "rgba(43,33,64,.35)"; cx.fillRect(0, H - 2 * U(), W, 2 * U());
+  }
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.033, (now - last) / 1000); last = now;
+    update(dt); draw(); requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  if (window.parent !== window) window.parent.postMessage({ type: "sky_hop_ready" }, "*");
+})();
+</script>
+</body>
+</html>

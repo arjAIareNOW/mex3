@@ -1,0 +1,43 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 273 >>
+stream
+BT /F1 12 Tf 72 760 Td 16 TL (Safety rules \(sample\)) Tj T* (SAMPLE DOCUMENT - made-up content for testing FDA.) Tj T* () Tj T* (Unplug the Pi before changing the HAT.) Tj T* (Never block the fan or the active cooler.) Tj T* (Keep drinks away from the workbench.) Tj T* ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+6 0 obj
+<< /Length 225 >>
+stream
+BT /F1 12 Tf 72 760 Td 16 TL (Emergency \(sample\)) Tj T* (Fire exits are at the end of the east hallway.) Tj T* (The first aid kit is beside the sink.) Tj T* (In an emergency call the IT desk or the building guard.) Tj T* ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000515 00000 n 
+0000000641 00000 n 
+0000000917 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1043
+%%EOF

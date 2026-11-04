@@ -1,0 +1,14 @@
+[Unit]
+Description=FDA full-duplex voice agent (Pipecat + MCP)
+After=network-online.target sound.target pipewire.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=@APP@
+ExecStart=@APP@/.venv/bin/python -m fda.pc
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
