@@ -1,9 +1,9 @@
-"""The agent LLM with automatic fallback: when a free tier says "rate limit" (429), the model is busy or gone
+"""The agent LLM with automatic fallback: when Groq says "rate limit" (429), the model is busy or gone
 (404/5xx), or the service does not answer, the same turn is sent to the next model in the chain at once.
 A model that failed is skipped for a while (`cooldown_s`, or what the provider's retry-after says).
 
-Chain (only entries whose key is in .env): Groq gpt-oss-120b -> Groq gpt-oss-20b -> Groq qwen -> SambaNova ->
-Gemini Flash-Lite. Each Groq model has its own free per-minute limit, so rotating them multiplies the budget.
+Chain (Groq only, GROQ_API_KEY in .env): gpt-oss-120b, and one fallback, gpt-oss-20b. Each Groq model has its
+own rate limit, so a busy model does not stop the conversation.
 """
 from __future__ import annotations
 
@@ -15,15 +15,13 @@ from openai import (APIConnectionError, APIStatusError, APITimeoutError, AsyncOp
                     RateLimitError)
 from pipecat.services.openai.llm import OpenAILLMService
 
+from .. import rules
 from ..mcp_servers import llm as llmlib
 
 # (engine, base url, key env, model)
 CHAIN = [
     ("groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY", "openai/gpt-oss-120b"),
-    ("sambanova", "https://api.sambanova.ai/v1", "SAMBANOVA_API_KEY", "gpt-oss-120b"),
-    ("groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY", "openai/gpt-oss-20b"),
-    ("sambanova", "https://api.sambanova.ai/v1", "SAMBANOVA_API_KEY", "Meta-Llama-3.3-70B-Instruct"),
-    ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY", "gemini-flash-lite-latest"),
+    ("groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY", "openai/gpt-oss-20b"),   # the one fallback
 ]
 _REASONING_KEYS = ("reasoning_effort",)
 
@@ -58,22 +56,10 @@ def clean_messages(msgs: list) -> list:
             continue
         elif m.get("role") == "assistant" and not str(m.get("content") or "").strip(" .\u2026\n"):
             continue
-        out.append(m)
-    return out
-
-
-_SKIP_SIGNATURE = {"google": {"thought_signature": "skip_thought_signature_validator"}}
-
-
-def for_gemini(msgs: list) -> list:
-    """Gemini 3 models answer 400 "Function call is missing a thought_signature" for any earlier tool call
-    without one: calls another model made (Groq), and its own (Pipecat does not keep the signature). Google's
-    documented placeholder lets those through (https://ai.google.dev/gemini-api/docs/thought-signatures)."""
-    out = []
-    for m in msgs:
-        if isinstance(m, dict) and m.get("role") == "assistant" and m.get("tool_calls"):
-            m = {**m, "tool_calls": [c if (c.get("extra_content") or {}).get("google", {}).get("thought_signature")
-                                     else {**c, "extra_content": _SKIP_SIGNATURE} for c in m["tool_calls"]]}
+        if m.get("role") == "assistant" and isinstance(m.get("content"), str) and rules.is_thinking(m["content"]):
+            m = {**m, "content": rules.drop_thinking(m["content"])}   # a leaked "The user wants ..." gets copied
+            if not m["content"].strip(" .\u2026\n") and not m.get("tool_calls"):
+                continue
         out.append(m)
     return out
 
@@ -109,10 +95,6 @@ class FallbackLLMService(OpenAILLMService):
         for e in ready:
             extra = llmlib.reasoning_extra(e["model"])
             params = {**base, "model": e["model"], **extra}
-            if e["engine"] == "gemini" and isinstance(params.get("messages"), list):
-                params["messages"] = for_gemini(params["messages"])
-                for k in ("seed", "frequency_penalty", "presence_penalty"):   # Gemini: "Unknown name" 400
-                    params.pop(k, None)
             for k in ("max_tokens", "max_completion_tokens"):
                 params.pop(k, None)
             params["max_tokens"] = 400 if extra else 90       # thinking models count thinking in max_tokens

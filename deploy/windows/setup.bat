@@ -8,7 +8,7 @@ pip install -r requirements.txt
 rem app checker (needs Node.js from nodejs.org): a real DOM for testing the apps FDA builds
 pushd fda\mcp_servers & call npm install --no-audit --no-fund & popd
 if not exist .env (
-  (echo QWEN_API_KEY=& echo GROQ_API_KEY=& echo SAMBANOVA_API_KEY=& echo GEMINI_API_KEY=)> .env
+  (echo GROQ_API_KEY=& echo QWEN_API_KEY=)> .env
   echo Created .env - open it in Notepad and paste your API keys.
 )
 python -m fda download

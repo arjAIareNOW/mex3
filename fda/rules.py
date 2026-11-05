@@ -153,6 +153,8 @@ _EVIDENCE = {
     "stop_ringing": r"stop|enough|quiet|shut|off|okay|ok\b|dismiss",
     "add_reminder": r"remind|remember|forget",
     "list_reminders": r"remind|list|schedule|agenda|to ?do",
+    "delete_reminder": r"remind|delet|remov|cancel|scratch|clear|forget|eras|drop|get rid|done|all|number|first|last",
+    "edit_reminder": r"remind|chang|edit|move|updat|instead|scratch|renam|make it|switch|replac|actually",
     "music": r"music|song|track|tune|play|pause|stop|next|skip|resume|continue|listen|lofi|lo-fi|radio",
     "volume": r"volume|loud|quiet|soft|mute|turn (?:it|that) (?:up|down)|can't hear|cannot hear",
     "call": r"call|phone|ring|dial",
@@ -248,3 +250,54 @@ def is_backchannel(text: str) -> bool:
 VCM_ACTIONS = {"LIGHT_ON": [{"tool": "lights", "power": "on"}], "LIGHT_OFF": [{"tool": "lights", "power": "off"}],
                "PAUSE": [{"tool": "music", "action": "pause"}], "NEXT": [{"tool": "music", "action": "next"}],
                "VOLUME_UP": [{"tool": "volume", "change": "up"}], "VOLUME_DOWN": [{"tool": "volume", "change": "down"}]}
+
+
+# gpt-oss sometimes writes its private thinking into the reply ("We We Okay The user wants Articuno bird. We have
+# editapp ..."). Those sentences must never be spoken, nor kept in the conversation (the model copies them).
+_THINK_LEAD = r"(?:(?:we|so|okay|ok|now|thus|then|alright|hmm|well|but)[\s,.:]+)*"
+THINKING = re.compile(
+    r"(?i)^\s*" + _THINK_LEAD + r"(?:the\s+)?(?:user|person|human)\s+(?:just\s+|now\s+|probably\s+)?"
+    r"(?:wants?|asks?|asked|is\s+asking|says?|said|requests?|requested|needs?|mentioned|wanted|likely|might)\b"
+    r"|^\s*" + _THINK_LEAD + r"we\s+(?:need|have|should|must|can|could|will|might|may|are\s+to|'ll|'d)\s+(?:to\s+)?"
+    r"(?:call|use|respond|answer|reply|ask|check|output|produce|provide|say|give|comply|follow|invoke|run|"
+    r"edit|create|open|tweak|search|fetch|look|figure|decide|clarify|interpret|keep|be|not|just|now|also|first|"
+    r"the|a|an|this|that|it|tool|function)\b"
+    r"|^\s*(?:we\s+){2,}|^\s*(?:okay|ok|so|alright)[\s,.:]+we\b"
+    r"|^\s*let'?s\s+(?:call|use|respond|answer|output|produce|craft|reply|think|see\s+what|check\s+(?:the|if|what))\b"
+    r"|^\s*(?:probably|maybe|likely|perhaps)\s+(?:answer|respond|reply|say|call|use|just|we|they|the\s+user)\b"
+    r"|^\s*(?:need\s+to|must|should)\s+(?:call|use|respond|answer|reply|output|produce|ask|say)\b"
+    r"|^\s*(?:answer|response|reply|final|output|analysis)\s*:"
+    r"|\b(?:edit_?app|create_?app|tweak_?app|open_?app|undo_?app|app_?settings|list_?apps|web_?search|"
+    r"read_?page|play_?video|get_?news|get_?weather|get_?time|video_?control|app_?control|interface_?tab|"
+    r"show_?screen|function\s+call|tool\s+call|the\s+tools?\s+(?:to|we)|system\s+prompt|developer\s+message|"
+    r"the\s+instructions?\s+say)\b")
+_SENT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def is_thinking(text: str) -> bool:
+    """True if any sentence of `text` is the model thinking aloud rather than talking to the person."""
+    return any(THINKING.search(s) for s in _SENT.split(text or "") if s.strip())
+
+
+def drop_thinking(text: str) -> str:
+    """`text` without the sentences that are the model thinking aloud."""
+    return " ".join(s for s in _SENT.split(text or "") if s.strip() and not THINKING.search(s)).strip()
+
+
+def could_be_thinking(text: str) -> bool:
+    """While a reply is still only a few words, could it turn out to be thinking aloud? (then wait for more)"""
+    w = re.findall(r"[a-z']+", (text or "").lower())
+    return bool(w) and len(w) < 7 and w[0] in {"the", "user", "we", "so", "okay", "ok", "now", "thus", "let's",
+                                                "lets", "probably", "maybe", "likely", "perhaps", "need",
+                                                "alright", "hmm", "well", "answer", "final", "analysis", "person",
+                                                "must", "should", "then", "but"}
+
+
+def is_garbage(text: str) -> bool:
+    """The model stuck on dots: "... … --- … The … … We" (mostly tokens without a letter or digit)."""
+    t = (text or "").strip()
+    if not re.search(r"[A-Za-z0-9]", t):
+        return len(t) >= 3
+    toks = t.split()
+    junk = sum(1 for w in toks if not re.search(r"[A-Za-z0-9]", w))
+    return len(toks) >= 4 and junk / len(toks) >= 0.5

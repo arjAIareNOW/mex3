@@ -1,0 +1,30 @@
+# Elkit's predefined answers. Edit this file in Notepad while Elkit runs: changes apply on the next question.
+# When what Elkit hears matches a Q: line closely, it says the A: line at once, without the LLM (faster, no tokens).
+# Anything that does not match goes to the LLM as usual.
+#
+# Format: one or more Q: lines (different ways people ask), then ONE A: line (what Elkit says out loud).
+# Leave a blank line between entries. Write answers the way they should be spoken: short, no lists, no emoji.
+# Lines starting with # are comments.
+
+Q: what can you do
+Q: what can you make
+Q: what are you able to do
+A: Quite a lot. I can build apps, websites and games on the screen, tell you the weather and the time, run the lights and thermostat, set timers, alarms and reminders, and play music.
+
+Q: who are you
+Q: what is your name
+Q: what's your name
+A: I'm Elkit, your voice assistant. Just talk to me, and you can interrupt me any time.
+
+Q: who made you
+Q: who built you
+Q: who created you
+A: I was built as a machine exercise project, a full-duplex voice agent running on a Raspberry Pi.
+
+Q: how do you work
+Q: how does this work
+A: You talk, I listen and answer out loud, and I can show things on the screen. You can interrupt me any time.
+
+Q: what can i say
+Q: give me some ideas
+A: Try asking for the weather, set a timer for five minutes, turn on the lights, or make me a snake game.

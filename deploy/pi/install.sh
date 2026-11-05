@@ -12,7 +12,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 # app checker: a real DOM (jsdom) for testing the apps and games FDA builds
 (cd fda/mcp_servers && npm install --no-audit --no-fund)
-[ -f .env ] || { printf "# FDA keys (never share this file). Leave a line empty if you do not use that service.\nQWEN_API_KEY=\nGROQ_API_KEY=\nSAMBANOVA_API_KEY=\nGEMINI_API_KEY=\n" > .env; chmod 600 .env; echo ">> edit $APP/.env and paste your API keys"; }
+[ -f .env ] || { printf "# FDA keys (never share this file). Leave a line empty if you do not use that service.\nGROQ_API_KEY=\nQWEN_API_KEY=\n" > .env; chmod 600 .env; echo ">> edit $APP/.env and paste your API keys"; }
 [ -f fda.toml ] || cp fda.example.toml fda.toml
 # no browser from FDA itself on the Pi: the kiosk below shows the display
 grep -q '^open_browser' fda.toml || echo 'open_browser = false' >> fda.toml

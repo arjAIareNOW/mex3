@@ -1,5 +1,5 @@
 [Desktop Entry]
 Type=Application
 Name=FDA display
-Exec=sh -c 'unclutter -idle 1 & until curl -s localhost:8765 >/dev/null; do sleep 1; done; chromium-browser --kiosk --noerrdialogs --disable-infobars --check-for-update-interval=31536000 http://localhost:8765'
+Exec=sh -c 'unclutter -idle 1 & until curl -s localhost:8765 >/dev/null; do sleep 1; done; chromium-browser --kiosk --autoplay-policy=no-user-gesture-required --noerrdialogs --disable-infobars --check-for-update-interval=31536000 http://localhost:8765'
 X-GNOME-Autostart-enabled=true

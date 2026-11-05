@@ -25,9 +25,9 @@ On the laptop / Pi: echo cancellation (WebRTC AEC3), voice activity (Silero VAD)
 | Full-duplex agent doing real-world tasks | FDA's audio engine as a Pipecat transport (`fda/pc/transport.py`: AEC3 + own-voice gate, mic and speaker open together), duck on overlap, ≥3 words to interrupt, backchannels ignored, resume after a false interruption; tools MCP server `tools_server.py` on `:8103` |
 
 ```
-mic ─► FDA audio engine (AEC3 + own-voice gate) ─► Silero VAD ─► DuplexGuard ─► STT ──MCP──► asr server (Moonshine | Groq Whisper)
-     ─► HeardTap ─► user turn (Smart Turn v3) ─► LLM (local Qwen2.5-3B | Groq | Gemini) ◄─MCP─► tools server
-     ─► NotForMe ("(silent)") ─► TTS ──MCP──► tts server (Piper | Deepgram Aura) ─► FDA mixer ─► speaker
+mic ─► FDA audio engine (AEC3 + own-voice gate) ─► Silero VAD ─► DuplexGuard ─► STT ──MCP──► asr server (Groq Whisper, fallback Moonshine)
+     ─► HeardTap ─► user turn (Smart Turn v3) ─► LLM (Groq gpt-oss-120b, fallback gpt-oss-20b) ◄─MCP─► tools server
+     ─► NotForMe ("(silent)") ─► TTS ──MCP──► tts server (DGX3 Qwen3-TTS, fallback Piper) ─► FDA mixer ─► speaker
 ```
 
 **Tools (all free, no key):** `create_app`, `edit_app`, `undo_app_change`, `list_apps`, `open_app` (build games, websites
@@ -62,10 +62,11 @@ cd C:\Users\asarn\sandbox\MachineExercise3\fda
 .\.venv\Scripts\python.exe tests\pc_llm_eval.py      # tool choice of the LLM, 20 sentences
 ```
 
-Settings (`fda.toml`): `llm_engine` (local | groq | gemini | openai), `agent_llm` (local model, default `qwen2.5-3b`),
-`asr_engine` (moonshine | groq | openai), `tts_engine` (piper | kokoro | deepgram), `coder_engine` (same | local | groq ...),
-`far_speech_db` (10; 0 = off).
-Keys go in `.env`: `GROQ_API_KEY`, `GEMINI_API_KEY`, `DEEPGRAM_API_KEY` (all optional; defaults need none).
+Settings (`fda.toml`): `llm_engine` (groq | local | openai), `agent_llm` (local model, default `qwen2.5-3b`),
+`asr_engine` (groq | dgx3 | moonshine | openai), `tts_engine` (dgx3 | piper | kokoro | deepgram),
+`coder_engine` (groq | local | same), `far_speech_db` (10; 0 = off). Groq is the main provider; each part has one
+main model and one fallback (see `fda.toml`).
+Keys go in `.env`: `GROQ_API_KEY` (main), `QWEN_API_KEY` (DGX3 voice), `DEEPGRAM_API_KEY` (optional).
 
 Measured on the laptop (offline, zero tokens): ASR over MCP 154 ms, TTS over MCP 222 ms per sentence; LLM tool choice
 16/20 (Qwen2.5-3B, median 1.3 s) vs 8/20 (1.5B); `tests/pc_sim.py` chat, weather, lights, news, not-for-me, backchannel,
@@ -176,7 +177,7 @@ run `start_fda.bat --no-aec` to use only Windows'.
 ```bash
 git clone <this repo> ~/fda && cd ~/fda       # or copy the folder
 bash deploy/pi/install.sh                     # venv, packages, Node + jsdom, offline models, boot service, kiosk
-nano .env                                     # QWEN_API_KEY, GROQ_API_KEY, SAMBANOVA_API_KEY, GEMINI_API_KEY
+nano .env                                     # GROQ_API_KEY, QWEN_API_KEY
 python -m fda devices                         # find the USB mic/speaker names -> fda.toml input_device / output_device
 sudo reboot                                   # FDA (python -m fda.pc) starts on boot, display full screen on the 7"
 journalctl --user -u fda -f                   # live log

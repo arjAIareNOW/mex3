@@ -22,6 +22,23 @@
   body[data-s="speaking"] #pulse .ring:nth-child(3) { animation-delay: .53s; }
   body[data-s="speaking"] #pulse .ring:nth-child(4) { animation-delay: 1.06s; }
   body[data-s="thinking"] #pulse .core { animation: breathe 1.2s ease-in-out infinite; opacity: .8; }
+  /* quiet tells: present (slow idle breath), hearing you (halo follows your voice), got it (a ring pulled in),
+     heard but not for me (a faint grey one), thinking (a small dot circling) */
+  #pulse { --hear: 0; }
+  body[data-s="listening"] #pulse .core { animation: idle 7s ease-in-out infinite; }
+  #pulse .core { box-shadow: 0 0 calc(var(--hear) * 46px) calc(var(--hear) * 6px) rgba(122,162,255, calc(var(--hear) * .55)); }
+  body.hear #pulse .core { opacity: calc(.6 + var(--hear) * .35); }
+  #pulse .catch { position: absolute; inset: 50px; border-radius: 50%; border: 1.5px solid #c9d8ff; opacity: 0; pointer-events: none; }
+  #pulse .catch.got { animation: absorb .7s ease-in forwards; }
+  #pulse .catch.skip { border-color: var(--muted); animation: absorb-faint .6s ease-in forwards; }
+  #pulse .orbit { position: absolute; inset: 38px; border-radius: 50%; opacity: 0; transition: opacity .4s; pointer-events: none; }
+  #pulse .orbit i { position: absolute; top: -3px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%;
+                    background: #c9d8ff; box-shadow: 0 0 8px 2px rgba(176,122,255,.6); }
+  body[data-s="thinking"] #pulse .orbit { opacity: .9; animation: spin 1.3s linear infinite; }
+  @keyframes idle { 0%, 100% { transform: scale(1); opacity: .5; } 50% { transform: scale(1.035); opacity: .62; } }
+  @keyframes absorb { from { transform: scale(1.9); opacity: 0; } 35% { opacity: .55; } to { transform: scale(1); opacity: 0; } }
+  @keyframes absorb-faint { from { transform: scale(1.5); opacity: 0; } 40% { opacity: .25; } to { transform: scale(1); opacity: 0; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
   body[data-s="offline"] #pulse .core { opacity: .15; filter: grayscale(1); }
   @keyframes ripple { from { transform: scale(1); opacity: .6; } to { transform: scale(2.3); opacity: 0; } }
   @keyframes breathe { 50% { transform: scale(1.08); } }
@@ -45,7 +62,39 @@
           border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13px; color: var(--text);
           white-space: nowrap; max-width: 90%; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .3s; }
   #note.on { opacity: 1; }
-  /* ---- tabs: Design (always) and Room (appears once asked for) ---- */
+  /* ---- Interface sub-tabs: one per app, game, video, photo set or search (switch by voice: "go to the snake tab") ---- */
+  #sub { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-height: 28px; }
+  #sub::-webkit-scrollbar { display: none; }
+  #sub[hidden] { display: none; }
+  #sub button { flex: none; display: flex; align-items: center; gap: 6px; background: #141922; color: var(--muted);
+                border: 1px solid var(--line); border-radius: 8px; padding: 4px 11px 4px 9px; font: inherit; font-size: 12.5px;
+                white-space: nowrap; cursor: pointer; transition: color .2s, border-color .2s, background .2s; }
+  #sub button::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--kc); }
+  #sub button.on { color: var(--text); border-color: var(--kc); background: #1a2030; }
+  #sub .k-site { --kc: #7aa2ff; } #sub .k-app { --kc: #b07aff; } #sub .k-game { --kc: #3ddc84; }
+  #sub .k-video { --kc: #ff5d5d; } #sub .k-photos { --kc: #ffcf5c; } #sub .k-links { --kc: #4de1ff; }
+  #views { position: absolute; inset: 0; z-index: 1; }
+  #views:empty { pointer-events: none; }
+  .view { position: absolute; inset: 0; animation: fadein .25s ease-out; }
+  .view[hidden] { display: none; }
+  .view.video, .view.photos { background: #05070b; }
+  .view.video iframe { background: #000; }
+  .view.photos img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .view.photos .cap { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; gap: 10px;
+                      padding: 18px 12px 8px; font-size: 12px; color: #c9d1dc; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+  .view.photos .cap span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .view.links { overflow-y: auto; padding: 14px 14px 18px; background: var(--panel); }
+  .view.links h4 { margin: 0 0 10px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .view.links ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .view.links a { display: block; padding: 10px 12px; border-radius: 10px; color: var(--text); text-decoration: none;
+                  background: #151a24; border: 1px solid var(--line); }
+  .view.links a b { display: block; font-size: 14.5px; font-weight: 600; }
+  .view.links a small { display: block; color: var(--accent); font-size: 12px; margin-top: 2px; }
+  .view.links a span { display: block; color: var(--muted); font-size: 12.5px; margin-top: 4px; line-height: 1.35; }
+  .view.links .n { color: var(--accent); font-weight: 700; margin-right: 6px; }
+  @keyframes fadein { from { opacity: 0; } }
+  @keyframes rise { from { transform: translateY(12px); opacity: 0; } }
+  /* ---- two tabs: Interface (apps, videos, links, photos) and Room (the virtual room) ---- */
   #right { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
   #tabs { display: flex; gap: 6px; }
   #tabs[hidden] { display: none; }
@@ -54,8 +103,31 @@
   #tabs button.on { color: var(--text); border-color: var(--accent); background: rgba(122,162,255,.12); }
   #stage { flex: 1; }
   #stage[hidden] { display: none; }
-  #room { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 10px; align-content: start; }
+  #room { flex: 1; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+          display: flex; align-items: center; justify-content: center; }
+  #scene { width: 100%; height: 100%; display: block; }
+  #scene rect, #scene circle, #scene path, #scene ellipse, #scene stop { transition: fill .7s, opacity .7s, stroke .7s, stroke-dasharray .7s, stop-color .7s; }
+  #scene .lbl { font: 600 13px system-ui, sans-serif; fill: #8f99aa; }
+  #scene .val { font: 700 20px system-ui, sans-serif; fill: #e8ecf2; font-variant-numeric: tabular-nums; }
+  #scene .val.small { font-size: 15px; }
+  #scene .sub { font: 600 9px system-ui, sans-serif; fill: #7c8696; letter-spacing: .04em; text-transform: uppercase; }
+  #waves { opacity: 0; transition: opacity .5s; }
+  #waves.on { opacity: 1; }
+  #waves.on path { animation: wave 1.4s ease-out infinite; }
+  #waves.on path:nth-child(2) { animation-delay: .2s; }
+  #waves.on path:nth-child(3) { animation-delay: .4s; }
+  @keyframes wave { 0% { opacity: .15; } 30% { opacity: 1; } 100% { opacity: .15; } }
+  #notes { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; height: 100%; }
+  #notes .note { width: 63px; height: 50px; padding: 5px 6px; font: 600 10.5px/1.2 system-ui, sans-serif; color: #3a2f10; border-radius: 2px;
+                 box-shadow: 0 2px 4px rgba(0,0,0,.35); overflow: hidden; }
+  #notes .note span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #notes .note small + span { -webkit-line-clamp: 2; }
+  #notes .note:nth-child(1) { background: #ffe58a; transform: rotate(-2.5deg); }
+  #notes .note:nth-child(2) { background: #a8e6ff; transform: rotate(2deg); }
+  #notes .note:nth-child(3) { background: #ffc2d1; transform: rotate(1.5deg); }
+  #notes .note:nth-child(4) { background: #c4f5b0; transform: rotate(-1.5deg); }
+  #notes .none { color: #b8a58f; font: 600 11px system-ui, sans-serif; margin: auto; }
+  #notes .note small { display: block; font-weight: 700; opacity: .7; }
   #room[hidden] { display: none; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex;
           flex-direction: column; gap: 8px; min-width: 0; }
@@ -81,28 +153,86 @@
 </head>
 <body data-s="listening">
 <section id="voice">
-  <div id="pulse"><div class="core"></div><div class="ring"></div><div class="ring"></div><div class="ring"></div></div>
+  <div id="pulse"><div class="core"></div><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="catch"></div><div class="orbit"><i></i></div></div>
   <div id="name">Elkit</div>
   <span id="conn" class="off"></span>
 </section>
 <section id="right">
-  <nav id="tabs" hidden><button id="tDesign" class="on">Design</button><button id="tRoom">Room</button></nav>
+  <nav id="tabs"><button id="tDesign" class="on">Interface</button><button id="tRoom">Room</button></nav>
+  <nav id="sub" hidden aria-label="Interface tabs"></nav>
   <section id="stage">
     <div id="bar"></div>
-    <div id="empty">Tell Elkit what to make: a website, an app or a game.</div>
+    <div id="empty">Elkit is listening.</div>
     <div id="note"></div>
+    <div id="views"></div>
   </section>
   <section id="room" hidden>
-    <div class="card"><h3>Lights</h3>
-      <div class="lamp" id="lamp"><div class="bulb" id="bulb"></div><div><div class="big" id="lightTxt">Off</div><div class="muted" id="lightSub"></div></div></div>
-      <input type="range" min="0" max="100" id="bright" aria-label="Brightness"></div>
-    <div class="card"><h3>Thermostat</h3>
-      <div class="row"><button id="tDown">&minus;</button><div class="big" id="temp">--</div><button id="tUp">+</button></div></div>
-    <div class="card"><h3>Music</h3><div id="track" class="muted">Stopped</div>
-      <div class="row"><button id="mPlay">Play</button><button id="mNext">Next</button></div>
-      <input type="range" min="0" max="100" id="vol" aria-label="Volume"></div>
-    <div class="card"><h3>Timers &amp; alarms</h3><ul class="list" id="timers"></ul></div>
-    <div class="card"><h3>Reminders</h3><ul class="list" id="reminders"></ul></div>
+    <svg id="scene" viewBox="0 -36 600 476" preserveAspectRatio="xMidYMid meet" role="img" aria-label="The room">
+      <defs>
+        <linearGradient id="gCone" x1="0" y1="0" x2="0" y2="1">
+          <stop class="lc" offset="0" stop-color="#ffd59a" stop-opacity=".7"/><stop class="lc" offset="1" stop-color="#ffd59a" stop-opacity="0"/></linearGradient>
+        <radialGradient id="gHalo"><stop class="lc" offset="0" stop-color="#ffd59a" stop-opacity=".95"/><stop class="lc" offset="1" stop-color="#ffd59a" stop-opacity="0"/></radialGradient>
+        <radialGradient id="gPool"><stop class="lc" offset="0" stop-color="#ffd59a" stop-opacity=".5"/><stop class="lc" offset="1" stop-color="#ffd59a" stop-opacity="0"/></radialGradient>
+      </defs>
+      <rect id="wall" y="-60" width="600" height="378" fill="#12161f"/>
+      <rect id="floor" y="318" width="600" height="160" fill="#0c0f15"/>
+      <line x1="0" y1="318" x2="600" y2="318" stroke="#252c3a" stroke-width="2"/>
+      <!-- window: the sky follows the time of day -->
+      <g transform="translate(36,40)">
+        <rect id="sky" width="128" height="104" rx="6" fill="#0d1b3a"/>
+        <g id="stars" fill="#fff"><circle cx="18" cy="18" r="1.3"/><circle cx="48" cy="36" r="1"/><circle cx="28" cy="58" r="1.2"/>
+          <circle cx="108" cy="62" r="1"/><circle cx="78" cy="14" r="1"/><circle cx="100" cy="30" r="1.2"/></g>
+        <circle id="sun" cx="92" cy="30" r="13" fill="#ffe08a"/>
+        <path d="M0 76 Q30 62 64 72 T128 68 V104 H0Z" fill="#0b1220" opacity=".6"/>
+        <rect width="128" height="104" rx="6" fill="none" stroke="#3a4356" stroke-width="5"/>
+        <line x1="64" y1="0" x2="64" y2="104" stroke="#3a4356" stroke-width="4"/><line x1="0" y1="52" x2="128" y2="52" stroke="#3a4356" stroke-width="4"/>
+      </g>
+      <!-- reminders: notes on a cork board -->
+      <g transform="translate(30,166)">
+        <rect width="150" height="122" rx="6" fill="#3b2f25" stroke="#4d3d30" stroke-width="3"/>
+        <foreignObject x="6" y="6" width="138" height="110"><div xmlns="http://www.w3.org/1999/xhtml" id="notes"></div></foreignObject>
+      </g>
+      <!-- the lamp's light -->
+      <ellipse id="pool" cx="300" cy="332" rx="175" ry="26" fill="url(#gPool)" opacity="0"/>
+      <path id="cone" d="M262 104 L338 104 L440 330 L160 330 Z" fill="url(#gCone)" opacity="0"/>
+      <!-- sofa -->
+      <g fill="#273044"><rect x="208" y="244" width="184" height="54" rx="14"/><rect x="194" y="262" width="32" height="52" rx="10"/>
+        <rect x="374" y="262" width="32" height="52" rx="10"/><rect x="214" y="282" width="172" height="28" rx="8" fill="#303b52"/>
+        <rect x="216" y="312" width="8" height="8"/><rect x="376" y="312" width="8" height="8"/></g>
+      <!-- pendant lamp -->
+      <line x1="300" y1="-40" x2="300" y2="64" stroke="#3a4356" stroke-width="2"/>
+      <circle id="halo" cx="300" cy="100" r="48" fill="url(#gHalo)" opacity="0"/>
+      <path d="M272 64 H328 L346 100 H254 Z" fill="#2f384b" stroke="#465069" stroke-width="1.5"/>
+      <circle id="bulb" cx="300" cy="104" r="9" fill="#2a303c"/>
+      <text id="lampTxt" class="lbl" x="300" y="366" text-anchor="middle">Lights off</text>
+      <!-- thermostat -->
+      <g transform="translate(528,82)">
+        <circle r="44" fill="#1b212d" stroke="#2b3344" stroke-width="2"/>
+        <circle r="34" fill="none" stroke="#2b3344" stroke-width="7" pathLength="100" stroke-dasharray="75 100" transform="rotate(135)" stroke-linecap="round"/>
+        <circle id="tArc" r="34" fill="none" stroke="#3ddc84" stroke-width="7" pathLength="100" stroke-dasharray="0 100" transform="rotate(135)" stroke-linecap="round"/>
+        <text id="tTxt" y="6" text-anchor="middle" class="val">--</text>
+        <text id="tMode" y="22" text-anchor="middle" class="sub">comfort</text>
+      </g>
+      <!-- timer clock + alarms -->
+      <g transform="translate(440,180)">
+        <circle r="36" fill="#1b212d" stroke="#2b3344" stroke-width="2"/>
+        <circle r="28" fill="none" stroke="#2b3344" stroke-width="5"/>
+        <circle id="tmArc" r="28" fill="none" stroke="#b07aff" stroke-width="5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90)" stroke-linecap="round"/>
+        <text id="tmTxt" y="4" text-anchor="middle" class="val small">--:--</text>
+        <text id="tmLbl" y="18" text-anchor="middle" class="sub">no timer</text>
+      </g>
+      <text id="alarmTxt" class="lbl" x="440" y="232" text-anchor="middle"></text>
+      <!-- speaker -->
+      <g transform="translate(508,250)">
+        <g id="waves" fill="none" stroke="#7aa2ff" stroke-width="2.5" stroke-linecap="round">
+          <path d="M-8 34 Q-16 48 -8 62"/><path d="M-18 28 Q-30 48 -18 68"/><path d="M-28 22 Q-44 48 -28 74"/></g>
+        <rect width="56" height="68" rx="8" fill="#232a38" stroke="#323b4e" stroke-width="2"/>
+        <circle cx="28" cy="20" r="8" fill="#151a24" stroke="#3a4356"/><circle cx="28" cy="46" r="14" fill="#151a24" stroke="#3a4356"/>
+        <circle id="cone2" cx="28" cy="46" r="5" fill="#3a4356"/>
+      </g>
+      <g id="volBars" transform="translate(507,332)"></g>
+      <text id="trackTxt" class="lbl" x="536" y="372" text-anchor="middle">Music off</text>
+    </svg>
   </section>
 </section>
 <div id="ring" hidden><div class="big" id="ringTxt"></div><button id="stopRing">Stop</button></div>
@@ -110,29 +240,315 @@
 const $ = id => document.getElementById(id);
 let ws, pageV = null, appFrame = null, speaking = false, lastLevel = 0;
 
-function setStatus(s){ document.body.dataset.s = s; speaking = s === "speaking"; if (!speaking) $("pulse").querySelector(".core").style.transform = ""; }
+function setStatus(s){ document.body.dataset.s = s;
+  const av = typeof views !== "undefined" && views.get(activeId);       // Elkit talks over the video: dip it
+  if (av && av.kind === "video"){ av.yt.duck = s === "speaking"; ytCmd(av, "setVolume", [av.yt.duck ? Math.min(av.yt.vol, 25) : av.yt.vol]); }
+  speaking = s === "speaking"; if (!speaking) $("pulse").querySelector(".core").style.transform = ""; }
 function level(db){                                    // the core swells with the voice
   if (!speaking) return;
   const k = Math.max(0, Math.min(1, (db + 55) / 40));
   lastLevel = lastLevel * 0.5 + k * 0.5;
   $("pulse").querySelector(".core").style.transform = `scale(${1 + lastLevel * 0.45})`;
 }
+let hearK = 0, hearT = null;
+function hear(on){                                     // you are talking: the halo comes up
+  document.body.classList.toggle("hear", on);
+  if (!on){ clearInterval(hearT); hearT = setInterval(() => {         // let it fade, not snap off
+    hearK *= 0.7; $("pulse").style.setProperty("--hear", hearK.toFixed(3));
+    if (hearK < 0.02){ hearK = 0; $("pulse").style.setProperty("--hear", 0); clearInterval(hearT); } }, 50); }
+  else clearInterval(hearT);
+}
+function mic(db){                                      // ...and follows your voice
+  if (!document.body.classList.contains("hear")) return;
+  const k = Math.max(0, Math.min(1, (db + 55) / 35));
+  hearK = hearK * 0.55 + k * 0.45;
+  $("pulse").style.setProperty("--hear", hearK.toFixed(3));
+}
+function caught(ignored){                              // your words arrived: a ring pulled into the core
+  const c = $("pulse").querySelector(".catch");
+  c.classList.remove("got", "skip"); void c.offsetWidth; c.classList.add(ignored ? "skip" : "got");
+}
 function note(text){ $("note").textContent = text; $("note").classList.toggle("on", !!text); }
 
-function showApp(url, title){
-  if (!url) return;
-  $("empty").hidden = true;
-  if (!appFrame){ appFrame = document.createElement("iframe"); $("stage").prepend(appFrame); }
-  appFrame.title = title || "Design";
-  appFrame.classList.remove("updating");
-  appFrame.src = url + (url.includes("?") ? "&" : "?") + "v=" + Date.now();
-  $("bar").classList.remove("on", "wait"); note("");
+// ---- Interface sub-tabs: the agent sends the list ({type:"views"}) and which one shows; each keeps its own frame,
+// so a game keeps its state and a video its place while another tab shows ----
+const views = new Map();            // id -> {id, kind, el, frame, data, yt, phI}
+let activeId = null;
+function send(m){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
+function ytCmd(v, func, args){ try { v.frame.contentWindow.postMessage(JSON.stringify({event:"command", func, args: args || []}), "*"); } catch (e) {} }
+function report(v, state){ if (v.yt.state !== state){ v.yt.state = state; send({type:"media", state, view: v.id}); } }
+function loadApp(v){
+  const u = v.data.url;
+  v.frame.classList.remove("updating");
+  v.frame.src = u + (u.includes("?") ? "&" : "?") + "v=" + Date.now();
 }
+function drawPhoto(v){
+  const ps = v.data.photos || [], p = ps[v.phI] || ps[0]; if (!p) return;
+  const img = v.el.querySelector("img"), cap = v.el.querySelectorAll(".cap span");
+  img.src = p.url; img.alt = p.title || "";
+  img.onerror = () => { if (p.thumb && img.src !== p.thumb) img.src = p.thumb; };
+  cap[0].textContent = [p.title, p.creator && "by " + p.creator, p.license && "(" + p.license.toUpperCase() + ")"].filter(Boolean).join(" ");
+  cap[1].textContent = ps.length > 1 ? `${v.phI + 1} / ${ps.length}` : "";
+}
+function drawLinks(v){
+  const ul = v.el.querySelector("ul"); ul.textContent = "";
+  v.el.querySelector("h4").textContent = v.data.title ? "Results for: " + v.data.title : "Results";
+  (v.data.items || []).forEach((it, n) => {
+    let host = ""; try { host = new URL(it.link).hostname.replace(/^www\./, ""); } catch (e) { return; }
+    const a = document.createElement("a"); a.href = it.link; a.target = "_blank"; a.rel = "noopener";
+    const b = document.createElement("b"), sm = document.createElement("small"), sn = document.createElement("span"), num = document.createElement("span");
+    num.className = "n"; num.textContent = n + 1; b.append(num, document.createTextNode(it.title));
+    sm.textContent = (it.source ? it.source + " · " : "") + host; sn.textContent = it.snippet || "";
+    a.append(b, sm); if (it.snippet) a.append(sn);
+    const li = document.createElement("li"); li.append(a); ul.append(li);
+  });
+}
+function makeView(d){
+  const el = document.createElement("div"); el.className = "view " + d.kind; el.hidden = true;
+  const v = {id: d.id, kind: d.kind, el, data: d, frame: null};
+  if (d.kind === "app"){
+    v.frame = document.createElement("iframe"); v.frame.title = d.title || d.label; el.append(v.frame); loadApp(v);
+  } else if (d.kind === "video"){
+    v.yt = {state: "", vol: 100, muted: false, time: 0, duck: false};
+    v.frame = document.createElement("iframe"); v.frame.title = d.title || "Video";
+    v.frame.allow = "autoplay; encrypted-media; fullscreen; picture-in-picture"; v.frame.allowFullscreen = true;
+    v.frame.referrerPolicy = "strict-origin-when-cross-origin";
+    v.frame.addEventListener("load", () => {
+      try { v.frame.contentWindow.postMessage(JSON.stringify({event:"listening", id: v.id, channel:"widget"}), "*"); } catch (e) {}
+    });
+    v.frame.src = `https://www.youtube.com/embed/${encodeURIComponent(d.video_id)}?autoplay=1&enablejsapi=1&playsinline=1&rel=0` +
+                  `&origin=${encodeURIComponent(location.origin)}`;
+    el.append(v.frame);
+    v.timer = setTimeout(() => { if (v.yt.state !== "playing" && activeId === v.id) note("Tap the video to start it"); }, 4000);
+  } else if (d.kind === "photos"){
+    el.innerHTML = '<img alt=""><div class="cap"><span></span><span></span></div>'; v.phI = d.i || 0; drawPhoto(v);
+  } else if (d.kind === "links"){
+    el.innerHTML = '<h4></h4><ul></ul>'; drawLinks(v);
+  }
+  $("views").append(el); views.set(d.id, v);
+  return v;
+}
+function dropView(v){
+  if (v.kind === "video"){ clearTimeout(v.timer); report(v, "closed"); v.frame.src = "about:blank"; }
+  v.el.remove(); views.delete(v.id);
+}
+function renderViews(m){
+  const list = m.views || [], keep = new Set(list.map(d => d.id));
+  for (const v of [...views.values()]) if (!keep.has(v.id)) dropView(v);
+  for (const d of list){
+    const v = views.get(d.id);
+    if (!v){ makeView(d); continue; }
+    const old = v.data; v.data = d;
+    if (d.kind === "app" && (d.v !== old.v || d.url !== old.url)) loadApp(v);
+    else if (d.kind === "photos" && d.photos !== old.photos){ v.phI = d.i || 0; drawPhoto(v); }
+    else if (d.kind === "links") drawLinks(v);
+  }
+  const bar = $("sub"); bar.textContent = "";
+  for (const d of list){
+    const b = document.createElement("button");
+    b.className = "k-" + (d.kindword || d.kind) + (d.id === m.active ? " on" : "");
+    b.textContent = d.label; b.onclick = () => send({type:"view", id: d.id});
+    bar.append(b);
+  }
+  activate(m.active);
+  tab(m.active != null ? "design" : ($("room").hidden ? "design" : "room"));
+}
+function activate(id){
+  const prev = views.get(activeId);
+  if (prev && prev.id !== id && prev.kind === "video" && prev.yt.state === "playing") ytCmd(prev, "pauseVideo");
+  activeId = views.has(id) ? id : null;
+  for (const v of views.values()) v.el.hidden = v.id !== activeId;
+  $("empty").hidden = activeId !== null;
+  const a = views.get(activeId);
+  appFrame = a && a.kind === "app" ? a.frame : null;
+  const btn = $("sub").querySelector(".on"); if (btn) btn.scrollIntoView({inline: "nearest", block: "nearest"});
+  note("");
+}
+window.addEventListener("message", e => {
+  let host = ""; try { host = new URL(e.origin).hostname; } catch (err) { return; }
+  if (!/youtube(-nocookie)?\.com$/.test(host)) return;
+  const v = [...views.values()].find(x => x.kind === "video" && x.frame.contentWindow === e.source); if (!v) return;
+  let d; try { d = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch (err) { return; }
+  if (!d || (d.event !== "onStateChange" && !(d.event === "infoDelivery" && d.info && "playerState" in d.info))) return;
+  const st = typeof d.info === "number" ? d.info : d.info.playerState;
+  if (d.info && typeof d.info === "object"){
+    if (typeof d.info.currentTime === "number") v.yt.time = d.info.currentTime;
+    if (typeof d.info.muted === "boolean") v.yt.muted = d.info.muted;
+    if (typeof d.info.volume === "number" && !v.yt.duck) v.yt.vol = d.info.volume;
+  }
+  const name = {1:"playing", 2:"paused", 0:"ended"}[st];
+  if (name){ report(v, name); if (name === "playing" && activeId === v.id) note(""); }
+});
+function setVol(v, n){
+  v.yt.vol = Math.max(0, Math.min(100, Math.round(n))); ytCmd(v, "setVolume", [v.yt.vol]);
+  if (v.yt.muted && v.yt.vol > 0){ ytCmd(v, "unMute"); v.yt.muted = false; }
+  note(`Volume ${v.yt.vol}%`); setTimeout(() => note(""), 1500);
+}
+function videoCmd(m){
+  const v = views.get(m.view); if (!v) return;
+  if (v.kind === "photos"){ v.phI = typeof m.i === "number" ? m.i : v.phI; drawPhoto(v); return; }
+  if (v.kind !== "video") return;
+  const a = m.action, secs = m.seconds || 10;
+  if (a === "pause") ytCmd(v, "pauseVideo");
+  else if (a === "resume") ytCmd(v, "playVideo");
+  else if (a === "mute"){ ytCmd(v, "mute"); v.yt.muted = true; }
+  else if (a === "unmute"){ ytCmd(v, "unMute"); v.yt.muted = false; }
+  else if (a === "louder") setVol(v, v.yt.vol + 20);
+  else if (a === "quieter") setVol(v, v.yt.vol - 20);
+  else if (a === "volume" && typeof m.level === "number") setVol(v, m.level);
+  else if (a === "forward") ytCmd(v, "seekTo", [v.yt.time + secs, true]);
+  else if (a === "back") ytCmd(v, "seekTo", [Math.max(0, v.yt.time - secs), true]);
+  else if (a === "restart"){ ytCmd(v, "seekTo", [0, true]); ytCmd(v, "playVideo"); }
+}
+
+// ---- hands-free: voice "go to contact", "click send", "scroll down", "type Juan in name", "press space" ----
+// The apps come from this same server, so the page can find things inside them by their visible names.
+const CLICKABLE = 'a[href],button,[role=tab],[role=button],[role=link],[role=menuitem],[onclick],input[type=submit],' +
+                  'input[type=button],summary,label[for],[data-tab],[data-target],[data-page],[data-section],nav li';
+const FIELDS = 'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]),' +
+               'textarea,select,[contenteditable=true]';
+const KEYS = {space:[" ","Space",32], spacebar:[" ","Space",32], enter:["Enter","Enter",13], "return":["Enter","Enter",13],
+  up:["ArrowUp","ArrowUp",38], down:["ArrowDown","ArrowDown",40], left:["ArrowLeft","ArrowLeft",37],
+  right:["ArrowRight","ArrowRight",39], escape:["Escape","Escape",27], esc:["Escape","Escape",27], tab:["Tab","Tab",9]};
+const stem = w => w.length > 3 ? w.replace(/(ies)$/, "y").replace(/s$/, "") : w;
+const nrm = t => (t || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map(stem).join(" ");
+function navDoc(){ try { return appFrame && $("empty").hidden ? appFrame.contentDocument : null; } catch (e) { return null; } }
+function seen(el){
+  const r = el.getBoundingClientRect(), cs = el.ownerDocument.defaultView.getComputedStyle(el);
+  return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none";
+}
+function nameOf(el){
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !/^(submit|button)$/i.test(el.type)){   // a field: its label, not what is typed in it
+    const t = el.getAttribute("aria-label") || (el.labels && el.labels[0] && el.labels[0].innerText) ||
+              el.getAttribute("placeholder") || el.name || el.id || "";
+    return t.trim().split("\n")[0].slice(0, 60);
+  }
+  let t = el.getAttribute("aria-label") || el.innerText || el.value || el.title || el.getAttribute("alt") || "";
+  if (!t.trim() && el.labels && el.labels[0]) t = el.labels[0].innerText;
+  if (!t.trim()) t = el.getAttribute("placeholder") || el.name || el.id || "";
+  return t.trim().split("\n")[0].slice(0, 60);
+}
+function score(label, want){
+  const l = nrm(label), w = nrm(want);
+  if (!l || !w) return 0;
+  if (l === w) return 1;
+  if (l.startsWith(w + " ") || l.endsWith(" " + w)) return 0.85;
+  if (l.includes(w)) return 0.7;
+  const ws = w.split(" "), ls = new Set(l.split(" "));
+  return 0.6 * ws.filter(x => ls.has(x)).length / ws.length;
+}
+function best(doc, sel, want, extra){
+  let top = null, sc = 0;
+  for (const el of doc.querySelectorAll(sel)){
+    if (!seen(el)) continue;
+    const s = Math.max(score(nameOf(el), want), extra ? score(extra(el), want) * 0.95 : 0);
+    if (s > sc){ top = el; sc = s; }
+  }
+  return sc >= 0.5 ? top : null;
+}
+function options(doc){
+  const out = [];
+  for (const el of doc.querySelectorAll(CLICKABLE)){
+    const n = nameOf(el); if (n && seen(el) && !out.includes(n) && n.length < 40) out.push(n);
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+function flash(el){
+  const o = el.style.outline, oo = el.style.outlineOffset;
+  el.style.outline = "3px solid #7aa2ff"; el.style.outlineOffset = "2px";
+  setTimeout(() => { el.style.outline = o; el.style.outlineOffset = oo; }, 900);
+}
+function scroller(doc){
+  const se = doc.scrollingElement || doc.documentElement;
+  if (se.scrollHeight > se.clientHeight + 4) return se;
+  let big = null, area = 0;
+  for (const el of doc.querySelectorAll("*")){
+    const cs = doc.defaultView.getComputedStyle(el);
+    if (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 4){
+      const a = el.clientWidth * el.clientHeight; if (a > area){ area = a; big = el; }
+    }
+  }
+  return big || se;
+}
+function press(doc, key){
+  const k = KEYS[key] || (key.length === 1 ? [key, "Key" + key.toUpperCase(), key.toUpperCase().charCodeAt(0)] : null);
+  if (!k) return false;
+  try { appFrame.contentWindow.focus(); } catch (e) {}
+  const target = doc.activeElement && doc.activeElement !== doc.body ? doc.activeElement : doc.body;
+  const ev = type => new (doc.defaultView.KeyboardEvent)(type, {key:k[0], code:k[1], keyCode:k[2], which:k[2], bubbles:true, cancelable:true});
+  target.dispatchEvent(ev("keydown"));
+  setTimeout(() => target.dispatchEvent(ev("keyup")), 90);
+  return true;
+}
+function setValue(el, text){
+  const win = el.ownerDocument.defaultView;
+  if (el.tagName === "SELECT"){
+    let pick = null, sc = 0;
+    for (const o of el.options){ const s = score(o.text, text); if (s > sc){ sc = s; pick = o; } }
+    if (!pick || sc < 0.5) return false;
+    el.value = pick.value;
+  } else if (el.isContentEditable){ el.textContent = text; }
+  else {
+    const proto = el.tagName === "TEXTAREA" ? win.HTMLTextAreaElement.prototype : win.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(el, text);
+  }
+  el.dispatchEvent(new win.Event("input", {bubbles:true})); el.dispatchEvent(new win.Event("change", {bubbles:true}));
+  el.focus(); return true;
+}
+function appNav(m){
+  const doc = navDoc(), act = m.action, want = (m.target || "").trim();
+  if (!doc || !doc.body) return {ok:false, did:"no app is on the screen"};
+  tab("design");
+  if (act === "look"){
+    const heads = [...doc.querySelectorAll("h1,h2,h3")].filter(seen).map(h => h.innerText.trim()).filter(Boolean).slice(0, 10);
+    return {ok:true, did:"looked", title: doc.title, headings: heads, can_click: options(doc),
+            text: (doc.body.innerText || "").replace(/\s+/g, " ").trim().slice(0, 700)};
+  }
+  if (act === "scroll"){
+    const el = scroller(doc), d = el.clientHeight * 0.8;
+    const top = want === "top" ? 0 : want === "bottom" ? el.scrollHeight : el.scrollTop + (want === "up" ? -d : d);
+    el.scrollTo({top, behavior:"smooth"});
+    return {ok:true, did:"scrolled " + (want || "down")};
+  }
+  if (act === "press") return press(doc, want.toLowerCase()) ? {ok:true, did:"pressed " + want} : {ok:false, did:"unknown key " + want};
+  if (act === "back"){
+    if (doc.defaultView.location.hash){ doc.defaultView.history.back(); return {ok:true, did:"went back"}; }
+    const el = scroller(doc); if (el.scrollTop > 0){ el.scrollTo({top:0, behavior:"smooth"}); return {ok:true, did:"back to the top"}; }
+    return {ok:false, did:"there is no previous page"};
+  }
+  if (act === "type"){
+    let el = want ? best(doc, FIELDS, want) : null;
+    if (!el && !want) el = [...doc.querySelectorAll(FIELDS)].find(f => seen(f) && !f.value) || null;
+    if (!el) return {ok:false, did:"no field called " + want, fields: [...doc.querySelectorAll(FIELDS)].filter(seen).map(nameOf).slice(0, 12)};
+    if (!setValue(el, m.text || "")) return {ok:false, did:"could not choose " + m.text};
+    el.scrollIntoView({block:"center", behavior:"smooth"}); flash(el);
+    return {ok:true, did:`typed into ${nameOf(el) || "the field"}`};
+  }
+  if (!want) return {ok:false, did:"say what to " + (act === "click" ? "click" : "go to"), can_click: options(doc)};
+  // go_to / click: a link, tab or button by its name; go_to also finds a section by its heading or id
+  const el = best(doc, CLICKABLE, want, e => e.getAttribute("href") || e.dataset.tab || e.dataset.target || "");
+  if (el){
+    const href = el.getAttribute("href") || "";
+    const sec = href.startsWith("#") && href.length > 1 ? doc.getElementById(decodeURIComponent(href.slice(1))) : null;
+    flash(el);
+    if (sec){ sec.scrollIntoView({behavior:"smooth", block:"start"}); try { doc.defaultView.history.pushState(null, "", href); } catch (e) {} }
+    else el.click();
+    return {ok:true, did:(act === "click" ? "clicked " : "opened ") + nameOf(el)};
+  }
+  if (act === "go_to"){
+    const sec = best(doc, "h1,h2,h3,h4,section[id],[id]", want, e => e.id || "");
+    if (sec){ sec.scrollIntoView({behavior:"smooth", block:"start"}); flash(sec); return {ok:true, did:"went to " + (nameOf(sec) || want)}; }
+  }
+  return {ok:false, did:`nothing called ${want} on the screen`, can_click: options(doc)};
+}
+
 function showBuild(m){
   const bar = $("bar");
   if (!m.building){
     bar.style.width = "100%"; setTimeout(() => { bar.classList.remove("on", "wait"); bar.style.width = "0"; }, 500);
     if (appFrame) appFrame.classList.remove("updating");
+    $("empty").textContent = "Elkit is listening.";
     note(""); return;
   }
   if (appFrame){ appFrame.classList.add("updating"); try { appFrame.contentWindow.postMessage({type:"fda_pause"}, "*"); } catch (e) {} }
@@ -144,58 +560,116 @@ function showBuild(m){
 }
 
 // ---- Room tab: hidden until asked for ("show me the lights") or a room tool is used ----
-const COLORS = {"warm white":"#ffd59a","cool white":"#e6f0ff","white":"#ffffff","red":"#ff4d4d","green":"#3ddc84","blue":"#4d8bff",
-  "yellow":"#ffe14d","orange":"#ff9f40","purple":"#a66bff","pink":"#ff7ac6","cyan":"#4de1ff","magenta":"#ff4dff","violet":"#9a6bff","teal":"#2bc4b4"};
+// warm and cool must look clearly different on the dark wall: warm = amber, cool = icy blue (pure white looks grey)
+const COLORS = {"warm white":"#ffc477","cool white":"#a9ccff","white":"#f4f1ea","neutral white":"#f4f1ea","red":"#ff4d4d",
+  "green":"#3ddc84","blue":"#4d8bff","yellow":"#ffe14d","orange":"#ff9f40","purple":"#a66bff","pink":"#ff7ac6","cyan":"#4de1ff",
+  "magenta":"#ff4dff","violet":"#9a6bff","teal":"#2bc4b4"};
+// what people (and the LLM) call the two tones: "cool", "cold", "daylight", "warm tone", "soft white", "candle"...
+function lightColor(name){
+  const n = String(name || "").toLowerCase().trim();
+  if (COLORS[n]) return COLORS[n];
+  if (/^#[0-9a-f]{6}$/i.test(n)) return n;
+  if (/\b(cool|cold|cooler|colder|daylight|day light|icy|ice|bluish|crisp)\b/.test(n)) return COLORS["cool white"];
+  if (/\b(warm|warmer|soft|candle|candlelight|cozy|cosy|amber|sunset|yellowish)\b/.test(n)) return COLORS["warm white"];
+  if (/\bneutral|natural|plain\b/.test(n)) return COLORS["neutral white"];
+  for (const k of Object.keys(COLORS)) if (new RegExp("\\b" + k + "\\b").test(n)) return COLORS[k];   // "light blue" -> blue
+  try {                                         // any other CSS colour name ("lavender", "gold")
+    const cx = document.createElement("canvas").getContext("2d"); cx.fillStyle = "#000001"; cx.fillStyle = n;
+    if (cx.fillStyle !== "#000001") return cx.fillStyle;
+  } catch (e) {}
+  return COLORS["warm white"];
+}
 let room = null;
 function act(action){ if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:"action", action})); }
 function tab(t){
   const r = t === "room";
-  if (r) $("tabs").hidden = false;
-  $("room").hidden = !r; $("stage").hidden = r;
+  $("room").hidden = !r; $("stage").hidden = r; $("sub").hidden = r || !$("sub").children.length;
   $("tRoom").classList.toggle("on", r); $("tDesign").classList.toggle("on", !r);
 }
 function fmt(s){ const m = Math.floor(s/60), r = s%60; return `${m}:${String(r).padStart(2,"0")}`; }
 function li(a, b){ const l = document.createElement("li"); l.innerHTML = "<span></span><span class='muted'></span>";
   l.children[0].textContent = a; l.children[1].textContent = b || ""; return l; }
+// the room as a picture: the lamp lights the room in its colour, the thermostat dial, the timer clock,
+// the speaker (sound waves while music plays, volume bars), reminders as notes on the board, the sky by the hour
+function hex2rgb(h){ const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h || ""); return m ? [1,2,3].map(i => parseInt(m[i], 16)) : [255,213,154]; }
+function mix(a, b, k){ const A = hex2rgb(a), B = hex2rgb(b); return "rgb(" + A.map((v, i) => Math.round(v + (B[i] - v) * k)).join(",") + ")"; }
+let timerEnd = 0, timerTotal = 0, timerLabel = "";
+function drawTimer(){
+  const left = Math.max(0, Math.round((timerEnd - Date.now()) / 1000));
+  $("tmArc").style.opacity = timerEnd ? 1 : 0;
+  if (!timerEnd){ $("tmTxt").textContent = "--:--"; $("tmLbl").textContent = "no timer"; $("tmArc").style.strokeDasharray = "0 100"; return; }
+  $("tmTxt").textContent = fmt(left); $("tmLbl").textContent = (timerLabel || "timer").slice(0, 12);
+  $("tmArc").style.strokeDasharray = `${timerTotal ? 100 * left / timerTotal : 0} 100`;
+}
+function drawSky(){
+  const h = new Date().getHours() + new Date().getMinutes() / 60;
+  const day = h >= 6 && h < 17.5, dusk = (h >= 17.5 && h < 19) || (h >= 5 && h < 6);
+  $("sky").style.fill = day ? "#7ec8ff" : dusk ? "#f39a6b" : "#0d1b3a";
+  $("sun").style.fill = day || dusk ? "#ffe08a" : "#dfe6f5";                       // the sun, or the moon at night
+  $("sun").setAttribute("cy", day ? 26 : dusk ? 46 : 28);
+  $("stars").style.opacity = day ? 0 : dusk ? .3 : 1;
+}
+setInterval(drawTimer, 500); setInterval(drawSky, 60000); drawSky();
 function renderRoom(s){
   if (!s || !s.lights) return;
-  room = s; const L = s.lights, on = L.power === "on", c = COLORS[L.color] || L.color || "#ffd59a";
-  $("bulb").style.background = on ? c : "#20262e";
-  $("bulb").style.boxShadow = on ? `0 0 ${10 + L.brightness/2.5}px ${L.brightness/6}px ${c}` : "none";
-  $("lightTxt").textContent = on ? `${L.brightness}%` : "Off"; $("lightSub").textContent = L.color;
-  if (document.activeElement !== $("bright")) $("bright").value = L.brightness;
-  $("temp").textContent = `${s.thermostat_c}°C`;
-  const m = s.music || {state:"stopped"};
-  $("track").textContent = m.state === "stopped" ? "Stopped" : `${m.state === "playing" ? "▶" : "❚❚"} ${m.track}`;
-  $("mPlay").textContent = m.state === "playing" ? "Pause" : "Play";
-  if (document.activeElement !== $("vol")) $("vol").value = s.volume;
-  const T = $("timers"); T.replaceChildren();
-  (s.timers || []).forEach(t => T.append(li(t.label || "Timer", fmt(t.left))));
-  (s.alarms || []).forEach(a => T.append(li("Alarm", a.time)));
-  if (!T.children.length) T.append(li("None"));
-  const R = $("reminders"); R.replaceChildren();
-  (s.reminders || []).forEach(r => R.append(li(r.text, r.time)));
-  if (!R.children.length) R.append(li("None"));
+  room = s;
+  const L = s.lights, on = L.power === "on", c = lightColor(L.color);
+  const k = on ? Math.max(0.05, (L.brightness || 0) / 100) : 0;
+  document.querySelectorAll("#scene .lc").forEach(st => st.style.stopColor = c);
+  $("bulb").style.fill = on ? c : "#2a303c";
+  $("halo").style.opacity = on ? 0.35 + 0.65 * k : 0;
+  $("cone").style.opacity = on ? 0.15 + 0.6 * k : 0;
+  $("pool").style.opacity = on ? 0.2 + 0.8 * k : 0;
+  $("wall").style.fill = on ? mix("#12161f", c, 0.08 + 0.2 * k) : "#12161f";
+  $("floor").style.fill = on ? mix("#0c0f15", c, 0.05 + 0.12 * k) : "#0c0f15";
+  $("room").style.background = `linear-gradient(${$("wall").style.fill} 0 67%, ${$("floor").style.fill} 67%)`;
+  $("lampTxt").textContent = on ? `Lights ${L.brightness}% · ${L.color}` : "Lights off";
+  const t = +s.thermostat_c, f = Math.max(0, Math.min(1, (t - 16) / 16));
+  const tc = t <= 21 ? "#4da3ff" : t >= 27 ? "#ff9f40" : "#3ddc84";
+  $("tArc").style.strokeDasharray = `${75 * f} 100`; $("tArc").style.stroke = tc;
+  $("tTxt").textContent = `${t}°`; $("tMode").textContent = t <= 21 ? "cooling" : t >= 27 ? "heating" : "comfort";
+  const m = s.music || {state: "stopped"};
+  $("waves").classList.toggle("on", m.state === "playing");
+  $("cone2").style.fill = m.state === "playing" ? "#7aa2ff" : "#3a4356";
+  const tr = m.state === "stopped" ? "Music off" : (m.state === "paused" ? "Paused · " : "♪ ") + (m.track || "");
+  $("trackTxt").textContent = tr.length > 24 ? tr.slice(0, 23) + "…" : tr;
+  const vb = $("volBars"), n = Math.ceil((s.volume || 0) / 20); vb.textContent = "";
+  for (let i = 0; i < 5; i++){
+    const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    const h = 6 + i * 3.5; r.setAttribute("x", i * 12); r.setAttribute("y", 20 - h); r.setAttribute("width", 8); r.setAttribute("height", h);
+    r.setAttribute("rx", 1.5); r.setAttribute("fill", i < n ? "#7aa2ff" : "#2b3344"); vb.append(r);
+  }
+  const tm = (s.timers || [])[0];
+  if (tm){ timerEnd = Date.now() + tm.left * 1000; timerTotal = tm.seconds; timerLabel = tm.label; } else timerEnd = 0;
+  drawTimer();
+  $("alarmTxt").textContent = (s.alarms || []).length ? "⏰ " + s.alarms.map(a => a.time).join(", ") : "";
+  const N = $("notes"); N.textContent = "";
+  for (const r of (s.reminders || []).slice(0, 4)){
+    const d = document.createElement("div"), tx = document.createElement("span"); d.className = "note"; tx.textContent = r.text; d.append(tx);
+    if (r.time){ const sm = document.createElement("small"); sm.textContent = r.time; d.prepend(sm); }
+    N.append(d);
+  }
+  if (!N.children.length){ const d = document.createElement("div"); d.className = "none"; d.textContent = "No reminders"; N.append(d); }
   $("ring").hidden = !s.ringing; if (s.ringing) $("ringTxt").textContent = s.ringing;
 }
 $("tDesign").onclick = () => tab("design");
 $("tRoom").onclick = () => tab("room");
-$("lamp").onclick = () => room && act({tool:"lights", power: room.lights.power === "on" ? "off" : "on"});
-$("bright").onchange = e => act({tool:"lights", brightness: +e.target.value});
-$("tDown").onclick = () => room && act({tool:"thermostat", celsius: room.thermostat_c - 0.5});
-$("tUp").onclick = () => room && act({tool:"thermostat", celsius: room.thermostat_c + 0.5});
-$("mPlay").onclick = () => room && act({tool:"music", action: room.music.state === "playing" ? "pause" : (room.music.state === "paused" ? "resume" : "play")});
-$("mNext").onclick = () => act({tool:"music", action:"next"});
-$("vol").onchange = e => act({tool:"volume", level: +e.target.value});
 $("stopRing").onclick = () => { $("ring").hidden = true; act({tool:"stop_ringing"}); };
 function onMsg(m){
   switch (m.type){
     case "hello": if (pageV === null) pageV = m.v; else if (m.v !== pageV) location.reload(); break;
     case "status": setStatus(m.status); break;
     case "level": level(m.db); break;
-    case "app": tab("design"); showApp(m.url, m.title); break;
-    case "app_set": if (appFrame && appFrame.contentWindow) appFrame.contentWindow.postMessage({type:"fda_set", patch:m.patch}, "*");
-                    else if (m.url) showApp(m.url, ""); break;
+    case "voice": hear(m.on); break;
+    case "mic": mic(m.db); break;
+    case "user": caught(!!m.ignored); break;
+    case "views": renderViews(m); break;
+    case "video_cmd": videoCmd(m); break;
+    case "app_nav": { let r; try { r = appNav(m); } catch (e) { r = {ok:false, did:"error: " + e.message}; }
+                      if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:"app_result", id:m.id, ...r})); break; }
+    case "app_set": { const base = (m.url || "").split("?")[0];
+                      const v = [...views.values()].find(x => x.kind === "app" && x.data.url === base) || views.get(activeId);
+                      if (v && v.frame) v.frame.contentWindow.postMessage({type:"fda_set", patch:m.patch}, "*"); break; }
     case "build": if (m.building) tab("design"); showBuild(m); break;
     case "room": renderRoom(m.state); if (m.state && m.state.ringing) tab("room"); break;
     case "tab": tab(m.tab); break;

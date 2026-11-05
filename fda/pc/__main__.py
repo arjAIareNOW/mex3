@@ -20,6 +20,11 @@ def setup_logging(level: str = "INFO"):
     logger.remove()
     logger.add(sys.stderr, level=level, format="{time:HH:mm:ss.SSS} {name} {message}",
                filter=lambda r: not r["name"].startswith("pipecat.transports") or r["level"].no >= 30)
+    # the same, kept in logs/agent.log (what was heard, which tools and LLM ran, what was said): 3 runs kept
+    from ..config import ROOT
+    logger.add(ROOT / "logs" / "agent.log", level=level, format="{time:YYYY-MM-DD HH:mm:ss.SSS} {name} {message}",
+               filter=lambda r: not r["name"].startswith("pipecat.transports") or r["level"].no >= 30,
+               rotation="20 MB", retention=3, encoding="utf-8", enqueue=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s.%(msecs)03d %(name)s %(message)s", datefmt="%H:%M:%S")
     for noisy in ("httpx", "httpx2", "httpcore", "aiohttp.access", "mcp", "primp", "ddgs"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
@@ -50,7 +55,7 @@ async def run(cfg, sim: bool = False):
     runner = WorkerRunner(handle_sigint=not sys.platform.startswith("win"))
     if cfg.say_ready:
         await worker.queue_frames([__import__("pipecat.frames.frames", fromlist=["TTSSpeakFrame"]).TTSSpeakFrame(
-            f"Hi, I am {cfg.name}. What should we build today?")])
+            f"Hi, I'm {cfg.name}. I'm ready.")])
     try:
         await runner.add_workers(worker)
         await runner.run()

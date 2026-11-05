@@ -8,6 +8,7 @@ window.FDA = (function () {
   const isColor = v => typeof v === "string" && /^(#|rgb|hsl)|^[a-z]+$/i.test(v) && v.indexOf("@") < 0 &&
     (typeof CSS === "undefined" || !CSS.supports || CSS.supports("color", v));
   function load(k, v) {
+    if (typeof v === "string") v = v.replace("|flip", "");
     if (!isImg(v) || (imgs[k] && imgs[k].src === v)) return;
     const im = new Image(); im.src = v; imgs[k] = im; delete pats[k];
   }
@@ -22,10 +23,14 @@ window.FDA = (function () {
   }
   function draw(ctx, k, x, y, w, h) {
     // a setting's name ("bird"), or its value (FDA.draw(ctx, C.bird, ...) works too: C.bird is live)
-    const v = (typeof k === "string" && k in cfg) ? cfg[k] : k;
+    let v = (typeof k === "string" && k in cfg) ? cfg[k] : k;
     if (v === undefined || v === null || v === "") return;
     if (!(typeof k === "string" && k in cfg)) { k = String(v).slice(0, 200); load(k, v); }
+    // "🐦|flip" (or a photo + "|flip") = drawn mirrored: emoji face one fixed way, the game may need the other
+    const flip = typeof v === "string" && v.indexOf("|flip") >= 0;
+    if (flip) v = v.replace("|flip", "");
     ctx.save();
+    if (flip) { ctx.translate(2 * x + w, 0); ctx.scale(-1, 1); }
     if (isImg(v)) {
       const im = imgs[k];
       if (im && im.complete && im.naturalWidth) {

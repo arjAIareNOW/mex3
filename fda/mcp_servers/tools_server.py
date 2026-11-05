@@ -13,11 +13,15 @@ Tools
   find_recipe(dish)              TheMealDB                      (free, no key)
   calculate(expression)          safe arithmetic
   wikipedia(topic)               Wikipedia summary              (free, no key)
+  read_page(link)                the text of a page from web_search (details the snippets lack)
+  show_photo(what)               photos from the web for the display (Openverse, free licences, no key)
+  play_video(what)               a YouTube video for the display (YouTube search page + oEmbed, free, no key)
 
 Building an app takes an LLM writing ~150-300 lines of HTML. Who writes it is `coder_engine` (fda.toml):
   local  llama.cpp on this machine (offline_llm, or "qwen2.5-coder-3b" if downloaded): free, ~1-3 min on a laptop,
          several minutes on a Pi
-  groq / gemini / openai: free tiers, ~5-15 s (GROQ_API_KEY / GEMINI_API_KEY / LLM_API_KEY in .env)
+  groq   the main provider: qwen3.8-27b, one fallback gpt-oss-120b, ~5-10 s (GROQ_API_KEY in .env)
+  openai any OpenAI-compatible server (LLM_BASE_URL, LLM_API_KEY)
 Builds run in the background: create_app returns at once and the agent says when the app is ready.
 """
 from __future__ import annotations
@@ -63,6 +67,8 @@ Rules:
   Draw every thing with FDA.draw(ctx, "pipe", x, y, w, h) (it draws a colour, emoji or photo), the background with
   FDA.draw(ctx, "sky", 0, 0, W, H) first in every frame, text with ctx.fillStyle = FDA.color("text").
   Read C.speed, C.gap... every frame (never copy them into constants).
+  Emoji animals and vehicles face LEFT in most fonts. If a thing looks or moves to the right (a flappy-style bird,
+  a runner, a car driving right), add "|flip" to its value so FDA.draw mirrors it: bird: "🐦|flip".
   FDA is already loaded by the page before your script: just use it. NEVER define FDA, FDA.defaults or FDA.draw
   yourself (no "const FDA = ..."), or the live settings stop working.
 - Websites: look like a real, polished business site. Use the real name, wording and details you are given.
@@ -198,7 +204,7 @@ class Apps:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.coder = llmlib.make(cfg, cfg.coder_engine if cfg.coder_engine != "same" else cfg.llm_engine,
                                  role="coder")
-        # cloud coders (Gemini 2.5 "thinks" first) get more room; a local 3B model loops if given too much
+        # cloud coders get more room (a whole game); a local 3B model loops if given too much
         self.max_tokens = 4000 if self.coder.engine == "local" else 12000
         log.info("app coder: %s / %s", self.coder.engine, self.coder.model)
         self.job: dict | None = None
@@ -440,6 +446,9 @@ def _calc(expr: str) -> float:
 def build(cfg: Config) -> tuple[MCPServer, Apps]:
     mcp = MCPServer("fda-tools", instructions="Real-world tools for the FDA voice agent. All free, no API keys.")
     web = httpx.Client(timeout=8.0, headers={"User-Agent": "FDAVoiceAgent/1.0 (student project) httpx/0.28.1"}, follow_redirects=True)
+    browser = {"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                             "Chrome/124.0 Safari/537.36", "Accept-Language": "en-US,en;q=0.9"}
+
     apps = Apps(cfg)
     geo: dict[str, tuple] = {}
 
@@ -601,14 +610,33 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
 
     @mcp.tool()
     def web_search(query: str) -> list[dict] | str:
-        """Search the web (current facts, prices, schedules, people). Returns the top results."""
+        """Search the web (current facts, prices, flights, schedules, people). Returns the top results with their
+        links; the links are shown on the screen."""
         try:
             from ddgs import DDGS
-            res = DDGS().text(query, max_results=3)
+            res = DDGS().text(query, max_results=8)
         except Exception as e:  # noqa: BLE001
             log.warning("search: %s", e)
             return "The search is not reachable right now."
-        return [{"title": r.get("title", "")[:90], "snippet": r.get("body", "")[:220]} for r in res] or "No results."
+        ads = ("/aclick", "duckduckgo.com/y.js", "googleadservices", "doubleclick.net")
+        res = [r for r in res if r.get("href") and not any(a in r["href"] for a in ads)][:5]
+        return [{"title": r.get("title", "")[:90], "snippet": r.get("body", "")[:300], "link": r["href"]}
+                for r in res] or "No results."
+
+    @mcp.tool()
+    def read_page(link: str) -> str:
+        """The text of a web page from web_search (for details the snippets lack: the airline, the exact price,
+        the date). Returns the first part of the page as plain text."""
+        try:
+            r = httpx.get(link, headers=browser, timeout=10, follow_redirects=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning("read page: %s", e)
+            return "That page is not reachable right now."
+        html = re.sub(r"(?is)<(script|style|noscript|svg|head|template)\b[^>]*>.*?</\1\s*>", " ", r.text)
+        text = re.sub(r"[ \t\r\f\v]+", " ", re.sub(r"(?s)<[^>]+>", " ", html))
+        text = re.sub(r"\s*\n\s*", "\n", text).strip()
+        import html as _html
+        return _html.unescape(text)[:4000] or "The page has no readable text."
 
     @mcp.tool()
     def get_news(topic: str = "") -> list[dict] | str:
@@ -623,7 +651,8 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
         items = []
         for it in root.iter("item"):
             title = (it.findtext("title") or "").rsplit(" - ", 1)
-            items.append({"headline": title[0][:110], "source": title[1] if len(title) > 1 else ""})
+            items.append({"headline": title[0][:110], "source": title[1] if len(title) > 1 else "",
+                          "link": it.findtext("link") or ""})
             if len(items) == 4:
                 break
         return items or "No news found."
@@ -673,6 +702,57 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
         except Exception as e:  # noqa: BLE001
             return f"I can't calculate that: {e}"
         return f"{v:,.6g}" if isinstance(v, float) else f"{v:,}"
+
+    @mcp.tool()
+    def play_video(what: str) -> dict | str:
+        """Find a YouTube video and play it on the screen. `what` = exactly what the person asked for
+        ("the Bohemian Rhapsody music video", "how to tie a tie", "cat videos"). Only call this when they asked
+        for a video and said what it is about."""
+        if not what.strip():
+            return "Ask which video they want."
+        try:
+            page = httpx.get("https://www.youtube.com/results", params={"search_query": what}, headers=browser,
+                             timeout=8, follow_redirects=True).text
+        except Exception as e:  # noqa: BLE001
+            log.warning("video search: %s", e)
+            return "YouTube is not reachable right now."
+        ids = list(dict.fromkeys(re.findall(r'"videoRenderer":\{"videoId":"([\w-]{11})"', page)))
+        for vid in ids[:5]:
+            # oEmbed answers 401/403 for videos whose owner does not allow playing them on other sites
+            try:
+                o = web.get("https://www.youtube.com/oembed",
+                            params={"url": f"https://www.youtube.com/watch?v={vid}", "format": "json"})
+            except Exception:  # noqa: BLE001
+                continue
+            if o.status_code == 200:
+                d = o.json()
+                return {"ok": True, "video_id": vid, "title": d.get("title", "")[:100],
+                        "channel": d.get("author_name", "")[:60]}
+        return f"I couldn't find a video for {what} that can play here."
+
+    @mcp.tool()
+    def show_photo(what: str) -> dict | str:
+        """Show photos from the web on the screen (free-licence photos, Openverse). `what` = what they want to see
+        ("Mount Apo", "a red panda", "the Eiffel Tower at night")."""
+        try:
+            r = web.get("https://api.openverse.org/v1/images/", params={"q": what, "page_size": 8}, timeout=12)
+            res = r.json().get("results", [])
+        except Exception as e:  # noqa: BLE001
+            log.warning("photos: %s", e)
+            return "The photo search is not reachable right now."
+        items = []
+        for it in res:
+            if not it.get("url"):
+                continue
+            url = it["url"]
+            m = re.match(r"https://upload\.wikimedia\.org/wikipedia/commons/(\w)/(\w\w)/([^/?#]+)$", url)
+            if m and (it.get("width") or 0) > 960:    # big originals are slow on the Pi: a 960 px copy (Wikimedia resize)
+                url = f"https://upload.wikimedia.org/wikipedia/commons/thumb/{m[1]}/{m[2]}/{m[3]}/960px-{m[3]}"
+            items.append({"title": (it.get("title") or what)[:80], "creator": (it.get("creator") or "")[:40],
+                          "license": it.get("license") or "", "url": url, "thumb": it["url"]})
+            if len(items) == 5:
+                break
+        return {"ok": True, "photos": items} if items else f"No photos found for {what}."
 
     @mcp.tool()
     def get_time() -> str:

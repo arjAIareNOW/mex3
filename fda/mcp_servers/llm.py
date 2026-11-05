@@ -1,10 +1,9 @@
-"""OpenAI-compatible chat endpoints: the local llama.cpp server (free, offline) or a free-tier cloud API.
+"""OpenAI-compatible chat endpoints: Groq (the main provider) or the local llama.cpp server (free, offline).
 
-engine   endpoint                                                   key (.env)       default model
-local    llama-server started here (offline_models/)                -                offline_llm / coder model
-groq     https://api.groq.com/openai/v1                             GROQ_API_KEY     llama-3.3-70b-versatile
-gemini   https://generativelanguage.googleapis.com/v1beta/openai    GEMINI_API_KEY   gemini-2.5-flash
-openai   LLM_BASE_URL (any OpenAI-compatible server)                LLM_API_KEY      llm_model
+engine   endpoint                                      key (.env)       default model (agent / coder)
+groq     https://api.groq.com/openai/v1                GROQ_API_KEY     gpt-oss-120b / qwen3.8-27b
+local    llama-server started here (offline_models/)   -                offline_llm / coder model
+openai   LLM_BASE_URL (any OpenAI-compatible server)   LLM_API_KEY      llm_model
 """
 from __future__ import annotations
 
@@ -22,17 +21,11 @@ log = logging.getLogger("fda.llm")
 CLOUD = {
     "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY",
              {"agent": "openai/gpt-oss-120b", "coder": "qwen/qwen3.8-27b"}),
-    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY",
-               {"agent": "gemini-flash-latest", "coder": "gemini-flash-latest"}),
-    "sambanova": ("https://api.sambanova.ai/v1", "SAMBANOVA_API_KEY",
-                  {"agent": "gpt-oss-120b", "coder": "gemma-4-31B-it"}),
     "openai": (None, "LLM_API_KEY", {"agent": "", "coder": ""}),
 }
-MAX_OUT = {"sambanova": 7000}     # free SambaNova models have small (8k-32k) context windows
-FALLBACKS = {"sambanova": ["gemma-4-31B-it", "gpt-oss-120b", "MiniMax-M3.1-Flash", "Meta-Llama-3.3-70B-Instruct"],
-             "groq": ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"],
-             "gemini": ["gemini-flash-latest", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash",
-                        "gemini-flash-lite-latest", "gemini-3.5-flash-lite"]}
+MAX_OUT: dict[str, int] = {}      # per-engine cap on output tokens (none needed for Groq)
+FALLBACKS = {"groq": {"agent": ["openai/gpt-oss-20b"],         # one fallback per role, used when the main fails
+                      "coder": ["openai/gpt-oss-120b"]}}
 CODER_LOCAL = ["qwen2.5-coder-3b", "qwen2.5-3b", "qwen2.5-coder-1.5b", "qwen2.5-1.5b"]   # first one downloaded wins
 
 
@@ -47,7 +40,10 @@ class Endpoint:
 
     def complete(self, messages: list, max_tokens: int = 2000, temperature: float = 0.2, stop_when=None) -> str:
         """complete_once, moving on to a fallback model when the provider says the model is busy or gone."""
-        models = [self.model] + [m for m in self.fallbacks if m != self.model]
+        # every call starts again from the configured model: a fallback is for this call only (it used to stick,
+        # so one 429 left all later builds on the smaller model)
+        self.primary = getattr(self, "primary", None) or self.model
+        models = [self.primary] + [m for m in self.fallbacks if m != self.primary]
         for i, model in enumerate(models):
             self.model = model
             try:
@@ -161,12 +157,12 @@ def cloud(cfg, engine: str, role: str = "agent") -> Endpoint:
         raise SystemExit(f"llm engine {engine}: set {key_env}" + (", LLM_BASE_URL and llm_model" if engine == "openai"
                                                                   else "") + " in .env / fda.toml")
     ep = Endpoint(base, model, key, engine)
-    ep.fallbacks = FALLBACKS.get(engine, [])
+    ep.fallbacks = FALLBACKS.get(engine, {}).get(role, [])
     return ep
 
 
 class ChainEndpoint:
-    """Several engines in order ("sambanova,gemini"): when one fails (busy, rate limit, down), the next one writes."""
+    """Several engines in order ("groq,local"): when one fails (busy, rate limit, down), the next one writes."""
 
     def __init__(self, endpoints: list):
         self.endpoints = endpoints
@@ -206,7 +202,7 @@ def make(cfg, engine: str, role: str = "agent") -> Endpoint:
             return make(cfg, "local", role)
         return cloud(cfg, engine, role)
     if engine != "local":
-        raise SystemExit(f"unknown llm engine {engine!r}: local, groq, gemini, openai")
+        raise SystemExit(f"unknown llm engine {engine!r}: groq, local, openai")
     from ..local import DIR, LLM
     if role == "coder":
         name = next((m for m in CODER_LOCAL if m in LLM and (DIR / LLM[m][1]).exists()), None)

@@ -23,6 +23,11 @@ TOOLS = {
     "stop_ringing": {},
     "add_reminder": {"text": {"type": "string"}, "time": {"type": "string"}},
     "list_reminders": {},
+    "delete_reminder": {"which": {"type": "string", "description": "words from the reminder, its number "
+                                  "(1 = first), 'last', or 'all'"}},
+    "edit_reminder": {"which": {"type": "string", "description": "words from the reminder, its number, or 'last'"},
+                      "text": {"type": "string", "description": "new text (leave out to keep it)"},
+                      "time": {"type": "string", "description": "new time like 18:00 (leave out to keep it)"}},
     "music": {"action": {"enum": ["play", "pause", "resume", "stop", "next"]}},
     "volume": {"change": {"enum": ["up", "down"]}, "level": {"type": "integer", "minimum": 0, "maximum": 100}},
     "call": {"contact": {"type": "string"}},
@@ -38,7 +43,8 @@ TOOLS = {
              "size": {"enum": ["smaller", "bigger", "small", "normal", "big"]},
              "title": {"type": "string"}},
 }
-REQUIRED = {"thermostat": ["celsius"], "timer": ["seconds"], "alarm": ["time"], "add_reminder": ["text"],
+REQUIRED = {"thermostat": ["celsius"], "timer": ["seconds"], "alarm": ["time"], "add_reminder": ["text"], "delete_reminder": ["which"],
+            "edit_reminder": ["which"],
             "music": ["action"], "call": ["contact"], "message": ["contact", "text"], "web_search": ["query"],
             "game": ["action"]}
 

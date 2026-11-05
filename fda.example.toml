@@ -17,24 +17,24 @@ location = "Quezon City"  # for the weather
 # Debug: keep mic / reference / echo-cancelled WAVs to tune echo cancellation
 # record_dir = "recordings"
 
-# Who writes the apps and games FDA builds by voice: "gemini" (free key from https://aistudio.google.com/apikey,
-# GEMINI_API_KEY=... in .env; good code in ~10-20 s) | "local" (Qwen2.5-Coder-3B, offline, weak at games) | "groq"
-# Without the key FDA falls back to the local coder.
-# Several in order = automatic fallback: SambaNova (free key at https://cloud.sambanova.ai, SAMBANOVA_API_KEY,
-# a game in ~6 s, often busy) then Gemini.
-coder_engine = "groq,sambanova,gemini"
+# Groq is the main provider (GROQ_API_KEY=... in .env, https://console.groq.com/keys). Each part has one main
+# model and ONE fallback, used only when the main one fails.
+# Who writes the apps and games FDA builds by voice: "groq" (qwen3.8-27b, fallback gpt-oss-120b; a game in ~5-10 s)
+# | "local" (Qwen2.5-Coder-3B, offline, weak at games). Without the key FDA uses the local coder.
+coder_engine = "groq"
 
-# Who talks (the agent): "groq" (free key from https://console.groq.com/keys, GROQ_API_KEY=... in .env;
-# gpt-oss-120b answers in ~0.5 s) | "local" (Qwen2.5-3B on this machine, offline, 3-6 s) | "gemini"
+# Who talks (the agent): "groq" (gpt-oss-120b, ~0.5 s; fallback gpt-oss-20b)
+# | "local" (Qwen2.5-3B on this machine, offline, 3-6 s)
 llm_engine = "groq"
 
-# Speech: one engine or several in order (the next one is used when one fails; the list always ends offline).
+# Speech: the engine named here, and the offline one below as its fallback (the list always ends offline;
+# naming two engines here would add a second fallback).
 #   Listening (asr_engine): dgx3 (school Qwen2-Audio, VPN) | groq (Whisper large-v3-turbo, GROQ_API_KEY)
 #                           | moonshine | moonshine-tiny | parakeet | parakeet-small   (offline, on this machine)
 #   Voice (tts_engine):     dgx3 (school Qwen3-TTS, VPN) | deepgram (DEEPGRAM_API_KEY) | kokoro | piper (offline)
 # Examples: asr_engine = "groq,dgx3,moonshine"     tts_engine = "dgx3,kokoro,piper"
 #           Pi offline only: asr_engine = "parakeet-small"   tts_engine = "piper"
-asr_engine = "dgx3"
-tts_engine = "dgx3"
+asr_engine = "groq"   # Groq Whisper; its one fallback is offline_asr (Moonshine, on the device)
+tts_engine = "dgx3"   # school Qwen3-TTS; its one fallback is offline_tts (Piper, on the device)
 offline_asr = "moonshine-base"   # the offline end of the listening chain: moonshine-base | parakeet-small | parakeet
 offline_tts = "piper"            # the offline end of the voice chain: piper (Pi) | kokoro (laptop, nicer)

@@ -23,7 +23,7 @@ class UI:
 
     def send(self, msg: dict):
         t = msg.get("type")
-        if t in ("room", "status", "health", "sources", "app", "build", "tab"):
+        if t in ("room", "status", "health", "sources", "views", "build", "tab"):
             self.last[t] = msg
         if not self.clients:
             return
@@ -74,6 +74,12 @@ class UI:
                         msg = json.loads(m.data)
                         if msg.get("type") == "action" and isinstance(msg.get("action"), dict):
                             await self.agent.room.execute(msg["action"])
+                        elif msg.get("type") == "media" and hasattr(self.agent, "on_media"):
+                            self.agent.on_media(msg)       # the video on the display: playing / paused / ended
+                        elif msg.get("type") == "app_result" and hasattr(self.agent, "on_app_result"):
+                            self.agent.on_app_result(msg)  # what a voice "click" / "go to" did inside the app
+                        elif msg.get("type") == "view" and hasattr(self.agent, "on_view"):
+                            self.agent.on_view(msg)        # a tap on an Interface sub-tab
                     except Exception:
                         log.exception("bad message from display")
         finally:

@@ -24,6 +24,8 @@ from pipecat.services.tts_service import TTSService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
+from .. import rules
+
 
 class McpConnection:
     """A persistent MCP session to one streamable-HTTP server, owned by a dedicated task (MCP sessions are
@@ -156,13 +158,47 @@ class McpSTTService(SegmentedSTTService):
             yield TranscriptionFrame(text, self._user_id, time_now_iso8601(), Language.EN)
 
 
+# characters the voices read as noise or run words together on: web text is full of them
+_UNI = str.maketrans({" ": " ", " ": " ", " ": " ", " ": " ", " ": " ", "​": "",
+                      "‌": "", "‍": "", "⁠": "", "﻿": "", "‘": "'", "’": "'",
+                      "‚": "'", "‛": "'", "′": "'", "“": '"', "”": '"', "„": '"',
+                      "«": '"', "»": '"', "‑": "-", "‐": "-", "–": ", ", "—": ", ", "―": ", ", "−": "-",
+                      "…": "...", "•": ", ", "·": ", ", "→": " to ", "×": " times ",
+                      "°": " degrees "})
+# chatter tacked on the end of replies ("Let me know if you need anything else.")
+_CHATTER = re.compile(r"(?i)\s*\b(let me know|feel free to (ask|let me know|reach out)|is there anything else|"
+                      r"anything else i can|just let me know)\b[^.?!]*\b(else|next|other|more|changes|controls|help|"
+                      r"further|do)\b[^.?!]*[.?!]*|\s*\bwhat would you like (to do )?next\b[^.?!]*[.?!]*"
+                      r"|\s*\b(?:is there )?anything else\b[^.?!]*\?|\s*\banything else\s*[.?!]*$")
+# stage directions the model writes instead of staying quiet: "(no further response)", "[pause]", "(end)"
+_STAGE = re.compile(r"(?i)[(\[]\s*(?:no\s+(?:further\s+|more\s+|other\s+)?(?:response|reply|output|answer|comment|"
+                    r"action|text)|silence|pause[sd]?|waiting|listening|end(?:s|ed)?|done|nothing(?:\s+more)?|"
+                    r"none|no\s+reply|stops?|stopped|continues?|smiles?|laughs?|chuckles?|sighs?)[^)\]]{0,30}[)\]]")
+
+
 def speakable(text: str) -> str:
-    """Markdown and links read badly aloud: "[HappyCow](https://...)" -> "HappyCow"."""
-    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)          # [label](url) -> label
+    """Make a reply safe to say aloud: no markdown, links, "(silent)", citation marks, odd Unicode or chatter."""
+    t = re.sub(r"₱\s?([0-9][0-9,]*(?:\.[0-9]+)?)", r"\1 pesos", text)      # ₱2,869 -> 2,869 pesos
+    t = t.translate(_UNI)
+    t = rules.drop_thinking(t)                                   # "The user wants ...": its thinking, not for us
+    if rules.is_garbage(t):                                      # "... Weird……… … It's …": say nothing
+        return ""
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)             # [label](url) -> label
     t = re.sub(r"https?://\S+|www\.\S+", "", t)                  # bare urls
+    t = re.sub(r"【[^】]*】|†\S*", "", t)       # gpt-oss citation marks: 【1†source】
+    t = re.sub(r"(?i)[(\[]\s*silent\s*[)\]]", "", t)             # "(silent)" inside a real reply
+    t = _STAGE.sub("", t)                                        # "(no further response)", "[pause]", "(waiting)"
+    if re.fullmatch(r"\s*[(\[][^)\]]*[)\]]\s*[.!]?\s*", t):       # the whole sentence is a bracketed aside
+        return ""
     t = re.sub(r"(^|\s)[-*#>]+\s+", r"\1", t)                    # list bullets, headings, quotes
-    t = re.sub(r"[*_`]+", "", t)                                 # bold / italics / code
-    return re.sub(r"\s{2,}", " ", t)
+    t = re.sub(r"[*_`~|]+", "", t)                               # bold / italics / code / tables
+    t = re.sub(r"[\U0001F000-\U0001FAFF☀-➿️]", "", t)   # emoji
+    t = _CHATTER.sub("", t)
+    t = re.sub(r"\.{3,}|(?:\.\s){2,}", " ", t)                   # runs of dots (the model stuck on "........")
+    t = re.sub(r"\(\s*(the|a|an)?\s*\)|\(\s*(the|a|an)\s*$", "", t, flags=re.I)   # "(the )" left over from it
+    t = re.sub(r"\s+([,.!?])", r"\1", t)
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    return t if re.search(r"[A-Za-z0-9]", t) else ""             # nothing but punctuation: say nothing
 
 
 class McpTTSService(TTSService):

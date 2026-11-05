@@ -51,7 +51,7 @@ class Config:
     # --- MCP servers (fda/mcp_servers, used by the Pipecat agent: python -m fda.pc) ---
     asr_engine: str = "moonshine"         # moonshine (offline) | groq (GROQ_API_KEY) | openai (ASR_BASE_URL...)
     tts_engine: str = "piper"             # piper | kokoro (offline) | deepgram (DEEPGRAM_API_KEY)
-    llm_engine: str = "local"             # local (llama-server, offline_llm) | groq | gemini | openai (LLM_BASE_URL)
+    llm_engine: str = "local"             # local (llama-server, offline_llm) | groq | openai (LLM_BASE_URL)
     llm_model: str = ""                   # cloud model name ("" = a sensible default per engine)
     agent_llm: str = "qwen2.5-3b"         # local model for the Pipecat agent (tool calling: 3b 16/20, 1.5b 8/20)
     coder_engine: str = "same"            # who writes apps for create_app: same (as llm_engine) | local | groq | ...
@@ -63,6 +63,8 @@ class Config:
     docs_dir: str = "docs"                # documents FDA can answer questions about (PDF, DOCX, XLSX, CSV, MD, TXT)
     reports_dir: str = "reports"          # device check reports (audit-<time>.md)
     apps_dir: str = "apps"                # apps and games FDA builds (served on the display at /apps/)
+    quick_answers: str = "quick_answers.txt"   # predefined answers, spoken without the LLM ("" = off)
+    quick_match: float = 0.85             # how close what was heard must be to a question there (0-1)
 
     # --- audio devices ---
     input_device: str | int | None = None    # name substring or index; None = system default

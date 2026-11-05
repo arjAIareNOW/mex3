@@ -15,6 +15,8 @@ import base64
 import re
 import time
 
+import numpy as np
+
 from loguru import logger
 
 from pipecat.frames.frames import (BotStartedSpeakingFrame, BotStoppedSpeakingFrame, Frame, InputAudioRawFrame,
@@ -35,8 +37,52 @@ CONTINUE = re.compile(
     r"go back to what you were saying|back to what you were saying)"
     r"(?:\s+(?:please|then|now|with (?:that|it|the story|what you were saying)|what you were saying|the story))*"
     r"[,.!?\s]*$", re.I)
+# a bare "stop" ("stop", "okay, wait", "hold on", "that's enough", "Elkit, stop"): go quiet, never a reply.
+# Only stop words and fillers: "stop the timer" / "stop the music" are commands and go on as usual.
+_STOP_CORE = {"stop", "stopp", "strop", "stahp", "wait", "enough", "quiet", "shush", "shh", "hush", "silence"}
+_STOP_FILL = {"okay", "ok", "please", "now", "just", "it", "that", "that's", "thats", "is", "alright", "all", "right",
+              "fine", "hey", "oh", "um", "uh", "hold", "on", "hang", "never", "mind", "nevermind", "shut", "up", "be",
+              "a", "s", "sec", "second", "moment", "minute", "already", "talking", "there", "you", "so", "no", "yes", "yeah"}
+
+
+def is_bare_stop(text: str, name: str = "") -> bool:
+    w = [x for x in rules.norm(strip_name(text, name)).split() if x]
+    if not w or len(w) > 5:
+        return False
+    pairs = {" ".join(w[i:i + 2]) for i in range(len(w) - 1)}
+    has_stop = bool(set(w) & _STOP_CORE) or "nevermind" in w or \
+        bool(pairs & {"hold on", "hang on", "never mind", "shut up", "be quiet"})
+    return has_stop and all(x in _STOP_CORE or x in _STOP_FILL for x in w)
+
+
 _TIME_Q = re.compile(r"\b(time|date|day|today|tonight|tomorrow|yesterday|clock|o'?clock|month|year)\b", re.I)
 SILENT = re.compile(r"^\W*[(\[]\s*silen|^\W*silent\W*$", re.I)
+
+
+# while a video plays, the mic hears the video too: only these (or the agent's name) count as said to the agent
+MEDIA_CMD = re.compile(r"\b(pause|resume|unpause|continue|play|stop|close|exit|quit|hide|turn|make|set|mute|unmute|louder|"
+                       r"quieter|softer|volume|skip|rewind|restart|start|go|fast|next|show|previous)\b.{0,24}"
+                       r"\b(video|youtube|it|this|that|sound|volume|up|down|ahead|forward|back|over|beginning|seconds|"
+                       r"percent|photo|picture|image|pic|one|\d+)\b"
+                       r"|^\W*(pause|resume|play|stop|close|mute|unmute|louder|quieter|softer|next|previous|another one|"
+                       r"next one|next photo|next picture)\W*$", re.I)
+
+
+def called_by_name(text: str, name: str) -> bool:
+    """The name, also as ASR splits it ("Elkit", "El kit", "elk it")."""
+    if not name:
+        return False
+    loose = r"\W*".join(re.escape(c) for c in name.lower() if c.isalnum())
+    return re.search(rf"\b{loose}\b", text.lower()) is not None
+
+
+def strip_name(text: str, name: str) -> str:
+    """"Elkit, louder" -> "louder" (so commands match with or without the name)."""
+    if not name:
+        return text.strip()
+    loose = r"\W*".join(re.escape(c) for c in name.lower() if c.isalnum())
+    t = re.sub(rf"\b(hey\s+|okay\s+|ok\s+)?{loose}\b[\s,.!?]*", " ", text, flags=re.I)
+    return re.sub(r"\s+", " ", t).strip(" ,.!?")
 
 
 def could_be_silent(text: str) -> bool:
@@ -65,6 +111,8 @@ class DuplexGuard(FrameProcessor):
         self.stt = None                  # McpSTTService (its user level, for the far-speech check)
         self.bot_text = lambda: ""       # what the bot is saying now (echo check)
         self.on_bot = None               # callback(talking: bool) for the display
+        self.on_user = None              # callback(event: dict) for the display: user voice on/off and its level
+        self._t_mic = 0.0
         self.pre = bytearray()           # last ~0.5 s of audio (VAD fires ~0.15 s after speech starts)
         self.buf = bytearray()           # overlap audio since the user started
         self.stats = {"ducks": 0, "resumed": 0, "sustained_stops": 0, "early_stops": 0}
@@ -79,6 +127,13 @@ class DuplexGuard(FrameProcessor):
         await super().process_frame(frame, direction)
         io = self.io
         if isinstance(frame, InputAudioRawFrame):
+            if io.user_speaking and self.on_user is not None:
+                now = time.monotonic()
+                if now - self._t_mic >= 0.06:             # ~16 a second: the display's "I hear you" glow
+                    self._t_mic = now
+                    x = np.frombuffer(frame.audio, dtype=np.int16).astype(np.float32) / 32768.0
+                    if len(x):
+                        self.on_user({"type": "mic", "db": round(float(20 * np.log10(np.sqrt(np.mean(x * x)) + 1e-9)), 1)})
             if self._watch is not None:
                 self.buf += frame.audio
             else:
@@ -96,6 +151,8 @@ class DuplexGuard(FrameProcessor):
             self._cancel("_watch")
         elif isinstance(frame, VADUserStartedSpeakingFrame):
             io.user_speaking = True
+            if self.on_user is not None:
+                self.on_user({"type": "voice", "on": True})
             self.t_user = time.monotonic()
             self._cancel("_unduck")
             if io.bot_speaking:
@@ -106,6 +163,8 @@ class DuplexGuard(FrameProcessor):
                 self._watch = asyncio.create_task(self._sustained())
         elif isinstance(frame, VADUserStoppedSpeakingFrame):
             io.user_speaking = False
+            if self.on_user is not None:
+                self.on_user({"type": "voice", "on": False})
             peeked = self._watch is not None and self._watch.done()
             self._cancel("_watch")
             if self.ducked:
@@ -199,6 +258,7 @@ class NotForMe(FrameProcessor):
         self.state = "idle"          # idle | deciding | speaking | dropping
         self.interrupted_reply = ""  # what the bot was saying when it was last interrupted
         self.t_interrupt = 0.0
+        self.interrupt_turn = 0      # the user turn count when it was interrupted
         self.reply_full = ""         # everything the LLM wrote for the reply now playing
         self.spoken = ""             # sentences of it the TTS has started
         self.last_sentence = ""      # the sentence playing now (cut off by an interruption: say it again on resume)
@@ -214,6 +274,10 @@ class NotForMe(FrameProcessor):
         self.turn_said: list[str] = []   # replies already spoken for the current user turn
         self._turn = -1
         self.repeats = 0
+        self.thinking = 0            # replies dropped because the model was thinking aloud ("The user wants ...")
+        self._think_retry = False    # ask again for a direct answer when this reply ends
+        self._think_retried_for = ""
+        self._calls_in_reply = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -227,6 +291,7 @@ class NotForMe(FrameProcessor):
             rest = " ".join(words[done:])
             if self.state in ("speaking", "idle") and rest.strip() and self.spoken:
                 self.interrupted_reply, self.t_interrupt = rest.strip(), time.monotonic()
+                self.interrupt_turn = getattr(self.io, "turn", 0)
                 self.paused, self.paused_said = rest.strip(), " ".join(words[:done])
                 self.paused_done, self.paused_t = self.state == "idle" or self.reply_done, time.monotonic()
                 logger.info(f"interrupted; kept for 'continue': {rest[:60]!r}")
@@ -235,14 +300,21 @@ class NotForMe(FrameProcessor):
             return
         if isinstance(frame, LLMFullResponseStartFrame):
             self.state, self.text, self.held = "deciding", "", [frame]
+            self._think_retry, self._calls_in_reply = False, False
             return
+        if isinstance(frame, FunctionCallsStartedFrame):
+            self._calls_in_reply = True
         if self.state == "deciding":
             if isinstance(frame, LLMTextFrame):
                 self.held.append(frame)
                 self.text += frame.text
+                if not re.search(r"[A-Za-z0-9]", self.text) and len(self.text) < 200 and                         not could_be_silent(self.text):
+                    return                   # only dots so far ("... …"): wait for words
                 if not could_be_silent(self.text):
                     if self._said_before() and len(self.text.split()) < 6:
                         return               # a second reply in this turn: wait for a few words, it may repeat
+                    if rules.could_be_thinking(self.text):
+                        return               # "The user ..." / "We need ...": wait until it is clear
                     await self._decide()
                 return
             if isinstance(frame, LLMFullResponseEndFrame):
@@ -257,10 +329,20 @@ class NotForMe(FrameProcessor):
             if isinstance(frame, LLMFullResponseEndFrame):
                 self.state = "idle"
                 await self.push_frame(frame, direction)
-                await self._maybe_resume()
+                if self._think_retry:
+                    await self._ask_direct()
+                else:
+                    await self._maybe_resume()
                 return
         if isinstance(frame, LLMTextFrame) and self.state == "speaking":
             self.reply_full += frame.text
+            tail = " ".join(self.reply_full.split()[-12:])
+            if rules.is_thinking(self.reply_full) or (len(tail.split()) >= 8 and rules.is_garbage(tail)):
+                # it slid into thinking aloud, or into "... … …", mid-reply: stop there
+                self.thinking += 1
+                logger.info(f"thinking aloud mid-reply, rest dropped: {self.reply_full[-80:]!r}")
+                self.state = "dropping"
+                return
         if isinstance(frame, LLMFullResponseEndFrame):
             if self.state == "speaking" and self.reply_full.strip():
                 self.turn_said.append(self.reply_full)
@@ -310,6 +392,18 @@ class NotForMe(FrameProcessor):
             if end:
                 await self._maybe_resume()
             return
+        if rules.is_thinking(self.text) or rules.is_garbage(self.text):
+            self.thinking += 1
+            logger.info(f"thinking aloud / garbled, not spoken: {self.text[:80]!r}")
+            for f in held:
+                if not isinstance(f, LLMTextFrame):
+                    await self.push_frame(f)
+            self._think_retry = True
+            self.state = "dropping"
+            if end:
+                self.state = "idle"
+                await self._ask_direct()
+            return
         if self._is_repeat(self.text):
             self.repeats += 1
             logger.info(f"repeat of what was just said, dropped: {self.text[:60]!r}")
@@ -325,10 +419,34 @@ class NotForMe(FrameProcessor):
                 self.reply_full += f.text
             await self.push_frame(f)
 
-    async def _maybe_resume(self):
-        """The bot was interrupted by speech that turned out not to be for it: finish the interrupted reply."""
+    async def _ask_direct(self):
+        """The reply was the model thinking aloud: ask once for the real answer (not when a tool is running, its
+        result brings a fresh reply anyway)."""
+        self._think_retry = False
+        heard = getattr(self.io, "last_heard", "") or ""
+        if self._calls_in_reply or not heard or heard == self._think_retried_for:
+            return
+        self._think_retried_for = heard
+        await self.push_frame(LLMMessagesAppendFrame(messages=[{"role": "system", "content":
+            "Your last reply was your private reasoning, not an answer, so it was not spoken. Now say the answer "
+            "itself to the person, in one or two short spoken sentences. Never describe what the user wants or "
+            "what you will do, and never name tools."}], run_llm=True), FrameDirection.UPSTREAM)
+
+    async def _maybe_resume(self, from_ignored: bool = False):
+        """The bot was interrupted by speech that turned out not to be for it: finish the interrupted reply.
+        from_ignored: called for speech that never reached the LLM (far away, side talk). Then only when no real
+        request came since the interruption, else it would say the old sentence again on top of the new answer."""
         if _STOP_WORDS.search(getattr(self.io, "last_heard", "") or ""):
             self.interrupted_reply = ""          # "wait, stop": they wanted it to stop, even if the rest was unclear
+            return
+        turns = getattr(self.io, "turn", 0) - self.interrupt_turn
+        if from_ignored and (turns > 0 or self.state != "idle"):
+            if self.interrupted_reply:
+                logger.info(f"not resuming {self.interrupted_reply[:40]!r}: a new request came since")
+            self.interrupted_reply = ""
+            return
+        if turns > 1:                            # two requests since: the old reply is long gone
+            self.interrupted_reply = ""
             return
         if self.interrupted_reply and time.monotonic() - self.t_interrupt < 8.0:
             text, self.interrupted_reply = self.interrupted_reply, ""
@@ -360,6 +478,8 @@ class ToolFiller(FrameProcessor):
         await super().process_frame(frame, direction)
         await self.push_frame(frame, direction)
         if isinstance(frame, FunctionCallsStartedFrame) and direction == FrameDirection.DOWNSTREAM:
+            for c in frame.function_calls:                # in logs/agent.log: which tool, with what
+                logger.info(f"tool call: {c.function_name} {str(c.arguments)[:200]}")
             names = {c.function_name for c in frame.function_calls}
             if any(c.function_name == "tweak_app" and re.search(r"photo|picture|image", str(c.arguments), re.I)
                    for c in frame.function_calls):
@@ -410,6 +530,15 @@ class HeardTap(FrameProcessor):
         await super().process_frame(frame, direction)
         if isinstance(frame, TranscriptionFrame):
             self.io.last_heard = frame.text
+            if is_bare_stop(frame.text, self.own_name):
+                # talking, thinking or quiet: stop everything and say nothing, so the person can just talk again
+                logger.info(f"told to stop (no reply): {frame.text!r}")
+                await self.broadcast_interruption()
+                if self.ui:
+                    self.ui.send({"type": "user", "text": frame.text})
+                if self.intercept is not None:
+                    await self.intercept(frame.text)     # the agent: stop a ringing alarm, pause a video (silently)
+                return
             if self.io.bot_speaking and _STOP_WORDS.search(frame.text):
                 logger.info(f"told to stop: {frame.text!r}")
                 await self.broadcast_interruption()
@@ -417,6 +546,14 @@ class HeardTap(FrameProcessor):
                     if self.ui:
                         self.ui.send({"type": "user", "text": frame.text})
                     return
+            if getattr(self.io, "media_playing", False) and not called_by_name(frame.text, self.own_name)                     and not MEDIA_CMD.search(frame.text):
+                self.not_for_me += 1
+                logger.info(f"video playing, not called by name, ignored: {frame.text!r}")
+                if self.ui:
+                    self.ui.send({"type": "user", "text": frame.text, "ignored": True})
+                if self.on_ignored:
+                    self.on_ignored()
+                return
             if self.io.bot_speaking and rules.is_backchannel(frame.text):
                 self.backchannels += 1
                 logger.info(f"backchannel while talking, ignored: {frame.text!r}")

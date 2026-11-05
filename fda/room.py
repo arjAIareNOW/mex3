@@ -149,6 +149,66 @@ class Room:
         self.state["reminders"].append({"id": next(_ids), "text": a["text"], "time": hhmm or "", "fired_on": ""})
         return {"ok": True, "note": f"reminder {a['text']} {hhmm or ''}".strip()}
 
+    def _find_reminders(self, which: str) -> list[dict]:
+        """Reminders meant by `which`: "all", a number ("2", "number two", "the first"), "last", or words of it."""
+        r = self.state["reminders"]
+        w = re.sub(r"[^a-z0-9: ]", " ", (which or "").lower()).split()
+        if not r:
+            return []
+        if not w or set(w) & {"all", "everything", "every"}:
+            return list(r) if w else []
+        if set(w) & {"last", "latest", "newest", "recent"}:
+            return [r[-1]]
+        nums = {"one": 1, "first": 1, "two": 2, "second": 2, "three": 3, "third": 3, "four": 4, "fourth": 4,
+                "five": 5, "fifth": 5, "six": 6, "sixth": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+        if len(w) <= 3:                                   # "2", "number two", "the first one"
+            for x in w:
+                n = int(x) if x.isdigit() else nums.get(x)
+                if n and (x.isdigit() or x in nums) and 1 <= n <= len(r) and not any(
+                        y not in ("number", "the", "one", "reminder", "no", x) for y in w):
+                    return [r[n - 1]]
+        skip = {"the", "a", "an", "to", "my", "reminder", "reminders", "about", "at", "for", "of", "one", "that"}
+        words = {x for x in w if x not in skip}
+        when = _parse_hhmm(which or "")
+
+        def score(x):
+            s = len(words & set(re.sub(r"[^a-z0-9 ]", " ", x["text"].lower()).split()))
+            return s + (1 if when and x["time"] == when else 0)
+        best = max((score(x) for x in r), default=0)
+        return [x for x in r if score(x) == best] if best else []
+
+    def _do_delete_reminder(self, a):
+        r = self.state["reminders"]
+        if not r:
+            return {"ok": False, "note": "no reminders", "speak": "You don't have any reminders."}
+        hit = self._find_reminders(a.get("which", ""))
+        if not hit:
+            names = ", ".join(f"{i + 1}: {x['text']}" for i, x in enumerate(r))
+            return {"ok": False, "note": f"no reminder matches {a.get('which')!r}; there are: {names}"}
+        for x in hit:
+            r.remove(x)
+        if len(hit) > 1:
+            return {"ok": True, "note": f"deleted {len(hit)} reminders, {len(r)} left"}
+        return {"ok": True, "note": f"deleted reminder {hit[0]['text']}, {len(r)} left"}
+
+    def _do_edit_reminder(self, a):
+        r = self.state["reminders"]
+        if not r:
+            return {"ok": False, "note": "no reminders", "speak": "You don't have any reminders."}
+        hit = self._find_reminders(a.get("which", ""))
+        if len(hit) != 1:
+            names = ", ".join(f"{i + 1}: {x['text']}" for i, x in enumerate(r))
+            return {"ok": False, "note": f"which reminder? there are: {names}"}
+        x = hit[0]
+        if a.get("text"):
+            x["text"] = a["text"]
+        if a.get("time"):
+            hhmm = _parse_hhmm(a["time"])
+            if not hhmm:
+                return {"ok": False, "note": f"bad time {a['time']}", "speak": "Sorry, what time should it be?"}
+            x["time"], x["fired_on"] = hhmm, ""
+        return {"ok": True, "note": f"reminder now: {x['text']} {x['time']}".strip()}
+
     def _do_list_reminders(self, a):
         r = self.state["reminders"]
         if not r:

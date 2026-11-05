@@ -236,7 +236,31 @@ def _is_sprite(v) -> bool:
     return v.split("@")[0].lower().replace(" ", "") not in CSS_COLORS
 
 
+_FLIP = re.compile(r"\b(flip(ped)?|mirror(ed)?|reverse(d)?|turn(ed)?( it| him| her)? around|the other way|"
+                   r"other direction|opposite (way|direction)|wrong way|(face|facing|look|looking|point|pointing)"
+                   r"( to the| to)? (right|left|forward|backward|the other way))\b", re.I)
+
+
+def is_flipped(v) -> bool:
+    return isinstance(v, str) and "|flip" in v
+
+
 def resolve_value(value, current, web) -> tuple[object, str]:
+    """resolve_value_plain, plus mirroring: "flip it" / "face right" toggles "|flip" on the current sprite or photo,
+    and a new sprite for a flipped thing stays flipped (a butterfly replacing a flipped bird faces the same way)."""
+    v = str(value).strip()
+    if isinstance(current, str) and _FLIP.search(v) and not re.search(r"\d", v):
+        if is_flipped(current):
+            return current.replace("|flip", ""), "turned back"
+        return current + "|flip", "flipped"
+    new, said = resolve_value_plain(value, current, web)
+    if is_flipped(current) and isinstance(new, str) and not is_flipped(new) and \
+            (_is_sprite(new) or new.startswith(("data:", "http"))):
+        new += "|flip"
+    return new, said
+
+
+def resolve_value_plain(value, current, web) -> tuple[object, str]:
     """A spoken value -> what the app understands, and how to describe it.
     Numbers stay numbers; colours and emoji pass; "photo of bamboo" fetches a photo; "butterfly" -> 🦋."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):

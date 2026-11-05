@@ -29,32 +29,29 @@ Speech chains always end with an offline engine, so FDA keeps listening and talk
 
 | Engine | Model | Cost | Reply time | Notes |
 |---|---|---|---|---|
-| `groq` | gpt-oss-120b, then 20b, then Qwen | Free tier (8,000 tokens/min per model) | 0.5-0.9 s | Default. Switches model by itself at the limit, then SambaNova, then Gemini |
-| `gemini` | Gemini Flash / Flash-Lite | Free tier | 1-3 s, sometimes "busy" | `GEMINI_API_KEY` |
+| `groq` | gpt-oss-120b, one fallback gpt-oss-20b | Groq paid plan | 0.5-0.9 s | Default. Uses the fallback only when the main model fails |
 | `local` | Qwen2.5-3B on the device | Free, offline | 3-6 s laptop, slower on a Pi | Works without internet |
 
 ## 4. App designer (writes apps and games): `coder_engine`
 
 | Engine | Model | Cost | Full game | Notes |
 |---|---|---|---|---|
-| `groq` | gpt-oss-120b | Free tier | ~10 s including tests and fixes | Default first choice |
-| `sambanova` | gemma-4-31B, gpt-oss-120b | Free | ~6 s when not busy | Often "high demand" |
-| `gemini` | Gemini Flash | Free tier | 30-170 s | Slow but reliable backup |
+| `groq` | qwen3.8-27b, one fallback gpt-oss-120b | Groq paid plan | ~5-10 s including tests and fixes | Default |
 | `local` | Qwen2.5-Coder-3B | Free, offline | 1-3 min | Weak at games |
 
-Default chain: `coder_engine = "groq,sambanova,gemini"`.
+Default: `coder_engine = "groq"`. Rule: every part has one main engine and one fallback.
 
 ## Ready-made combinations
 
 | Goal | `asr_engine` | `tts_engine` | `llm_engine` | `coder_engine` |
 |---|---|---|---|---|
-| **Best quality at school (current)** | `dgx3` | `dgx3` | `groq` | `groq,sambanova,gemini` |
-| **Whisper instead of Qwen** | `groq,dgx3,moonshine` | `dgx3,piper` | `groq` | `groq,sambanova,gemini` |
-| Away from school (no VPN), laptop | `groq,parakeet` | `kokoro,piper` | `groq` | `groq,sambanova,gemini` |
-| Away from school, Pi | `groq,parakeet-small` | `piper` | `groq` | `groq,sambanova,gemini` |
+| **Groq main (current)** | `groq` (+ Moonshine) | `dgx3` (+ Piper) | `groq` | `groq` |
+| Away from school (no VPN), Pi | `groq` (+ Moonshine) | `piper` | `groq` | `groq` |
 | Fully offline, laptop | `parakeet` | `kokoro` | `local` | `local` |
 | Fully offline, Pi | `parakeet-small` | `piper` | `local` | `local` (slow) |
-| Cheapest cloud speech (no school) | `groq` | `deepgram,piper` | `groq` | `groq,gemini` |
+| Cheapest cloud speech (no school) | `groq` | `deepgram` (+ Piper) | `groq` | `groq` |
+
+(+ X) = the offline fallback that is added by itself (`offline_asr`, `offline_tts`).
 
 Notes:
 - Free tiers change; check each provider's limits. Groq's speech (Whisper) and chat limits are separate.
