@@ -15,7 +15,10 @@ _NUM = {w: i for i, w in enumerate("zero one two three four five six seven eight
 _NUM.update({w: 10 * (i + 2) for i, w in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split())})
 _NUM.update({"a": 1, "an": 1, "hundred": 100})
 
-LEAD = re.compile(r"^(?:(?:hey|hi|ok|okay|yo)\s+)?(?:fda[,\s]+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?")
+# barge-in words before a request ("wait, stop, what time is it") are dropped so the quick path still matches;
+# a lone "stop" / "stop the music" is untouched ("stop" only goes when it sits next to "wait" or itself)
+LEAD = re.compile(r"^(?:(?:wait stop|stop wait|stop stop|no wait|hold on|hang on|wait|um|uh|actually|sorry)\s+(?=\S))*"
+                  r"(?:(?:hey|hi|ok|okay|yo)\s+)?(?:fda[,\s]+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?")
 TAIL = re.compile(r"(?:\s+(?:please|for me|now|fda|thanks|thank you))+$")
 
 

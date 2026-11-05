@@ -20,6 +20,7 @@ import re
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -234,7 +235,10 @@ def check(name: str, r: dict, w: Watch) -> tuple[bool, str]:
         after = log[u:] if u is not None else []
         stopped = any(x[1] in ("InterruptionFrame", "BotStoppedSpeakingFrame") for x in after)
         answered = any(x[1] == "said" for x in after)
-        return stopped and answered, f"stopped={stopped} answered={answered}"
+        before = log[:u] if u is not None else log
+        story = [x[2] for x in before if x[1] == "said"]
+        told = bool(story) and not re.search(r"sorry,? but i (?:can.?t|cannot)", " ".join(story), re.I)
+        return told and stopped and answered, f"story_told={told} stopped={stopped} answered={answered}"
     if name in ("game", "website"):
         ready = any(e["kind"] == "app_ready" for e in w.agent.events)
         pop = any(m.get("type") == "choices" and m.get("options") for m in msgs) if name == "website" else True
@@ -266,6 +270,13 @@ def check(name: str, r: dict, w: Watch) -> tuple[bool, str]:
 
 
 async def main():
+    # Elkit's words can hold any character ("three‑stage" has U+2011); Windows' default cp1252 console/file
+    # encoding crashed print() on it mid-run (the "freeze" at the interrupt scene)
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--list", action="store_true")
@@ -375,6 +386,18 @@ async def main():
         except asyncio.TimeoutError:
             print(f"{w.t():7.1f}  (scene {name} stuck: skipped)")
             r = {"log": w.log[start:], "apps": 0}
+        except asyncio.CancelledError:
+            # something cancelled the run itself (seen at the interrupt scene): show who, then carry on
+            me = asyncio.current_task()
+            if me is not None:
+                me.uncancel()
+            print(f"{w.t():7.1f}  (scene {name}: the run was CANCELLED from outside)", flush=True)
+            traceback.print_exc()
+            r = {"log": w.log[start:], "apps": 0}
+        except Exception:  # noqa: BLE001
+            print(f"{w.t():7.1f}  (scene {name} ERROR)", flush=True)
+            traceback.print_exc()
+            r = {"log": w.log[start:], "apps": 0}
         said = " ".join(x[2] for x in r["log"] if x[1] == "said")
         if said:
             print(f"         ELKIT  {said[:300]}")
@@ -403,8 +426,24 @@ async def main():
     await ui.stop()
 
 
+async def _main_logged():
+    """main(), but whatever ends it is printed AT ONCE (asyncio.run can then hang closing the pipeline's tasks,
+    which hid the reason before)."""
+    try:
+        await main()
+    except BaseException as e:  # noqa: BLE001
+        print(f"*** the run ended: {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        sys.stdout.flush()
+        if isinstance(e, asyncio.CancelledError):
+            for t in asyncio.all_tasks():
+                if "cancel" in repr(t).lower() or t is asyncio.current_task():
+                    print("   task:", repr(t)[:200], flush=True)
+        raise
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(_main_logged())
     except KeyboardInterrupt:
         pass

@@ -483,6 +483,72 @@ class NotForMe(FrameProcessor):
         self.paused = ""
         return out
 
+_REFUSAL = re.compile(r"^\W*(?:i[’']?m|i am) sorry,? but i (?:can[’']?t|cannot|can not) (?:help|assist|do that)"
+                      r"(?: with (?:that|this))?\W*$", re.I)
+
+
+_REFUSAL_FORMS = [re.sub(r"[^a-z' ]", "", f) for f in (
+    "i'm sorry, but i can't help with that", "i'm sorry, but i cannot help with that",
+    "i am sorry, but i can't help with that", "i'm sorry, but i can't assist with that",
+    "i'm sorry, but i cannot assist with that", "i'm sorry, but i can't do that", "i'm sorry, but i can't help with this")]
+
+
+def _maybe_refusal(text: str) -> bool:
+    """Could `text` still be (the start of) the bare refusal?"""
+    n = re.sub(r"[^a-z' ]", "", re.sub(r"\s+", " ", text.lower().replace("’", "'"))).strip()
+    return any(f.startswith(n) or n.startswith(f) for f in _REFUSAL_FORMS)
+
+
+class RefusalGuard(FrameProcessor):
+    """After the LLM: gpt-oss sometimes answers a harmless request ("tell me a long story about the first trip to
+    the moon") with a bare "I'm sorry, but I can't help with that." -- the wrong feedback. The start of every reply
+    is held back until it is clearly something else (~60 characters); a reply that is ONLY that refusal is not
+    spoken, and `retry()` asks the LLM once more (at most once every 20 s, so a real refusal still comes through)."""
+
+    def __init__(self, retry, **kw):
+        super().__init__(**kw)
+        self.retry = retry
+        self.held: list[Frame] | None = None
+        self.text = ""
+        self.t_retry = 0.0
+        self.stats = {"refusals_retried": 0}
+
+    async def _flush(self):
+        held, self.held = self.held or [], None
+        for f in held:
+            await self.push_frame(f)
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if direction != FrameDirection.DOWNSTREAM:
+            await self.push_frame(frame, direction)
+            return
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self.held, self.text = [], ""
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, LLMTextFrame) and self.held is not None:
+            self.held.append(frame)
+            self.text += frame.text
+            if not _maybe_refusal(self.text):
+                await self._flush()                    # clearly not the refusal: let it through at once
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            if self.held is not None and _REFUSAL.match(self.text.strip()) and \
+                    time.monotonic() - self.t_retry > 20:
+                logger.warning(f"LLM refused a request ({self.text.strip()!r}): not spoken, asking once more")
+                self.held, self.t_retry = None, time.monotonic()
+                self.stats["refusals_retried"] += 1
+                await self.push_frame(frame, direction)
+                await self.retry()
+                return
+            await self._flush()
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, InterruptionFrame):
+            self.held = None
+            await self.push_frame(frame, direction)
+        else:
+            await self.push_frame(frame, direction)
+
+
 class ToolFiller(FrameProcessor):
     """After the LLM: when it calls a slow tool (internet), say a short filler at once, so the person hears a
     reply within ~1 s instead of waiting for the tool and the second LLM call."""

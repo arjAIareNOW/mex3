@@ -243,26 +243,51 @@ class McpTTSService(TTSService):
             logger.info(f"second confirmation not said: {text!r}")
             return
         self._said_in_reply += 1
+        # a long sentence is synthesized in comma-sized pieces, all started at once: the first (short) piece is
+        # ready sooner, so the voice starts sooner (synthesis time grows with length: ~0.7 s short, ~2 s long)
+        pieces = split_long(text)
+        jobs = [asyncio.create_task(self.conn.call("synthesize", {"text": p}, timeout=60)) for p in pieces]
         try:
             await self.start_tts_usage_metrics(text)
-            r = await self.conn.call("synthesize", {"text": text}, timeout=60)
-            pcm = base64.b64decode(r["audio_b64"])
-            rate = int(r["sample_rate"])
+            for job in jobs:
+                r = await job
+                pcm = base64.b64decode(r["audio_b64"])
+                rate = int(r["sample_rate"])
 
-            async def chunks():
-                step = rate // 5 * 2                  # 200 ms per frame
-                for i in range(0, len(pcm), step):
-                    yield pcm[i:i + step]
+                async def chunks(pcm=pcm, rate=rate):
+                    step = rate // 5 * 2                  # 200 ms per frame
+                    for i in range(0, len(pcm), step):
+                        yield pcm[i:i + step]
 
-            async for frame in self._stream_audio_frames_from_iterator(chunks(), in_sample_rate=rate,
-                                                                      context_id=context_id):
-                await self.stop_ttfb_metrics()
-                yield frame
+                async for frame in self._stream_audio_frames_from_iterator(chunks(), in_sample_rate=rate,
+                                                                          context_id=context_id):
+                    await self.stop_ttfb_metrics()
+                    yield frame
         except Exception as e:  # noqa: BLE001
             logger.error(f"{self} synthesize failed: {e}")
             yield ErrorFrame(error=f"TTS MCP server: {e}")
         finally:
+            for job in jobs:
+                if not job.done():
+                    job.cancel()                       # interrupted: the rest is not needed
             await self.stop_ttfb_metrics()
+
+
+def split_long(text: str, longer_than: int = 70, min_piece: int = 25) -> list[str]:
+    """'Back in 1969, a tiny rocket named Saturn V roared off the pad, carrying three astronauts ...' ->
+    pieces at commas / semicolons / dashes, none shorter than `min_piece` characters. Short text: unchanged."""
+    if len(text) <= longer_than:
+        return [text]
+    parts = re.split(r"(?<=[,;:—–])\s+", text)
+    out: list[str] = []
+    for p in parts:
+        if out and (len(out[-1]) < min_piece or len(p) < min_piece // 2):
+            out[-1] = f"{out[-1]} {p}"
+        else:
+            out.append(p)
+    if len(out) > 1 and len(out[-1]) < min_piece:      # a short tail joins the piece before it
+        out[-2] = f"{out[-2]} {out.pop()}"
+    return out
 
 
 def pcm_to_float(pcm: bytes) -> np.ndarray:

@@ -1345,9 +1345,67 @@ def t_lists():
     check("the note is taken out again afterwards", [m["role"] for m in ctx.get_messages()], ["user"])
 
 
+# ---------------------------------------------------------------- a bare refusal of a harmless request is retried
+def t_refusal():
+    import pipecat.processors.frame_processor as fp
+    from pipecat.frames.frames import LLMFullResponseEndFrame, LLMFullResponseStartFrame, LLMTextFrame
+    from pipecat.processors.frame_processor import FrameDirection as D
+    from fda.pc.processors import RefusalGuard, _maybe_refusal
+    fp.FrameProcessor.process_frame = lambda self, f, d: asyncio.sleep(0)
+
+    def run(chunks):
+        retried, out = [], []
+
+        async def retry():
+            retried.append(1)
+        g = RefusalGuard(retry)
+
+        async def push(f, d=None):
+            out.append(f)
+        g.push_frame = push
+
+        async def go():
+            await g.process_frame(LLMFullResponseStartFrame(), D.DOWNSTREAM)
+            seen = []
+            for c in chunks:
+                await g.process_frame(LLMTextFrame(c), D.DOWNSTREAM)
+                seen.append("".join(f.text for f in out if isinstance(f, LLMTextFrame)))
+            await g.process_frame(LLMFullResponseEndFrame(), D.DOWNSTREAM)
+            return seen
+        seen = asyncio.run(go())
+        return "".join(f.text for f in out if isinstance(f, LLMTextFrame)), retried, seen
+
+    said, retried, _ = run(["I", "’m sorry", ", but I can", "’t help with that", "."])
+    check("bare refusal: not spoken, asked again", (said, retried), ("", [1]))
+    said, retried, seen = run(["The", " Saturn V", " roared to life", " on July 16, 1969."])
+    check("a story: passes through at once (not held)", (said, retried, seen[1]),
+          ("The Saturn V roared to life on July 16, 1969.", [], "The Saturn V"))
+    said, retried, _ = run(["I'm sorry", " to hear that! Want me to play some music?"])
+    check("'I'm sorry to hear that' is not a refusal", (said.startswith("I'm sorry to hear"), retried), (True, []))
+    check("maybe-refusal prefix", (_maybe_refusal("I'm sor"), _maybe_refusal("It's ten")), (True, False))
+
+
+# ---------------------------------------------------------------- faster replies: barge-in words, long sentences
+def t_speed():
+    from fda import rules
+    from fda.pc.services import split_long
+    st = {"ringing": None, "music": {"state": "stopped"}}
+    check("'Wait stop, what time is it?' -> instant time answer", (rules.match("Wait stop, what time is it?", st) or
+                                                                 [None])[0], [])
+    check("a lone 'stop' still means stop", rules.match("stop", st), ([], ""))
+    check("'Hold on, set a timer for 2 minutes' -> timer", rules.match("Hold on, set a timer for 2 minutes", st)[0],
+          [{"tool": "timer", "seconds": 120}])
+    long = ("Back in 1969, a tiny rocket named Saturn V roared off the launch pad, carrying three brave astronauts "
+            "who dreamed of walking on a world that only glittered in the night sky.")
+    p = split_long(long)
+    check("a long sentence is spoken in comma pieces (first piece shorter)", (len(p), " ".join(p) == long,
+                                                                             len(p[0]) < len(long)), (2, True, True))
+    check("a short sentence stays whole", split_long("It's 11:08 PM."), ["It's 11:08 PM."])
+
+
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
 
 
 def main():

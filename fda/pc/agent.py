@@ -49,7 +49,7 @@ from . import fallback_llm
 from ..mcp_servers import llm as llmlib
 from ..room import Room
 from ..config import ROOT
-from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, Mark, NotForMe, SpokenTap, ToolFiller, TurnClock,
+from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, Mark, NotForMe, RefusalGuard, SpokenTap, ToolFiller, TurnClock,
                          is_bare_stop,
                          strip_name)
 from .quick import QuickAnswers
@@ -99,6 +99,8 @@ How you work:
   screen to another tab, say so first in a few words. Virtual Studio has a sub-tab for every app, game, video, photo set and search,
   each with its own name ("Snake game", "Davao links"); the tool results say the name. Switch or close one with
   interface_tab (action go / close / list); when you open something new, you may say which tab it is on.
+- A story, a joke, a poem or an explanation they ask for: tell it (a short version, a few sentences, and keep
+  going if they want more). Never answer a harmless request with "I'm sorry, but I can't help with that."
 - Talk like a person: short acknowledgements, a little enthusiasm, an opinion when it helps. Do not repeat what they
   said, do not list options unless they asked for options, do not explain your tools.
 - Stop when the answer is said: never add offers like "let me know if you need anything else" or "what would
@@ -390,6 +392,7 @@ class Agent:
             agg.user(),
             Mark(self.clock, {LLMContextFrame: "sent"}),
             llm,
+            RefusalGuard(self._retry_refusal),
             Mark(self.clock, {LLMTextFrame: "first_word", FunctionCallsStartedFrame: "first_word"}),
             ToolFiller(slow=SLOW_TOOLS),
             self.nfm,
@@ -407,6 +410,13 @@ class Agent:
         self.tasks.append(asyncio.create_task(self._watch_apps()))
         self.tasks.append(asyncio.create_task(self.room.tick_forever()))      # timers and alarms
         return self.worker
+
+    async def _retry_refusal(self):
+        """RefusalGuard held back a bare "I'm sorry, but I can't help with that.": ask once more."""
+        if self.worker is not None:
+            await self.worker.queue_frames([LLMMessagesAppendFrame(messages=[{"role": "system", "content":
+                "Your last reply refused a harmless request. Answer it now: a short version is fine."}],
+                run_llm=True)])
 
     def _tab(self, tab: str):
         self.cur_tab = tab
