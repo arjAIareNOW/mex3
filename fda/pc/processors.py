@@ -451,7 +451,10 @@ class NotForMe(FrameProcessor):
             self.interrupted_reply = ""          # "wait, stop": they wanted it to stop, even if the rest was unclear
             return
         turns = getattr(self.io, "turn", 0) - self.interrupt_turn
-        if from_ignored and (turns > 0 or self.state != "idle"):
+        # a real request counted just BEFORE the interruption caused it (it is counted first, the interruption
+        # reaches here ~3 ms later): the old sentence must not come back when noise follows
+        caused_by_request = getattr(self.io, "t_turn", -1e9) >= self.t_interrupt - 1.0
+        if from_ignored and (turns > 0 or caused_by_request or self.state != "idle"):
             if self.interrupted_reply:
                 logger.info(f"not resuming {self.interrupted_reply[:40]!r}: a new request came since")
             self.interrupted_reply = ""
@@ -591,6 +594,7 @@ class HeardTap(FrameProcessor):
             if self.ui:
                 self.ui.send({"type": "user", "text": frame.text})
             self.io.turn = getattr(self.io, "turn", 0) + 1
+            self.io.t_turn = time.monotonic()        # the interruption this request causes comes a moment later
             if self.intercept is not None and await self.intercept(frame.text):
                 return
             if self.on_heard:

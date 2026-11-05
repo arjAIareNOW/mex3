@@ -9,7 +9,9 @@ import asyncio
 import copy
 import datetime as dt
 import itertools
+import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -54,8 +56,13 @@ class Room:
             "phone": {"state": "idle", "contact": ""},
             "messages": [],
             "game": dict(GAME_DEFAULTS, open=False),
+            "lists": {},                     # {"shopping": ["milk", "eggs"], "to-do": [...]}
         }
         self.tracks = self._load_tracks()
+        sf = getattr(cfg, "state_file", "")
+        self._state_file = Path(sf) if sf else None
+        self._saved = None
+        self._load_saved()
         self._ring_task: asyncio.Task | None = None
         self._call_task: asyncio.Task | None = None
 
@@ -93,7 +100,50 @@ class Room:
         self._changed()
 
     def _changed(self):
+        self._save()
         self.on_change(self.state)
+
+    # ---------- kept across restarts (a Pi reboot must not lose the alarms, reminders and lists) ----------
+    KEEP = ("alarms", "reminders", "lists")
+
+    def _keep_json(self) -> str:
+        return json.dumps({k: self.state[k] for k in self.KEEP}, sort_keys=True)
+
+    def _load_saved(self):
+        if not self._state_file or not self._state_file.exists():
+            return
+        try:
+            d = json.loads(self._state_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            log.warning("room state %s unreadable (%s); starting empty", self._state_file, e)
+            return
+        for k in self.KEEP:
+            if isinstance(d.get(k), type(self.state[k])):
+                self.state[k] = d[k]
+        for x in self.state["alarms"] + self.state["reminders"]:
+            x["id"] = next(_ids)
+            x.setdefault("fired_on", "")
+        for r in self.state["reminders"]:
+            r.setdefault("repeat", "")
+        self.state["lists"] = {str(k): [str(i) for i in v] for k, v in self.state["lists"].items() if isinstance(v, list)}
+        self._saved = self._keep_json()
+        log.info("room state loaded: %d alarms, %d reminders, %d lists", len(self.state["alarms"]),
+                 len(self.state["reminders"]), len(self.state["lists"]))
+
+    def _save(self):
+        if not self._state_file:
+            return
+        js = self._keep_json()
+        if js == self._saved:                # the timer countdown calls this twice a second: only real changes
+            return
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._state_file.with_name(self._state_file.name + ".tmp")
+            tmp.write_text(js, encoding="utf-8")
+            os.replace(tmp, self._state_file)      # never a half-written file, even on a power cut
+            self._saved = js
+        except OSError as e:
+            log.warning("room state not saved: %s", e)
 
     # ---------- actions ----------
     async def execute(self, a: dict) -> dict:
@@ -166,8 +216,13 @@ class Room:
 
     def _do_add_reminder(self, a):
         hhmm = _parse_hhmm(a.get("time", "") or "")
-        self.state["reminders"].append({"id": next(_ids), "text": a["text"], "time": hhmm or "", "fired_on": ""})
-        return {"ok": True, "note": f"reminder {a['text']} {hhmm or ''}".strip()}
+        rep_ = _norm_repeat(a.get("repeat", ""))
+        if rep_ and not hhmm:
+            return {"ok": False, "note": "a repeating reminder needs a time",
+                    "speak": "What time should I remind you?"}
+        self.state["reminders"].append({"id": next(_ids), "text": a["text"], "time": hhmm or "", "fired_on": "",
+                                        "repeat": rep_})
+        return {"ok": True, "note": f"reminder {a['text']} {hhmm or ''} {_say_repeat(rep_)}".strip()}
 
     def _find_reminders(self, which: str) -> list[dict]:
         """Reminders meant by `which`: "all", a number ("2", "number two", "the first"), "last", or words of it."""
@@ -227,16 +282,58 @@ class Room:
             if not hhmm:
                 return {"ok": False, "note": f"bad time {a['time']}", "speak": "Sorry, what time should it be?"}
             x["time"], x["fired_on"] = hhmm, ""
+        if a.get("repeat") is not None and a.get("repeat") != "":
+            x["repeat"] = _norm_repeat(a["repeat"])
         return {"ok": True, "note": f"reminder now: {x['text']} {x['time']}".strip()}
 
     def _do_list_reminders(self, a):
         r = self.state["reminders"]
         if not r:
             return {"ok": True, "note": "no reminders", "speak": "You don't have any reminders."}
-        items = [x["text"] + (f" at {_say_time(x['time'])}" if x["time"] else "") for x in r]
+        items = [x["text"] + (f" at {_say_time(x['time'])}" if x["time"] else "") +
+                 (f" {_say_repeat(x.get('repeat', ''))}" if x.get("repeat") else "") for x in r]
         say = ("You have one reminder: " if len(items) == 1 else f"You have {len(items)} reminders: ") + \
               ", ".join(items[:-1]) + (" and " if len(items) > 1 else "") + items[-1] + "."
         return {"ok": True, "note": "listed reminders", "speak": say}
+
+    # ---------- lists (shopping, to-do, packing ...) ----------
+    def _do_list_items(self, a):
+        act = (a.get("action") or "show").lower()
+        name = _list_name(a.get("list", ""))
+        lists = self.state["lists"]
+        items = lists.get(name, [])
+        what = f"your {name} list"
+        if act == "add":
+            new = [i for i in _split_items(a.get("items", "")) if i.lower() not in {x.lower() for x in items}]
+            if not new:
+                have = _split_items(a.get("items", ""))
+                if have:
+                    return {"ok": True, "note": "already on the list", "speak": f"{_and(have).capitalize()} "
+                            f"{'is' if len(have) == 1 else 'are'} already on {what}."}
+                return {"ok": False, "note": "nothing to add", "speak": f"What should I add to {what}?"}
+            lists[name] = items + new
+            return {"ok": True, "note": f"added {new} to {name}", "speak": f"Added {_and(new)} to {what}."}
+        if act == "remove":
+            want = _split_items(a.get("items", ""))
+            gone = [x for x in items if any(_same_item(x, w) for w in want)]
+            if not gone:
+                return {"ok": False, "note": f"not on {name}: {want}",
+                        "speak": (f"{_and(want).capitalize()} isn't on {what}." if want else
+                                  f"What should I take off {what}?")}
+            lists[name] = [x for x in items if x not in gone]
+            if not lists[name]:
+                lists.pop(name)
+            left = len(lists.get(name, []))
+            return {"ok": True, "note": f"removed {gone} from {name}, {left} left",
+                    "speak": f"Removed {_and(gone)}." + ("" if left else f" {what.capitalize()} is empty now.")}
+        if act == "clear":
+            lists.pop(name, None)
+            return {"ok": True, "note": f"cleared {name}", "speak": f"Cleared {what}."}
+        if not items:                                   # show
+            return {"ok": True, "note": f"{name} empty", "speak": f"{what.capitalize()} is empty."}
+        n = len(items)
+        return {"ok": True, "note": f"read {name} list",
+                "speak": f"{what.capitalize()} has {'one item' if n == 1 else f'{n} items'}: {_and(items)}."}
 
     def _do_game(self, a):
         """Sky Hop on the display, changed live: every setting is room state the display pushes into the game."""
@@ -387,12 +484,14 @@ class Room:
                     a["fired_on"] = today
                     self.ring(f'{a["time"]} alarm')
                     await self.on_ring(f"It's {_say_time(a['time'])}. Time to wake up!")
+            weekday = time.localtime().tm_wday
             for r in list(self.state["reminders"]):
-                if r["time"] == hhmm and r["fired_on"] != today:
+                if r["time"] == hhmm and r["fired_on"] != today and _due(r.get("repeat", ""), weekday):
                     r["fired_on"] = today
                     self.mixer.fx.push(sounds.chime(self.mixer.rate))
                     await self.on_ring(f"Reminder: {r['text']}.")
-                    self.state["reminders"].remove(r)
+                    if not r.get("repeat"):               # a repeating one stays for next time
+                        self.state["reminders"].remove(r)
                     self._changed()
             if self.state["timers"]:
                 self._changed()      # countdowns on the display
@@ -409,6 +508,74 @@ def _parse_hhmm(s: str) -> str | None:
     if ap == "am" and h == 12:
         h = 0
     return f"{h:02d}:{mi:02d}" if 0 <= h < 24 and 0 <= mi < 60 else None
+
+
+_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def _norm_repeat(s) -> str:
+    """'every day' -> daily, 'on weekdays' -> weekdays, 'every monday' -> monday; '' = once."""
+    s = re.sub(r"[^a-z ]", " ", str(s or "").lower()).strip()
+    if not s or s in ("no", "none", "once", "never", "false", "one time"):
+        return ""
+    if "weekday" in s or "work day" in s or "workday" in s or "school day" in s:
+        return "weekdays"
+    if "weekend" in s:
+        return "weekends"
+    for d in _DAYS:
+        if re.search(rf"\b{d[:3]}", s):
+            return d
+    if re.search(r"day|daily|night|morning|evening|always|every|each|yes|true", s):
+        return "daily"
+    return ""
+
+
+def _due(repeat: str, weekday: int) -> bool:
+    if repeat in ("", "daily"):
+        return True
+    if repeat == "weekdays":
+        return weekday < 5
+    if repeat == "weekends":
+        return weekday >= 5
+    return repeat in _DAYS and _DAYS.index(repeat) == weekday
+
+
+def _say_repeat(repeat: str) -> str:
+    return {"": "", "daily": "every day", "weekdays": "on weekdays", "weekends": "on weekends"}.get(
+        repeat, f"every {repeat.capitalize()}")
+
+
+def _list_name(s) -> str:
+    s = re.sub(r"[^a-z0-9 -]", " ", str(s or "").lower())
+    s = re.sub(r"\b(?:my|the|our|a|list|lists)\b", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s or s in ("grocery", "groceries", "shop", "market", "grocery shopping"):
+        return "shopping"
+    if s.replace(" ", "").replace("-", "") in ("todo", "todos", "task", "tasks", "things to do"):
+        return "to-do"
+    return s
+
+
+def _split_items(s) -> list[str]:
+    if isinstance(s, list):
+        s = ", ".join(str(x) for x in s)
+    parts = re.split(r",|;|\band\b|\n", str(s or ""), flags=re.I)
+    out = []
+    for p in parts:
+        p = re.sub(r"^\s*(?:some|a|an|the|more)\s+", "", p.strip(" .!?"), flags=re.I).strip()
+        if p and p.lower() not in {x.lower() for x in out}:
+            out.append(p)
+    return out
+
+
+def _same_item(have: str, want: str) -> bool:
+    h, w = have.lower().rstrip("s"), want.lower().rstrip("s")
+    return h == w or (len(w) > 2 and (w in h.split() or h in w.split()))
+
+
+def _and(xs: list[str]) -> str:
+    xs = list(xs)
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1] if xs else ""
 
 
 def _say_time(hhmm: str) -> str:

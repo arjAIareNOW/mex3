@@ -1,0 +1,1857 @@
+{
+ "about": "Elkit's own art (made by scripts/make_assets.py, no licences). Sprites face right. Icons: /assets/icons/NAME.svg (dark) and /assets/icons/white/NAME.svg (for dark backgrounds). groups: the choices offered for 'show me other ...'. palettes: background, surface, primary, accent, text.",
+ "groups": {
+  "bird": [
+   "bird",
+   "parrot",
+   "owl",
+   "penguin",
+   "duck"
+  ],
+  "fish": [
+   "fish",
+   "clownfish",
+   "pufferfish",
+   "shark"
+  ],
+  "car": [
+   "car",
+   "race-car",
+   "truck",
+   "bus"
+  ],
+  "hero": [
+   "hero",
+   "girl",
+   "knight",
+   "astronaut",
+   "robot"
+  ],
+  "pet": [
+   "cat",
+   "dog",
+   "rabbit",
+   "frog"
+  ],
+  "enemy": [
+   "slime",
+   "ghost",
+   "bat",
+   "ufo",
+   "bomb"
+  ],
+  "flyer": [
+   "airplane",
+   "rocket",
+   "spaceship",
+   "ufo"
+  ],
+  "treasure": [
+   "coin",
+   "gem",
+   "star",
+   "heart",
+   "key",
+   "chest"
+  ],
+  "plant": [
+   "tree",
+   "pine",
+   "bush",
+   "flower",
+   "mushroom"
+  ],
+  "obstacle": [
+   "rock",
+   "spike",
+   "crate",
+   "asteroid",
+   "pipe"
+  ],
+  "food": [
+   "apple",
+   "cherry",
+   "mushroom"
+  ],
+  "sky": [
+   "sky-day",
+   "sky-night",
+   "sunset",
+   "space"
+  ],
+  "scene": [
+   "forest",
+   "desert",
+   "snow",
+   "city",
+   "sea",
+   "underwater",
+   "room"
+  ],
+  "ground": [
+   "grass",
+   "dirt",
+   "sand",
+   "stone",
+   "brick",
+   "ice",
+   "wood",
+   "water",
+   "lava",
+   "checker"
+  ]
+ },
+ "palettes": {
+  "ocean": {
+   "background": "#f0f7ff",
+   "surface": "#ffffff",
+   "primary": "#1e6fd9",
+   "accent": "#00b3a4",
+   "text": "#0f2a44"
+  },
+  "sunset": {
+   "background": "#fff5ee",
+   "surface": "#ffffff",
+   "primary": "#e8553d",
+   "accent": "#ffb02e",
+   "text": "#3b1f1a"
+  },
+  "forest": {
+   "background": "#f2f7f1",
+   "surface": "#ffffff",
+   "primary": "#2e7d4f",
+   "accent": "#c9a227",
+   "text": "#1d2b22"
+  },
+  "midnight": {
+   "background": "#0f172a",
+   "surface": "#1e293b",
+   "primary": "#6366f1",
+   "accent": "#22d3ee",
+   "text": "#e2e8f0"
+  },
+  "candy": {
+   "background": "#fff0f6",
+   "surface": "#ffffff",
+   "primary": "#e64980",
+   "accent": "#7950f2",
+   "text": "#3b1730"
+  },
+  "coffee": {
+   "background": "#f7f1ea",
+   "surface": "#fffaf5",
+   "primary": "#6f4e37",
+   "accent": "#d4a373",
+   "text": "#2d1f16"
+  },
+  "mono": {
+   "background": "#f8f9fa",
+   "surface": "#ffffff",
+   "primary": "#212529",
+   "accent": "#868e96",
+   "text": "#212529"
+  },
+  "neon": {
+   "background": "#0b0b12",
+   "surface": "#161625",
+   "primary": "#ff2d75",
+   "accent": "#39ff14",
+   "text": "#f5f5ff"
+  },
+  "lavender": {
+   "background": "#f6f4fe",
+   "surface": "#ffffff",
+   "primary": "#7c5cff",
+   "accent": "#ff9f68",
+   "text": "#2a2340"
+  },
+  "citrus": {
+   "background": "#fffdf0",
+   "surface": "#ffffff",
+   "primary": "#f59f00",
+   "accent": "#37b24d",
+   "text": "#2b2a1f"
+  }
+ },
+ "items": [
+  {
+   "name": "home",
+   "kind": "icon",
+   "path": "/assets/icons/home.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "home"
+  },
+  {
+   "name": "play",
+   "kind": "icon",
+   "path": "/assets/icons/play.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "play"
+  },
+  {
+   "name": "pause",
+   "kind": "icon",
+   "path": "/assets/icons/pause.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "pause"
+  },
+  {
+   "name": "stop",
+   "kind": "icon",
+   "path": "/assets/icons/stop.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "stop"
+  },
+  {
+   "name": "next",
+   "kind": "icon",
+   "path": "/assets/icons/next.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "next"
+  },
+  {
+   "name": "previous",
+   "kind": "icon",
+   "path": "/assets/icons/previous.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "previous"
+  },
+  {
+   "name": "plus",
+   "kind": "icon",
+   "path": "/assets/icons/plus.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "plus"
+  },
+  {
+   "name": "minus",
+   "kind": "icon",
+   "path": "/assets/icons/minus.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "minus"
+  },
+  {
+   "name": "close",
+   "kind": "icon",
+   "path": "/assets/icons/close.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "close"
+  },
+  {
+   "name": "check",
+   "kind": "icon",
+   "path": "/assets/icons/check.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "check"
+  },
+  {
+   "name": "menu",
+   "kind": "icon",
+   "path": "/assets/icons/menu.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "menu"
+  },
+  {
+   "name": "grid",
+   "kind": "icon",
+   "path": "/assets/icons/grid.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "grid"
+  },
+  {
+   "name": "search",
+   "kind": "icon",
+   "path": "/assets/icons/search.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "search"
+  },
+  {
+   "name": "star",
+   "kind": "icon",
+   "path": "/assets/icons/star.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "star"
+  },
+  {
+   "name": "heart",
+   "kind": "icon",
+   "path": "/assets/icons/heart.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "heart"
+  },
+  {
+   "name": "settings",
+   "kind": "icon",
+   "path": "/assets/icons/settings.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "settings"
+  },
+  {
+   "name": "user",
+   "kind": "icon",
+   "path": "/assets/icons/user.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "user"
+  },
+  {
+   "name": "users",
+   "kind": "icon",
+   "path": "/assets/icons/users.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "users"
+  },
+  {
+   "name": "music",
+   "kind": "icon",
+   "path": "/assets/icons/music.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "music"
+  },
+  {
+   "name": "volume",
+   "kind": "icon",
+   "path": "/assets/icons/volume.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "volume"
+  },
+  {
+   "name": "mute",
+   "kind": "icon",
+   "path": "/assets/icons/mute.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "mute"
+  },
+  {
+   "name": "sun",
+   "kind": "icon",
+   "path": "/assets/icons/sun.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "sun"
+  },
+  {
+   "name": "moon",
+   "kind": "icon",
+   "path": "/assets/icons/moon.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "moon"
+  },
+  {
+   "name": "cloud",
+   "kind": "icon",
+   "path": "/assets/icons/cloud.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "cloud"
+  },
+  {
+   "name": "rain",
+   "kind": "icon",
+   "path": "/assets/icons/rain.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "rain"
+  },
+  {
+   "name": "lightbulb",
+   "kind": "icon",
+   "path": "/assets/icons/lightbulb.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "lightbulb"
+  },
+  {
+   "name": "thermometer",
+   "kind": "icon",
+   "path": "/assets/icons/thermometer.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "thermometer"
+  },
+  {
+   "name": "clock",
+   "kind": "icon",
+   "path": "/assets/icons/clock.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "clock"
+  },
+  {
+   "name": "alarm",
+   "kind": "icon",
+   "path": "/assets/icons/alarm.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "alarm"
+  },
+  {
+   "name": "bell",
+   "kind": "icon",
+   "path": "/assets/icons/bell.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "bell"
+  },
+  {
+   "name": "calendar",
+   "kind": "icon",
+   "path": "/assets/icons/calendar.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "calendar"
+  },
+  {
+   "name": "cart",
+   "kind": "icon",
+   "path": "/assets/icons/cart.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "cart"
+  },
+  {
+   "name": "phone",
+   "kind": "icon",
+   "path": "/assets/icons/phone.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "phone"
+  },
+  {
+   "name": "mail",
+   "kind": "icon",
+   "path": "/assets/icons/mail.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "mail"
+  },
+  {
+   "name": "chat",
+   "kind": "icon",
+   "path": "/assets/icons/chat.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "chat"
+  },
+  {
+   "name": "camera",
+   "kind": "icon",
+   "path": "/assets/icons/camera.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "camera"
+  },
+  {
+   "name": "image",
+   "kind": "icon",
+   "path": "/assets/icons/image.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "image"
+  },
+  {
+   "name": "trophy",
+   "kind": "icon",
+   "path": "/assets/icons/trophy.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "trophy"
+  },
+  {
+   "name": "gamepad",
+   "kind": "icon",
+   "path": "/assets/icons/gamepad.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "gamepad"
+  },
+  {
+   "name": "book",
+   "kind": "icon",
+   "path": "/assets/icons/book.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "book"
+  },
+  {
+   "name": "edit",
+   "kind": "icon",
+   "path": "/assets/icons/edit.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "edit"
+  },
+  {
+   "name": "trash",
+   "kind": "icon",
+   "path": "/assets/icons/trash.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "trash"
+  },
+  {
+   "name": "lock",
+   "kind": "icon",
+   "path": "/assets/icons/lock.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "lock"
+  },
+  {
+   "name": "unlock",
+   "kind": "icon",
+   "path": "/assets/icons/unlock.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "unlock"
+  },
+  {
+   "name": "map-pin",
+   "kind": "icon",
+   "path": "/assets/icons/map-pin.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "map pin"
+  },
+  {
+   "name": "info",
+   "kind": "icon",
+   "path": "/assets/icons/info.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "info"
+  },
+  {
+   "name": "warning",
+   "kind": "icon",
+   "path": "/assets/icons/warning.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "warning"
+  },
+  {
+   "name": "refresh",
+   "kind": "icon",
+   "path": "/assets/icons/refresh.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "refresh"
+  },
+  {
+   "name": "download",
+   "kind": "icon",
+   "path": "/assets/icons/download.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "download"
+  },
+  {
+   "name": "upload",
+   "kind": "icon",
+   "path": "/assets/icons/upload.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "upload"
+  },
+  {
+   "name": "share",
+   "kind": "icon",
+   "path": "/assets/icons/share.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "share"
+  },
+  {
+   "name": "arrow-left",
+   "kind": "icon",
+   "path": "/assets/icons/arrow-left.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "left arrow"
+  },
+  {
+   "name": "arrow-right",
+   "kind": "icon",
+   "path": "/assets/icons/arrow-right.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "right arrow"
+  },
+  {
+   "name": "arrow-up",
+   "kind": "icon",
+   "path": "/assets/icons/arrow-up.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "up arrow"
+  },
+  {
+   "name": "arrow-down",
+   "kind": "icon",
+   "path": "/assets/icons/arrow-down.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "down arrow"
+  },
+  {
+   "name": "wifi",
+   "kind": "icon",
+   "path": "/assets/icons/wifi.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "wifi"
+  },
+  {
+   "name": "battery",
+   "kind": "icon",
+   "path": "/assets/icons/battery.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "battery"
+  },
+  {
+   "name": "power",
+   "kind": "icon",
+   "path": "/assets/icons/power.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "power"
+  },
+  {
+   "name": "fan",
+   "kind": "icon",
+   "path": "/assets/icons/fan.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "fan"
+  },
+  {
+   "name": "tv",
+   "kind": "icon",
+   "path": "/assets/icons/tv.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "tv"
+  },
+  {
+   "name": "door",
+   "kind": "icon",
+   "path": "/assets/icons/door.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "door"
+  },
+  {
+   "name": "plant",
+   "kind": "icon",
+   "path": "/assets/icons/plant.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "plant"
+  },
+  {
+   "name": "coffee",
+   "kind": "icon",
+   "path": "/assets/icons/coffee.svg",
+   "w": 24,
+   "h": 24,
+   "tags": [
+    "icon"
+   ],
+   "say": "coffee"
+  },
+  {
+   "name": "bird",
+   "kind": "sprite",
+   "path": "/assets/sprites/bird.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "flappy",
+    "flying"
+   ],
+   "say": "bird"
+  },
+  {
+   "name": "fish",
+   "kind": "sprite",
+   "path": "/assets/sprites/fish.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "sea",
+    "water"
+   ],
+   "say": "fish"
+  },
+  {
+   "name": "cat",
+   "kind": "sprite",
+   "path": "/assets/sprites/cat.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "pet"
+   ],
+   "say": "cat"
+  },
+  {
+   "name": "frog",
+   "kind": "sprite",
+   "path": "/assets/sprites/frog.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "jump"
+   ],
+   "say": "frog"
+  },
+  {
+   "name": "ghost",
+   "kind": "sprite",
+   "path": "/assets/sprites/ghost.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "enemy",
+    "spooky",
+    "halloween"
+   ],
+   "say": "ghost"
+  },
+  {
+   "name": "slime",
+   "kind": "sprite",
+   "path": "/assets/sprites/slime.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "enemy",
+    "blob"
+   ],
+   "say": "slime"
+  },
+  {
+   "name": "bat",
+   "kind": "sprite",
+   "path": "/assets/sprites/bat.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "enemy",
+    "flying",
+    "night"
+   ],
+   "say": "bat"
+  },
+  {
+   "name": "robot",
+   "kind": "sprite",
+   "path": "/assets/sprites/robot.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "character",
+    "machine"
+   ],
+   "say": "robot"
+  },
+  {
+   "name": "hero",
+   "kind": "sprite",
+   "path": "/assets/sprites/hero.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "character",
+    "player",
+    "person"
+   ],
+   "say": "hero"
+  },
+  {
+   "name": "rocket",
+   "kind": "sprite",
+   "path": "/assets/sprites/rocket.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "space",
+    "vehicle",
+    "up"
+   ],
+   "say": "rocket"
+  },
+  {
+   "name": "spaceship",
+   "kind": "sprite",
+   "path": "/assets/sprites/spaceship.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "space",
+    "vehicle",
+    "shooter"
+   ],
+   "say": "spaceship"
+  },
+  {
+   "name": "ufo",
+   "kind": "sprite",
+   "path": "/assets/sprites/ufo.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "space",
+    "alien",
+    "enemy"
+   ],
+   "say": "ufo"
+  },
+  {
+   "name": "car",
+   "kind": "sprite",
+   "path": "/assets/sprites/car.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "vehicle",
+    "racing",
+    "road"
+   ],
+   "say": "car"
+  },
+  {
+   "name": "coin",
+   "kind": "sprite",
+   "path": "/assets/sprites/coin.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "item",
+    "money",
+    "score"
+   ],
+   "say": "coin"
+  },
+  {
+   "name": "gem",
+   "kind": "sprite",
+   "path": "/assets/sprites/gem.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "item",
+    "treasure",
+    "diamond",
+    "jewel"
+   ],
+   "say": "gem"
+  },
+  {
+   "name": "heart",
+   "kind": "sprite",
+   "path": "/assets/sprites/heart.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "item",
+    "life",
+    "health",
+    "love"
+   ],
+   "say": "heart"
+  },
+  {
+   "name": "star",
+   "kind": "sprite",
+   "path": "/assets/sprites/star.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "item",
+    "score",
+    "bonus"
+   ],
+   "say": "star"
+  },
+  {
+   "name": "key",
+   "kind": "sprite",
+   "path": "/assets/sprites/key.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "item",
+    "unlock",
+    "door"
+   ],
+   "say": "key"
+  },
+  {
+   "name": "chest",
+   "kind": "sprite",
+   "path": "/assets/sprites/chest.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "item",
+    "treasure",
+    "loot"
+   ],
+   "say": "chest"
+  },
+  {
+   "name": "bomb",
+   "kind": "sprite",
+   "path": "/assets/sprites/bomb.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "enemy",
+    "danger",
+    "explosive"
+   ],
+   "say": "bomb"
+  },
+  {
+   "name": "fireball",
+   "kind": "sprite",
+   "path": "/assets/sprites/fireball.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "shot",
+    "fire",
+    "danger"
+   ],
+   "say": "fireball"
+  },
+  {
+   "name": "laser",
+   "kind": "sprite",
+   "path": "/assets/sprites/laser.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "shot",
+    "space",
+    "shooter"
+   ],
+   "say": "laser"
+  },
+  {
+   "name": "asteroid",
+   "kind": "sprite",
+   "path": "/assets/sprites/asteroid.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "space",
+    "rock",
+    "obstacle"
+   ],
+   "say": "asteroid"
+  },
+  {
+   "name": "rock",
+   "kind": "sprite",
+   "path": "/assets/sprites/rock.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "obstacle",
+    "stone"
+   ],
+   "say": "rock"
+  },
+  {
+   "name": "spike",
+   "kind": "sprite",
+   "path": "/assets/sprites/spike.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "obstacle",
+    "danger",
+    "trap"
+   ],
+   "say": "spike"
+  },
+  {
+   "name": "cloud",
+   "kind": "sprite",
+   "path": "/assets/sprites/cloud.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "sky",
+    "weather"
+   ],
+   "say": "cloud"
+  },
+  {
+   "name": "tree",
+   "kind": "sprite",
+   "path": "/assets/sprites/tree.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "nature",
+    "forest",
+    "obstacle"
+   ],
+   "say": "tree"
+  },
+  {
+   "name": "pine",
+   "kind": "sprite",
+   "path": "/assets/sprites/pine.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "nature",
+    "forest",
+    "snow"
+   ],
+   "say": "pine"
+  },
+  {
+   "name": "bush",
+   "kind": "sprite",
+   "path": "/assets/sprites/bush.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "nature",
+    "plant"
+   ],
+   "say": "bush"
+  },
+  {
+   "name": "flower",
+   "kind": "sprite",
+   "path": "/assets/sprites/flower.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "nature",
+    "plant",
+    "garden"
+   ],
+   "say": "flower"
+  },
+  {
+   "name": "mushroom",
+   "kind": "sprite",
+   "path": "/assets/sprites/mushroom.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "item",
+    "power-up",
+    "nature"
+   ],
+   "say": "mushroom"
+  },
+  {
+   "name": "apple",
+   "kind": "sprite",
+   "path": "/assets/sprites/apple.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "food",
+    "fruit",
+    "item"
+   ],
+   "say": "apple"
+  },
+  {
+   "name": "cherry",
+   "kind": "sprite",
+   "path": "/assets/sprites/cherry.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "food",
+    "fruit",
+    "item"
+   ],
+   "say": "cherry"
+  },
+  {
+   "name": "flag",
+   "kind": "sprite",
+   "path": "/assets/sprites/flag.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "goal",
+    "finish",
+    "level"
+   ],
+   "say": "flag"
+  },
+  {
+   "name": "sun",
+   "kind": "sprite",
+   "path": "/assets/sprites/sun.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "sky",
+    "weather",
+    "day"
+   ],
+   "say": "sun"
+  },
+  {
+   "name": "moon",
+   "kind": "sprite",
+   "path": "/assets/sprites/moon.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "sky",
+    "night"
+   ],
+   "say": "moon"
+  },
+  {
+   "name": "pipe",
+   "kind": "sprite",
+   "path": "/assets/sprites/pipe.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "obstacle",
+    "flappy",
+    "tile"
+   ],
+   "say": "pipe"
+  },
+  {
+   "name": "crate",
+   "kind": "sprite",
+   "path": "/assets/sprites/crate.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "box",
+    "obstacle",
+    "platform"
+   ],
+   "say": "crate"
+  },
+  {
+   "name": "parrot",
+   "kind": "sprite",
+   "path": "/assets/sprites/parrot.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "bird",
+    "flying"
+   ],
+   "say": "parrot"
+  },
+  {
+   "name": "owl",
+   "kind": "sprite",
+   "path": "/assets/sprites/owl.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "bird",
+    "night"
+   ],
+   "say": "owl"
+  },
+  {
+   "name": "penguin",
+   "kind": "sprite",
+   "path": "/assets/sprites/penguin.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "bird",
+    "snow",
+    "cold"
+   ],
+   "say": "penguin"
+  },
+  {
+   "name": "duck",
+   "kind": "sprite",
+   "path": "/assets/sprites/duck.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "bird",
+    "water"
+   ],
+   "say": "duck"
+  },
+  {
+   "name": "clownfish",
+   "kind": "sprite",
+   "path": "/assets/sprites/clownfish.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "fish",
+    "sea"
+   ],
+   "say": "clownfish"
+  },
+  {
+   "name": "pufferfish",
+   "kind": "sprite",
+   "path": "/assets/sprites/pufferfish.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "fish",
+    "sea"
+   ],
+   "say": "pufferfish"
+  },
+  {
+   "name": "shark",
+   "kind": "sprite",
+   "path": "/assets/sprites/shark.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "fish",
+    "sea",
+    "enemy"
+   ],
+   "say": "shark"
+  },
+  {
+   "name": "race-car",
+   "kind": "sprite",
+   "path": "/assets/sprites/race-car.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "vehicle",
+    "car",
+    "racing"
+   ],
+   "say": "race car"
+  },
+  {
+   "name": "truck",
+   "kind": "sprite",
+   "path": "/assets/sprites/truck.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "vehicle",
+    "car",
+    "road"
+   ],
+   "say": "truck"
+  },
+  {
+   "name": "bus",
+   "kind": "sprite",
+   "path": "/assets/sprites/bus.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "vehicle",
+    "car",
+    "road",
+    "city"
+   ],
+   "say": "bus"
+  },
+  {
+   "name": "girl",
+   "kind": "sprite",
+   "path": "/assets/sprites/girl.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "character",
+    "player",
+    "person"
+   ],
+   "say": "girl"
+  },
+  {
+   "name": "knight",
+   "kind": "sprite",
+   "path": "/assets/sprites/knight.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "character",
+    "player",
+    "person",
+    "castle"
+   ],
+   "say": "knight"
+  },
+  {
+   "name": "astronaut",
+   "kind": "sprite",
+   "path": "/assets/sprites/astronaut.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "character",
+    "player",
+    "space"
+   ],
+   "say": "astronaut"
+  },
+  {
+   "name": "airplane",
+   "kind": "sprite",
+   "path": "/assets/sprites/airplane.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "vehicle",
+    "flying",
+    "sky"
+   ],
+   "say": "airplane"
+  },
+  {
+   "name": "dog",
+   "kind": "sprite",
+   "path": "/assets/sprites/dog.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "pet"
+   ],
+   "say": "dog"
+  },
+  {
+   "name": "rabbit",
+   "kind": "sprite",
+   "path": "/assets/sprites/rabbit.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "animal",
+    "pet"
+   ],
+   "say": "rabbit"
+  },
+  {
+   "name": "grass",
+   "kind": "tile",
+   "path": "/assets/tiles/grass.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "ground",
+    "platform"
+   ],
+   "say": "grass"
+  },
+  {
+   "name": "dirt",
+   "kind": "tile",
+   "path": "/assets/tiles/dirt.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "ground"
+   ],
+   "say": "dirt"
+  },
+  {
+   "name": "brick",
+   "kind": "tile",
+   "path": "/assets/tiles/brick.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "wall",
+    "platform"
+   ],
+   "say": "brick"
+  },
+  {
+   "name": "stone",
+   "kind": "tile",
+   "path": "/assets/tiles/stone.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "wall",
+    "castle",
+    "platform"
+   ],
+   "say": "stone"
+  },
+  {
+   "name": "water",
+   "kind": "tile",
+   "path": "/assets/tiles/water.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "sea",
+    "liquid"
+   ],
+   "say": "water"
+  },
+  {
+   "name": "sand",
+   "kind": "tile",
+   "path": "/assets/tiles/sand.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "ground",
+    "desert",
+    "beach"
+   ],
+   "say": "sand"
+  },
+  {
+   "name": "ice",
+   "kind": "tile",
+   "path": "/assets/tiles/ice.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "snow",
+    "winter",
+    "platform"
+   ],
+   "say": "ice"
+  },
+  {
+   "name": "wood",
+   "kind": "tile",
+   "path": "/assets/tiles/wood.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "floor",
+    "platform"
+   ],
+   "say": "wood"
+  },
+  {
+   "name": "lava",
+   "kind": "tile",
+   "path": "/assets/tiles/lava.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "danger",
+    "fire"
+   ],
+   "say": "lava"
+  },
+  {
+   "name": "checker",
+   "kind": "tile",
+   "path": "/assets/tiles/checker.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "finish",
+    "racing",
+    "floor"
+   ],
+   "say": "checker"
+  },
+  {
+   "name": "sky-day",
+   "kind": "background",
+   "path": "/assets/backgrounds/sky-day.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "day",
+    "flappy",
+    "outdoor"
+   ],
+   "say": "day sky"
+  },
+  {
+   "name": "sky-night",
+   "kind": "background",
+   "path": "/assets/backgrounds/sky-night.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "night",
+    "stars",
+    "outdoor"
+   ],
+   "say": "night sky"
+  },
+  {
+   "name": "sunset",
+   "kind": "background",
+   "path": "/assets/backgrounds/sunset.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "evening",
+    "outdoor"
+   ],
+   "say": "sunset"
+  },
+  {
+   "name": "space",
+   "kind": "background",
+   "path": "/assets/backgrounds/space.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "space",
+    "shooter",
+    "stars"
+   ],
+   "say": "space"
+  },
+  {
+   "name": "sea",
+   "kind": "background",
+   "path": "/assets/backgrounds/sea.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "water",
+    "ocean",
+    "beach"
+   ],
+   "say": "sea"
+  },
+  {
+   "name": "underwater",
+   "kind": "background",
+   "path": "/assets/backgrounds/underwater.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "water",
+    "fish",
+    "ocean"
+   ],
+   "say": "underwater"
+  },
+  {
+   "name": "forest",
+   "kind": "background",
+   "path": "/assets/backgrounds/forest.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "nature",
+    "trees",
+    "outdoor"
+   ],
+   "say": "forest"
+  },
+  {
+   "name": "desert",
+   "kind": "background",
+   "path": "/assets/backgrounds/desert.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "sand",
+    "hot",
+    "outdoor"
+   ],
+   "say": "desert"
+  },
+  {
+   "name": "snow",
+   "kind": "background",
+   "path": "/assets/backgrounds/snow.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "winter",
+    "cold",
+    "outdoor"
+   ],
+   "say": "snow"
+  },
+  {
+   "name": "city",
+   "kind": "background",
+   "path": "/assets/backgrounds/city.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "night",
+    "buildings",
+    "urban"
+   ],
+   "say": "city"
+  },
+  {
+   "name": "room",
+   "kind": "background",
+   "path": "/assets/backgrounds/room.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "indoor",
+    "home"
+   ],
+   "say": "room"
+  },
+  {
+   "name": "plain-dark",
+   "kind": "background",
+   "path": "/assets/backgrounds/plain-dark.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "dark",
+    "simple"
+   ],
+   "say": "dark"
+  },
+  {
+   "name": "plain-light",
+   "kind": "background",
+   "path": "/assets/backgrounds/plain-light.svg",
+   "w": 800,
+   "h": 480,
+   "tags": [
+    "light",
+    "simple"
+   ],
+   "say": "light"
+  }
+ ]
+}

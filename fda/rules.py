@@ -156,6 +156,7 @@ _EVIDENCE = {
     "list_reminders": r"remind|list|schedule|agenda|to ?do",
     "delete_reminder": r"remind|delet|remov|cancel|scratch|clear|forget|eras|drop|get rid|done|all|number|first|last",
     "edit_reminder": r"remind|chang|edit|move|updat|instead|scratch|renam|make it|switch|replac|actually",
+    "list_items": r"list|shop|grocer|buy|need|add|put|remov|take|cross|bought|got|done|clear|to ?do|task|pack",
     "music": r"music|song|track|tune|play|pause|stop|next|skip|resume|continue|listen|lofi|lo-fi|radio",
     "volume": r"volume|loud|quiet|soft|mute|turn (?:it|that) (?:up|down)|can't hear|cannot hear",
     "call": r"call|phone|ring|dial",
@@ -207,6 +208,10 @@ _NOT_NAMES = {"hey", "okay", "ok", "please", "well", "so", "yes", "yeah", "no", 
               "tomorrow", "tonight", "maybe", "honestly", "basically", "excuse", "pardon", "quick", "question",
               "what", "who", "why", "how", "where", "when", "which", "really", "seriously", "come", "hold", "stop",
               "okay", "god", "jeez", "man", "boy", "darn", "damn", "geez", "huh", "ah", "ahh", "ooh", "aha", "yep", "nope"}
+_TO_PERSON = re.compile(
+    r"\?|\b(?:you|your|yours|ya|u|we|let'?s|are|is|did|do|does|have|has|can|could|would|will|should|where|what|when|"
+    r"why|how|who|come|go|get|give|pass|bring|take|put|look|wait|stop|help|hurry|listen|sit|eat|turn|open|close|"
+    r"call|tell|ask|don'?t|please|thanks|thank|dinner|lunch|breakfast|here|there)\b", re.I)
 _PHONE = re.compile(r"\b(talk to you later|i'?ll call you back|bye[- ]bye|love you,? bye|can you hear me on the line)\b",
                     re.I)
 
@@ -220,7 +225,11 @@ def addressed_to_other(text: str, own_name: str = "FDA") -> bool:
     if not m:
         return False
     w = m.group(1).lower()
-    return w not in _NOT_NAMES and w not in _VERBS and w != own_name.lower() and not w.endswith(("ly", "ing"))
+    if w in _NOT_NAMES or w in _VERBS or w == own_name.lower() or w.endswith(("ly", "ing")):
+        return False
+    # Whisper capitalises the first word of every sentence, so "Articuno, the bird." / "Exercise, three study."
+    # look like a name too: it is someone being spoken to only when the rest is said TO a person
+    return bool(_TO_PERSON.search(t[m.end():]))
 
 
 _FOR_ME = re.compile(r"\?|\b(you|your|can|could|would|will|tell|what|who|how|why|when|where|which|please|"

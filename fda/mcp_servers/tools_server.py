@@ -53,6 +53,27 @@ WMO = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "cloudy", 45: "fogg
        81: "rain showers", 82: "heavy rain showers", 95: "thunderstorms", 96: "thunderstorms with hail",
        99: "thunderstorms with hail"}
 
+def art_rule() -> str:
+    """The app writer's note about Elkit's own art library (fda/assets), with every name in it ("" if absent)."""
+    man = live.manifest()
+    items = man.get("items")
+    if not items:
+        return ""
+    names = {k: ", ".join(i["name"] for i in items if i["kind"] == k) for k in ("sprite", "tile", "background", "icon")}
+    pals = "; ".join(f"{n}: " + " ".join(p.values()) for n, p in man.get("palettes", {}).items())
+    return f"""
+Art library (on this device, works offline; use it instead of emoji when the thing is in it):
+- Sprites "/assets/sprites/NAME.svg" (64x64, they already face RIGHT: no "|flip"): {names["sprite"]}.
+- Tiles "/assets/tiles/NAME.svg" (repeat for ground, walls, platforms): {names["tile"]}.
+- Backgrounds "/assets/backgrounds/NAME.svg" (800x480): {names["background"]}.
+- Icons "/assets/icons/NAME.svg" (dark line icons; "/assets/icons/white/NAME.svg" on dark colours): {names["icon"]}.
+Games use these paths as setting values (bird: "/assets/sprites/bird.svg", sky: "/assets/backgrounds/sky-day.svg"),
+drawn with FDA.draw like any other value; websites put icons in <img src="/assets/icons/NAME.svg" width="24">.
+Only the names listed exist.
+Colour schemes (background, cards, main colour, accent, text) - when one is named, use exactly these colours as
+CSS variables: {pals}."""
+
+
 APP_SYSTEM = """You write small web apps for a 800x480 touch screen. Output ONE complete HTML file and nothing else:
 <!DOCTYPE html> ... </html>, with all CSS in one <style> and all JavaScript in one <script>.
 Rules:
@@ -112,7 +133,7 @@ function draw() { FDA.draw(ctx, "sky", 0, 0, W, H); ctx.fillStyle = FDA.color("t
   if (state !== "play") ctx.fillText(state === "ready" ? "Tap to start" : "Game over - tap to restart", W / 2, H / 2); }
 function loop() { if (state === "play") update(); draw(); requestAnimationFrame(loop); }
 loop();
-</script>"""
+</script>""" + art_rule()
 
 EDIT_SYSTEM = APP_SYSTEM + """
 You get the current HTML file and a requested change. Apply the change (and only that), keep everything else
@@ -334,7 +355,14 @@ class Apps:
     def start(self, kind: str, description: str, name: str, base: Path | None = None) -> dict:
         with self.lock:
             if self.job and self.job["state"] == "building":
-                return {"ok": False, "message": f"Still building {self.job['title']}; one at a time."}
+                if kind == "edit":
+                    # a change asked for while one is still being made: do it right after, not never
+                    q = self.job.setdefault("queued", [])
+                    q.append((description, name))
+                    log.info("change queued while %s is building: %r", self.job["title"], description[:80])
+                    return {"ok": True, "queued": True, "waiting": len(q),
+                            "message": f"Still working on {self.job['title']}; this change comes right after it."}
+                return {"ok": False, "message": f"Still building {self.job['title']}; one new app at a time."}
             title = name or description
             self.job = {"state": "building", "kind": kind, "title": title, "name": _slug(name or description),
                         "t0": time.time(), "description": description}
@@ -419,7 +447,25 @@ class Apps:
             log.exception("build failed")
             job.update(state="failed", error=str(e)[:200])
         with self.lock:
+            queued = job.pop("queued", [])
             self.done.append(dict(job))
+        if queued:
+            self._start_queued(queued)
+
+    def _start_queued(self, queued: list[tuple[str, str]]):
+        """The changes asked for during the last build, as ONE edit: in order, a later one wins
+        ("make it green" ... "no, black instead" -> black)."""
+        if len(queued) == 1:
+            change = queued[0][0]
+        else:
+            change = ("Make these changes, in this order; when two of them disagree, the later one wins: " +
+                      " ".join(f"({i + 1}) {d}" for i, (d, _) in enumerate(queued)))
+        base = self.find(queued[-1][1])
+        if base is None:
+            log.warning("queued change dropped: the app is gone")
+            return
+        r = self.start("edit", change, base.stem, base=base)
+        log.info("queued change started: %s", r.get("message"))
 
 
 def _calc(expr: str) -> float:

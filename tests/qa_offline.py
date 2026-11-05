@@ -165,8 +165,11 @@ def t_rules():
         check(f"not backchannel: {s!r}", rules.is_backchannel(s), False)
     for s in ["Honey, did you buy the milk?", "Mom, where are my keys?", "talk to you later, bye bye"]:
         check(f"side talk: {s!r}", rules.addressed_to_other(s, "Elkit"), True)
-    for s in ["Elkit, what's the weather?", "Turn on the lights", "Describe, a cat", "Okay, set a timer"]:
+    for s in ["Elkit, what's the weather?", "Turn on the lights", "Describe, a cat", "Okay, set a timer",
+              "Articuno, the bird.", "Exercise, three study.", "Number one, drink water.", "Pikachu, yellow one."]:
         check(f"for me: {s!r}", rules.addressed_to_other(s, "Elkit"), False)
+    for s in ["John, pass the salt.", "Ana, can you help me?", "Carlo, dinner is ready."]:
+        check(f"side talk: {s!r}", rules.addressed_to_other(s, "Elkit"), True)
     room = {"lights": {"power": "off", "brightness": 80, "color": "warm white"}, "thermostat_c": 24, "timers": [],
             "music": {"state": "stopped"}, "volume": 50, "reminders": [], "alarms": []}
     def tools(s):
@@ -403,20 +406,25 @@ def t_replies():
         await _reply(n, ["Done, it's blue now."])
         check("same sentence twice in a turn: once", _said(n), "Done, it's blue now.")
 
-        async def interrupted(real_turn: bool, far: bool = True):
+        async def interrupted(real_turn: bool, far: bool = True, counted_first: bool = False):
             n = make_nfm()
             from pipecat.frames.frames import LLMFullResponseStartFrame, LLMTextFrame
             await n.process_frame(LLMFullResponseStartFrame(), D.DOWNSTREAM)
             for c in ["Why did the scarecrow get promoted?", " Because he was outstanding in his field."]:
                 await n.process_frame(LLMTextFrame(c), D.DOWNSTREAM)
             n.spoken, n.last_sentence = "Why did the scarecrow get promoted? Because he", "Because he"
+            if counted_first:                 # the real order: the request is counted, then its interruption comes
+                n.io.turn += 1
+                n.io.t_turn = time.monotonic()
             await n.process_frame(InterruptionFrame(), D.DOWNSTREAM)
             n.out.clear()
-            if real_turn:
+            if real_turn and not counted_first:
                 n.io.turn += 1
             await n._maybe_resume(from_ignored=far)
             return _said(n)
         check("cut in, new request, then noise: no repeat", await interrupted(True), "")
+        check("request counted just before its interruption, then noise: no repeat",
+              await interrupted(True, counted_first=True), "")
         check("cut in by noise only: finishes the sentence", await interrupted(False),
               " [again: Because he was outstanding in his field.]")
         n = make_nfm()
@@ -729,6 +737,244 @@ def t_polish():
     check("turn timing: nothing logged without a turn sent", c2.last, {})
 
 
+def t_assets():
+    """Elkit's own art library: files present, voice tweaks find it, tints and direction kept, app writer told."""
+    import xml.etree.ElementTree as ET
+    from fda.mcp_servers import live as L
+    from fda.mcp_servers import tools_server as T
+    man = json.loads((L.ASSETS / "manifest.json").read_text(encoding="utf-8"))["items"]
+    missing = [i["path"] for i in man if not (L.ASSETS.parent / i["path"].lstrip("/")).exists()]
+    check("library: every manifest entry has its file", missing, [])
+    bad = []
+    for i in man:
+        try:
+            ET.parse(L.ASSETS.parent / i["path"].lstrip("/"))
+        except ET.ParseError:
+            bad.append(i["name"])
+    check("library: every SVG is valid XML", bad, [])
+    check("library: has sprites, tiles, backgrounds, icons",
+          sorted({i["kind"] for i in man}), ["background", "icon", "sprite", "tile"])
+    b = "/assets/sprites/bird.svg"
+    rv = lambda v, cur: L.resolve_value(v, cur, web=False)[0]
+    check("voice: thing with no emoji -> library picture, still facing left like the emoji (offline)",
+          rv("spaceship", "🐦"), "/assets/sprites/spaceship.svg|flip")
+    check("voice: app drawing library art stays library art", rv("fish", b), "/assets/sprites/fish.svg")
+    check("voice: plural / article", rv("the robots", b), "/assets/sprites/robot.svg")
+    check("voice: colour tints a library picture", rv("black", b), b + "@black")
+    check("voice: re-tint replaces the tint", rv("red", b + "@black"), b + "@red")
+    check("voice: mirrored emoji -> library art not mirrored (both face right)", rv("spaceship", "🐦|flip"),
+          "/assets/sprites/spaceship.svg")
+    check("voice: library art -> emoji gets mirrored (keeps facing right)", rv("dragon", b), "🐉|flip")
+    check("voice: emoji stays emoji when the app uses emoji", rv("bird", "🙂"), "🐦")
+    check("voice: two-word background", rv("night sky", "#000"), "/assets/backgrounds/sky-night.svg")
+    rule = T.art_rule()
+    check("app writer is told the library and its names",
+          ("/assets/sprites/NAME.svg" in rule, " spaceship," in rule, "sky-night" in rule, rule in T.APP_SYSTEM),
+          (True, True, True, True))
+    node = shutil.which("node")
+    if node:
+        js = Path(__file__).resolve().parent / "live_draw_check.js"
+        if js.exists():
+            r = subprocess.run([node, str(js), str(L.HERE / "live.js")], capture_output=True, text=True, timeout=20)
+            check("FDA.draw: pictures, tints, flips, tiles (node)", (r.returncode, r.stdout.count("FAIL")), (0, 0))
+
+
+def t_choices():
+    """The pick pop-up: 4 numbered pictures / colour schemes on the display, picked by number, name, colour or tap."""
+    from fda.pc import choices as C
+    from fda.pc.agent import Agent
+    birds = C.art_choice(C.group_of("birds")[1], "/assets/sprites/bird.svg")
+    check("other birds: 4, not the one showing", [o["name"] for o in birds], ["parrot", "owl", "penguin", "duck"])
+    check("group from the picture showing", C.group_of("", "/assets/sprites/owl.svg@red|flip")[0], "bird")
+    check("group by a word for it", (C.group_of("background")[0], C.group_of("the player")[0], C.group_of("cars")[0]),
+          ("sky", "hero", "car"))
+    check("no group: None", C.group_of("spreadsheet"), None)
+    picks = {"number two": 1, "the second one": 1, "two": 1, "number one": 0, "last one": 3, "I like number 4": 3,
+             "the owl": 1, "I'll take the penguin": 2, "okay three": 2, "duck please": 3}
+    check("picks by number and name", {t: C.parse_pick(t, birds) for t in picks}, picks)
+    check("not a pick: a request, a long sentence",
+          [C.parse_pick(t, birds) for t in ("make the bird bigger", "what is the weather like in Manila today then")],
+          [None, None])
+    cars = C.art_choice(C.group_of("car")[1], "/assets/sprites/truck.svg")
+    check("longest name wins ('race car' is not 'car')", (C.parse_pick("race car", cars), C.parse_pick("the car", cars)),
+          (1, 0))
+    pals = C.palette_choice()
+    check("colour schemes: 4", [p["name"] for p in pals], ["ocean", "sunset", "forest", "midnight"])
+    check("colour schemes: by colour / dark / name",
+          [C.parse_pick(t, pals) for t in ("the blue one", "the green one", "the dark one", "sunset")], [0, 2, 3, 1])
+    check("more / close words", (C.is_more("show me more"), C.is_more("other ones"), C.is_close("none of them"),
+                                 C.is_close("never mind"), C.is_close("the owl")), (True, True, True, True, False))
+    pop = C.popup("Pick a bird", birds)
+    check("display message", (pop["type"], [o["n"] for o in pop["options"]], pop["options"][0]["label"],
+                              pop["options"][0]["img"]), ("choices", [1, 2, 3, 4], "Parrot", "/assets/sprites/parrot.svg"))
+
+    # the agent side, with stand-ins for the display, the tools server and the speech
+    class UI:
+        def __init__(self):
+            self.sent = []
+        def send(self, m):
+            self.sent.append(m)
+
+    class Tools:
+        def __init__(self):
+            self.calls = []
+        async def call(self, name, args, timeout=0):
+            self.calls.append((name, args))
+            if name == "app_settings":
+                return {"ok": True, "settings": "bird=/assets/sprites/bird.svg, pipe=#2e8b57, speed=3"}
+            if name == "tweak_app":
+                return {"ok": True, "url": "/apps/sky.html", "patch": dict(args["changes"]), "changed": "x"}
+            return {"ok": True, "building": True}
+
+    class Ctx:
+        def __init__(self):
+            self.msgs = []
+        def add_message(self, m):
+            self.msgs.append(m)
+
+    class Cfg:
+        name = "Elkit"
+
+    def agent():
+        a = Agent.__new__(Agent)
+        a.cfg, a.ui, a.tools_conn, a.context = Cfg(), UI(), Tools(), Ctx()
+        a.choice, a.picked, a.views, a.tasks, a.events = None, {}, [], [], []
+        a.app_url, a.app_keys = "/apps/sky.html", ["bird", "pipe", "speed"]
+        a.said = []
+
+        async def announce(t):
+            a.said.append(t)
+        a._announce = announce
+        return a
+
+    async def go():
+        a = agent()
+        r = await a._offer("bird")
+        check("agent: offer for the app on screen", (r["ok"], a.choice["key"], a.choice["for_new"],
+                                                     [o["name"] for o in a.choice["options"]]),
+              (True, "bird", False, ["parrot", "owl", "penguin", "duck"]))
+        check("agent: pop-up sent, Interface tab shown", [m["type"] for m in a.ui.sent], ["tab", "choices"])
+        check("agent: 'what's the weather' is not a pick", await a._choice_direct("what's the weather"), False)
+        check("agent: 'number two' picked at once", await a._choice_direct("Number two."), True)
+        check("agent: the app's bird became the owl", a.tools_conn.calls[-1],
+              ("tweak_app", {"changes": {"bird": "/assets/sprites/owl.svg"}}))
+        check("agent: pop-up closed, said so", (a.choice, {"type": "choices", "close": True} in a.ui.sent, a.said[-1]),
+              (None, True, "Done, the bird is the owl now."))
+        check("agent: live change pushed to the app", any(m.get("type") == "app_set" for m in a.ui.sent), True)
+        check("agent: the brain's history knows", "picked: bird = owl" in a.context.msgs[-2]["content"], True)
+
+        a = agent()
+        await a._offer("colour scheme", for_new=True)
+        await a._choice_direct("show me more")
+        check("agent: 'show me more' = the next four schemes", [o["name"] for o in a.choice["options"]],
+              ["candy", "coffee", "mono", "neon"])
+        await a._choice_direct("the dark one")
+        check("agent: scheme for a site not built yet: kept for the build, nothing edited",
+              ("neon" in a.picked.get("colours", ""), [c[0] for c in a.tools_conn.calls]), (True, []))
+        check("agent: the build note has the exact colours", "#ff2d75" in a.context.msgs[-2]["content"], True)
+
+        a = agent()
+        a.app_keys = []
+        await a._offer("colour scheme")
+        await a._choice_direct("ocean")
+        a = agent()
+        await a._offer("colour scheme")
+        await a._choice_direct("the green one")
+        check("agent: scheme for the site on screen: an edit with the colours",
+              (a.tools_conn.calls[-1][0], "#2e7d4f" in a.tools_conn.calls[-1][1]["change"]), ("edit_app", True))
+
+        a = agent()
+        await a._offer("bird")
+        check("agent: 'never mind' closes", (await a._choice_direct("never mind"), a.choice, a.said[-1]),
+                                            (True, None, "Okay."))
+        await a._offer("bird")
+        check("agent: 'you pick' closes and leaves it to the brain", (await a._choice_direct("you pick"), a.choice),
+              (False, None))
+        await a._offer("bird")
+        a.on_choice({"n": 3})
+        await asyncio.gather(*a.tasks)
+        check("agent: a tap on card 3", (a.tools_conn.calls[-1][1], a.choice),
+              ({"changes": {"bird": "/assets/sprites/penguin.svg"}}, None))
+        r = await a._offer("spreadsheet")
+        check("agent: nothing in the library: say ideas instead", (r["ok"], a.choice), (False, None))
+        await a._offer("bird")
+        a.choice["t"] -= 400
+        check("agent: an old pop-up goes away by itself", (await a._choice_direct("number one"), a.choice), (False, None))
+
+    asyncio.run(go())
+    from fda.mcp_servers import live as L
+    check("a library path as a tweak value passes through (no photo search)",
+          L.resolve_value("/assets/sprites/owl.svg", "/assets/sprites/bird.svg", web=False),
+          ("/assets/sprites/owl.svg", "the owl picture"))
+    check("spoken name of a background", L.resolve_value("night sky", "#000", web=False)[1], "the night sky picture")
+
+
+def t_appjobs():
+    """A change asked for while an edit is still being made is queued and done right after (not lost)."""
+    import tempfile
+    import threading
+    from pathlib import Path
+    from fda.mcp_servers import tools_server as T
+
+    class Coder:
+        engine, model = "fake", "fake"
+        def __init__(self):
+            self.asked, self.go = [], threading.Semaphore(0)
+        def eta_s(self, kind):
+            return 1
+        def complete(self, msgs, max_tokens=0, temperature=0, stop_when=None):
+            self.asked.append(msgs[-1]["content"])
+            self.go.acquire(timeout=5)             # "writing the code" until the test lets it finish
+            return "<html><head><title>Bird game</title></head><body>ok</body></html>"
+
+    d = Path(tempfile.mkdtemp(prefix="qa-apps-"))
+    (d / "bird.html").write_text("<html><head><title>Bird game</title></head><body>v1</body></html>", encoding="utf-8")
+    (d / "bird.json").write_text('{"title": "Bird game", "live": {}}', encoding="utf-8")
+    apps = T.Apps.__new__(T.Apps)
+    apps.cfg, apps.dir, apps.coder, apps.max_tokens = None, d, Coder(), 1000
+    apps.job, apps.lock, apps.current, apps.done = None, threading.Lock(), "bird", []
+    apps.commit = lambda *a, **k: None
+    saved = (T.live.run_check, T.js_syntax_error, T.live.runtime_problem)
+    T.live.run_check, T.js_syntax_error, T.live.runtime_problem = (lambda h: {}), (lambda h: ""), (lambda r, g: "")
+    try:
+        p = apps.find("")
+        r1 = apps.start("edit", "make the bird green", "bird", base=p)
+        r2 = apps.start("edit", "no wait, make it black instead", "bird", base=p)
+        r3 = apps.start("edit", "and make the pipes bigger", "bird", base=p)
+        r4 = apps.start("build", "a new snake game", "")
+        check("edit starts", (r1["ok"], r1.get("building")), (True, True))
+        check("change during an edit: queued, not refused", (r2["ok"], r2.get("queued"), r2.get("waiting")),
+              (True, True, 1))
+        check("second change also queued", r3.get("waiting"), 2)
+        check("a new app during a build: still refused", r4["ok"], False)
+        apps.coder.go.release()                    # the first edit finishes ...
+        for _ in range(50):
+            if len(apps.coder.asked) >= 2:
+                break
+            time.sleep(0.05)
+        check("queued changes start by themselves after it", len(apps.coder.asked), 2)
+        last = apps.coder.asked[-1]
+        check("queued changes go in together, in order, later wins",
+              ("(1) no wait, make it black instead" in last, "(2) and make the pipes bigger" in last,
+               "later one wins" in last), (True, True, True))
+        apps.coder.go.release()
+        for _ in range(50):
+            if len(apps.done) >= 2:
+                break
+            time.sleep(0.05)
+        check("both edits finish and are announced", [j["state"] for j in apps.done], ["ready", "ready"])
+        check("nothing left waiting", apps.job.get("queued"), None)
+        r5 = apps.start("edit", "make it yellow", "bird", base=p)
+        apps.coder.go.release()
+        check("after that, a change starts at once again", (r5["ok"], r5.get("building")), (True, True))
+        for _ in range(50):
+            if len(apps.done) >= 3:
+                break
+            time.sleep(0.05)
+    finally:
+        T.live.run_check, T.js_syntax_error, T.live.runtime_problem = saved
+
+
 # ---------------------------------------------------------------- history sent to the LLM
 def t_history():
     from fda.pc.fallback_llm import clean_messages
@@ -834,7 +1080,7 @@ def replay():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "history": t_history, "tools": t_tools}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
 
 
 def main():

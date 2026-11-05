@@ -124,7 +124,7 @@ class DGX3:
             ok = False
         return ok
 
-    def transcribe(self, x: np.ndarray, rate: int) -> str | None:
+    def transcribe(self, x: np.ndarray, rate: int, hint: str = "") -> str | None:
         """Text, "" for no words, or None if the DGX3 could not be used (then use the local engine)."""
         if not self.available:
             return None
@@ -132,7 +132,7 @@ class DGX3:
                 "messages": [{"role": "user", "content": [
                     {"type": "audio_url",
                      "audio_url": {"url": "data:audio/wav;base64," + base64.b64encode(wav16(x, rate)).decode()}},
-                    {"type": "text", "text": ASR_PROMPT}]}]}
+                    {"type": "text", "text": ASR_PROMPT + (f" Names that may be said: {hint}" if hint else "")}]}]}
         try:
             r = self.http.post(f"{self.cfg.asr_url}/v1/chat/completions", json=body)
             r.raise_for_status()

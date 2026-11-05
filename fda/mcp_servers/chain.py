@@ -24,6 +24,8 @@ LOCAL_ASR = {"moonshine": "moonshine-base", "moonshine-base": "moonshine-base", 
              "parakeet": "parakeet", "parakeet-small": "parakeet-small"}
 LOCAL_TTS = {"piper", "kokoro"}
 CLOUD_ASR = {"groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY", "whisper-large-v3-turbo"),
+             # the full model as a backup: same key, but its own rate limit (turbo at its limit -> this one)
+             "groq-v3": ("https://api.groq.com/openai/v1", "GROQ_API_KEY", "whisper-large-v3"),
              "openai": (None, "ASR_API_KEY", None)}
 
 
@@ -80,9 +82,21 @@ class LocalASR(Backend):
         return self.local.transcribe(x, rate)        # offline: never "down"
 
 
+def _hint_words(hint: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9']+", (hint or "").lower()))
+
+
+def said_hint_back(text: str, hint_words: set[str]) -> bool:
+    """A listening model says its own name list back on noise ("Elkit, Manila."): nothing was said.
+    The name alone ("Elkit?") still counts: that is someone calling it."""
+    words = set(re.findall(r"[a-z0-9']+", (text or "").lower()))
+    return bool(hint_words) and len(words) >= 2 and words <= hint_words
+
+
 class DGX3ASR(Backend):
-    def __init__(self, cfg):
+    def __init__(self, cfg, hint: str = ""):
         super().__init__("dgx3")
+        self.hint, self._hint_words = hint.strip(), _hint_words(hint)
         from .dgx3 import DGX3
         self.dgx, self.model = DGX3(cfg, retry_s=self.retry_s), cfg.asr_model
         if not self.dgx.key:
@@ -97,7 +111,8 @@ class DGX3ASR(Backend):
         return self.dgx.available
 
     def __call__(self, x, rate, language):
-        return self.dgx.transcribe(x, rate)           # None = could not be used (its own breaker)
+        text = self.dgx.transcribe(x, rate, hint=self.hint)     # None = could not be used (its own breaker)
+        return "" if text and said_hint_back(text, self._hint_words) else text
 
 
 class CloudASR(Backend):
@@ -109,7 +124,7 @@ class CloudASR(Backend):
         base, key_env, model = CLOUD_ASR[name]
         self.base = (base or os.environ.get("ASR_BASE_URL", "")).rstrip("/")
         self.key = os.environ.get(key_env, "")
-        self.model = os.environ.get("ASR_MODEL") or model
+        self.model = model if name == "groq-v3" else (os.environ.get("ASR_MODEL") or model)
         if not self.base or not self.key or not self.model:
             raise RuntimeError(f"set {key_env}" + (", ASR_BASE_URL, ASR_MODEL" if not base else "") + " in .env")
         self.http = httpx.Client(timeout=httpx.Timeout(8.0, connect=1.5),
@@ -128,8 +143,7 @@ class CloudASR(Backend):
             self.failed(e)
             return None
         self.ok()
-        words = set(re.findall(r"[a-z0-9']+", text.lower()))
-        if self._hint_words and len(words) >= 2 and words <= self._hint_words:
+        if said_hint_back(text, self._hint_words):
             return ""                     # Whisper said its prompt back on noise (just the name alone still counts)
         return text if any(c.isalnum() for c in text) else ""
 
@@ -137,12 +151,13 @@ class CloudASR(Backend):
 def asr_backend(cfg, name: str) -> Backend:
     if name in LOCAL_ASR:
         return LocalASR(cfg, name)
+    hint = ", ".join(x for x in (getattr(cfg, "name", ""), getattr(cfg, "location", ""),
+                                 getattr(cfg, "asr_hint", "")) if x)
+    hint = hint + "." if hint else ""            # the names it should spell right (its own, the place)
     if name == "dgx3":
-        return DGX3ASR(cfg)
+        return DGX3ASR(cfg)          # no name hint: Qwen2-Audio then says the names instead of what was heard
     if name in CLOUD_ASR:
-        hint = ", ".join(x for x in (getattr(cfg, "name", ""), getattr(cfg, "location", ""),
-                                     getattr(cfg, "asr_hint", "")) if x)
-        return CloudASR(name, hint=hint + "." if hint else "")
+        return CloudASR(name, hint=hint)
     raise RuntimeError(f"unknown asr engine {name!r}: {', '.join([*LOCAL_ASR, 'dgx3', *CLOUD_ASR])}")
 
 

@@ -23,13 +23,18 @@ TOOLS = {
     "cancel_alarm": {"time": {"type": "string", "description": "the alarm's time like 06:30, or 'all'; leave out "
                               "when there is only one"}},
     "stop_ringing": {},
-    "add_reminder": {"text": {"type": "string"}, "time": {"type": "string"}},
+    "add_reminder": {"text": {"type": "string"}, "time": {"type": "string"},
+                     "repeat": {"type": "string", "description": "for a repeating reminder: daily, weekdays, weekends, or a day like monday; leave out for once"}},
     "list_reminders": {},
     "delete_reminder": {"which": {"type": "string", "description": "words from the reminder, its number "
                                   "(1 = first), 'last', or 'all'"}},
     "edit_reminder": {"which": {"type": "string", "description": "words from the reminder, its number, or 'last'"},
                       "text": {"type": "string", "description": "new text (leave out to keep it)"},
-                      "time": {"type": "string", "description": "new time like 18:00 (leave out to keep it)"}},
+                      "time": {"type": "string", "description": "new time like 18:00 (leave out to keep it)"},
+                      "repeat": {"type": "string", "description": "for a repeating reminder: daily, weekdays, weekends, or a day like monday; leave out for once"}},
+    "list_items": {"action": {"enum": ["add", "remove", "show", "clear"]},
+                   "items": {"type": "string", "description": "the items, comma separated (add / remove)"},
+                   "list": {"type": "string", "description": "which list: shopping (default), to-do, or a name"}},
     "music": {"action": {"enum": ["play", "pause", "resume", "stop", "next"]}},
     "volume": {"change": {"enum": ["up", "down"]}, "level": {"type": "integer", "minimum": 0, "maximum": 100}},
     "call": {"contact": {"type": "string"}},
@@ -46,7 +51,7 @@ TOOLS = {
              "title": {"type": "string"}},
 }
 REQUIRED = {"thermostat": ["celsius"], "timer": ["seconds"], "alarm": ["time"], "add_reminder": ["text"], "delete_reminder": ["which"],
-            "edit_reminder": ["which"],
+            "edit_reminder": ["which"], "list_items": ["action"],
             "music": ["action"], "call": ["contact"], "message": ["contact", "text"], "web_search": ["query"],
             "game": ["action"]}
 

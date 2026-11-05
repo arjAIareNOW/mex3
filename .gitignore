@@ -11,3 +11,5 @@ apps/
 reports/
 fda/mcp_servers/node_modules/
 .claude/
+music/
+room_state.json

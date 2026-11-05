@@ -230,10 +230,70 @@ def photo(query: str, web) -> str | None:
 
 
 def _is_sprite(v) -> bool:
-    """An emoji/text sprite (not a colour, photo or number)."""
+    """An emoji/text sprite or a picture from Elkit's art library (not a colour, photo or number)."""
     if not isinstance(v, str) or v.startswith("data:") or re.match(r"^(#|rgb|hsl)", v):
         return False
     return v.split("@")[0].lower().replace(" ", "") not in CSS_COLORS
+
+
+# ---------- Elkit's own art library (fda/assets, made by scripts/make_assets.py; offline) ----------
+ASSETS = Path(__file__).resolve().parents[1] / "assets"
+_asset_index: dict[str, str] | None = None
+_KIND_ORDER = {"sprite": 0, "tile": 1, "background": 2, "icon": 3}   # "star": the sprite before the icon
+
+
+def _asset_key(s: str) -> str:
+    words = re.sub(r"[^a-z0-9]+", " ", str(s).lower()).split()
+    words = [w for w in words if w not in ("a", "an", "the", "of", "picture", "sprite", "icon", "image")]
+    return " ".join(sorted(w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words))
+
+
+_asset_say: dict[str, str] = {}
+_manifest: dict = {}
+
+
+def manifest(reload: bool = False) -> dict:
+    """fda/assets/manifest.json: items, groups (choices) and palettes (colour schemes); {} if not built."""
+    global _manifest
+    if not _manifest or reload:
+        try:
+            _manifest = json.loads((ASSETS / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _manifest = {}
+    return _manifest
+
+
+def asset_index(reload: bool = False) -> dict[str, str]:
+    """{"fish": "/assets/sprites/fish.svg", "night sky": "/assets/backgrounds/sky-night.svg", ...}"""
+    global _asset_index
+    if _asset_index is None or reload:
+        idx: dict[str, str] = {}
+        items = manifest(reload).get("items", [])
+        for it in sorted(items, key=lambda i: _KIND_ORDER.get(i.get("kind"), 9)):
+            idx.setdefault(_asset_key(it["name"]), it["path"])
+            if it.get("say"):
+                idx.setdefault(_asset_key(it["say"]), it["path"])
+                _asset_say[it["path"]] = it["say"]
+        _asset_index = idx
+    return _asset_index
+
+
+def asset_for(word) -> str | None:
+    """A spoken thing -> the library picture of it ("spaceships" -> /assets/sprites/spaceship.svg), or None."""
+    return asset_index().get(_asset_key(word)) if word else None
+
+
+def is_asset(v) -> bool:
+    return isinstance(v, str) and v.startswith("/assets/")
+
+
+def _label(v: str) -> str:
+    """How to say a value: a library path by its name ("/assets/sprites/fish.svg" -> "fish")."""
+    v = v.split("@")[0].replace("|flip", "")
+    if not is_asset(v):
+        return v
+    asset_index()
+    return _asset_say.get(v) or Path(v).stem.replace("-", " ")
 
 
 _FLIP = re.compile(r"\b(flip(ped)?|mirror(ed)?|reverse(d)?|turn(ed)?( it| him| her)? around|the other way|"
@@ -254,10 +314,20 @@ def resolve_value(value, current, web) -> tuple[object, str]:
             return current.replace("|flip", ""), "turned back"
         return current + "|flip", "flipped"
     new, said = resolve_value_plain(value, current, web)
-    if is_flipped(current) and isinstance(new, str) and not is_flipped(new) and \
-            (_is_sprite(new) or new.startswith(("data:", "http"))):
+    if not (isinstance(new, str) and isinstance(current, str) and current) or is_flipped(new):
+        return new, said
+    if _is_sprite(new) and _is_sprite(current):
+        # keep the way it faces: emoji face left, library art faces right (a mirrored emoji bird faces right,
+        # so the library spaceship replacing it is NOT mirrored; a library bird replaced by an emoji is)
+        if _faces_right(current) != _faces_right(new):
+            new += "|flip"
+    elif is_flipped(current) and new.startswith(("data:", "http")):
         new += "|flip"
     return new, said
+
+
+def _faces_right(v: str) -> bool:
+    return is_asset(v) != is_flipped(v)
 
 
 def resolve_value_plain(value, current, web) -> tuple[object, str]:
@@ -274,6 +344,9 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
         for w, f in factor.items():
             if w in v.lower():
                 return round(current * f, 2), f"{w} ({round(current * f, 2)})"
+    base = v.split("@")[0].replace("|flip", "")
+    if is_asset(base) and (ASSETS.parent / base.lstrip("/")).is_file():
+        return v, f"the {_label(v)} picture"            # a library picture by its path (the pick pop-up)
     m = re.match(r"^(?:an?\s+)?(?:photo|picture|image|pic)\s+(?:of\s+)?(?:an?\s+)?(.+)$", v, re.I)
     if m:
         url = photo(m.group(1), web)
@@ -281,13 +354,18 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
     low = v.lower().replace(" ", "")
     if re.match(r"^#[0-9a-f]{3,8}$", low) or low in CSS_COLORS or re.match(r"^(rgb|hsl)a?\(", low):
         if _is_sprite(current):                    # "make the bird red": keep the bird, tint it
-            return f"{current.split('@')[0]}@{low}", f"{v} {current.split('@')[0]}"
+            return f"{current.split('@')[0]}@{low}", f"{v} {_label(current)}"
         return low, v
     if not re.search(r"[a-z]", v, re.I):           # emoji / symbols
         return v, v
     word = re.sub(r"^(an?|the)\s+", "", v.lower()).rstrip("s")
+    art = asset_for(v)
+    if art and is_asset(current):                  # the app draws library art: stay in that style
+        return art, f"the {_label(art)} picture"
     if word in EMOJI or v.lower() in EMOJI:
         e = EMOJI.get(word) or EMOJI[v.lower()]
         return e, f"{v} {e}"
+    if art:                                        # no emoji for it, but the library has it (works offline)
+        return art, f"the {_label(art)} picture"
     url = photo(v, web)                            # some other thing: find a picture of it
     return (url, f"a picture of {v}") if url else (v, v)

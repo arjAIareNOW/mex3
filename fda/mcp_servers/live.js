@@ -7,10 +7,31 @@ window.FDA = (function () {
   const isImg = v => typeof v === "string" && /^(data:image|https?:|blob:)|\.(png|jpe?g|gif|webp|svg)$/i.test(v);
   const isColor = v => typeof v === "string" && /^(#|rgb|hsl)|^[a-z]+$/i.test(v) && v.indexOf("@") < 0 &&
     (typeof CSS === "undefined" || !CSS.supports || CSS.supports("color", v));
+  // "/assets/sprites/bird.svg@red" = that picture tinted red (the tint is cut off before loading it)
+  function splitTint(v) {
+    v = String(v).replace("|flip", "");
+    const i = v.lastIndexOf("@");
+    if (i > 0 && /^[#a-z0-9(),.% ]+$/i.test(v.slice(i + 1)) && isImg(v.slice(0, i))) return [v.slice(0, i), v.slice(i + 1)];
+    return [v, ""];
+  }
   function load(k, v) {
-    if (typeof v === "string") v = v.replace("|flip", "");
-    if (!isImg(v) || (imgs[k] && imgs[k].src === v)) return;
-    const im = new Image(); im.src = v; imgs[k] = im; delete pats[k];
+    if (typeof v !== "string") return;
+    const src = splitTint(v)[0];
+    if (!isImg(src) || (imgs[k] && imgs[k]._src === src)) return;   // (.src would be the full URL)
+    const im = new Image(); im.src = src; im._src = src; imgs[k] = im;
+    for (const p in pats) if (p.indexOf(k + "@") === 0) delete pats[p];
+  }
+  function tintImg(im, tint, w, h) {           // the picture, coloured over (its shape and shading stay)
+    const key = im._src + "@" + tint + "|" + Math.round(w) + "x" + Math.round(h);
+    if (tinted[key]) return tinted[key];
+    if (typeof document === "undefined" || !document.createElement) return im;
+    const off = document.createElement("canvas");
+    off.width = Math.max(1, Math.ceil(w)); off.height = Math.max(1, Math.ceil(h));
+    const o = off.getContext("2d");
+    o.drawImage(im, 0, 0, off.width, off.height);
+    o.globalCompositeOperation = "source-atop"; o.globalAlpha = 0.6; o.fillStyle = tint;
+    o.fillRect(0, 0, off.width, off.height);
+    return (tinted[key] = off);
   }
   function defaults(d) {
     for (const k in d) if (!(k in cfg)) cfg[k] = (k in saved) ? saved[k] : d[k];
@@ -31,13 +52,18 @@ window.FDA = (function () {
     if (flip) v = v.replace("|flip", "");
     ctx.save();
     if (flip) { ctx.translate(2 * x + w, 0); ctx.scale(-1, 1); }
-    if (isImg(v)) {
+    const [src, itint] = splitTint(v);
+    if (isImg(src)) {
       const im = imgs[k];
       if (im && im.complete && im.naturalWidth) {
         if (w > 2.2 * h || h > 2.2 * w) {          // long thing (pipe, ground): tile the photo
-          if (!pats[k]) pats[k] = ctx.createPattern(im, "repeat");
-          ctx.translate(x, y); ctx.fillStyle = pats[k]; ctx.fillRect(0, 0, w, h);
-        } else ctx.drawImage(im, x, y, w, h);
+          const pk = k + "@" + itint;               // a new tint = a new pattern
+          if (!pats[pk]) {
+            const s = Math.min(w, h);               // tinted: one tile = the short side
+            pats[pk] = ctx.createPattern(itint ? tintImg(im, itint, s, s) : im, "repeat");
+          }
+          ctx.translate(x, y); ctx.fillStyle = pats[pk]; ctx.fillRect(0, 0, w, h);
+        } else ctx.drawImage(itint ? tintImg(im, itint, w, h) : im, x, y, w, h);
       } else { ctx.fillStyle = "#999"; ctx.fillRect(x, y, w, h); }
     } else if (isColor(v)) {
       ctx.fillStyle = v; ctx.fillRect(x, y, w, h);

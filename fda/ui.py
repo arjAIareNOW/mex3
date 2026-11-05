@@ -23,7 +23,7 @@ class UI:
 
     def send(self, msg: dict):
         t = msg.get("type")
-        if t in ("room", "status", "health", "sources", "views", "build", "tab"):
+        if t in ("room", "status", "health", "sources", "views", "build", "tab", "choices"):
             self.last[t] = msg
         if not self.clients:
             return
@@ -37,6 +37,8 @@ class UI:
         app.router.add_get("/", self._index)
         app.router.add_get("/ws", self._ws)
         app.router.add_static("/games/", PKG / "games")     # FDA's games (make_game tool)
+        if (PKG / "assets").is_dir():                       # Elkit's art library (scripts/make_assets.py);
+            app.router.add_static("/assets/", PKG / "assets")   # gallery: /assets/index.html
         from .config import ROOT
         apps = ROOT / self.cfg.apps_dir
         apps.mkdir(parents=True, exist_ok=True)
@@ -78,6 +80,8 @@ class UI:
                             self.agent.on_media(msg)       # the video on the display: playing / paused / ended
                         elif msg.get("type") == "app_result" and hasattr(self.agent, "on_app_result"):
                             self.agent.on_app_result(msg)  # what a voice "click" / "go to" did inside the app
+                        elif msg.get("type") == "choice" and hasattr(self.agent, "on_choice"):
+                            self.agent.on_choice(msg)      # a tap on a card of the pick pop-up
                         elif msg.get("type") == "view" and hasattr(self.agent, "on_view"):
                             self.agent.on_view(msg)        # a tap on an Interface sub-tab
                     except Exception:

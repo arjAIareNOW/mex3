@@ -59,10 +59,14 @@ SYSTEM = """You are {name}, a voice assistant on a small screen. You speak out l
 natural, usually one or two short sentences. Everything you write is spoken: no lists, no markdown, no emoji,
 numbers as words people say.
 How you work:
-- Questions get spoken answers. "What options are there for the bird", "what could I use", "any ideas": say two
-  or three choices out loud in one sentence and wait for them to pick. Do not build, change, open or show anything
-  until they choose. create_app only when they ask you to make something new; a change to what is on the screen
-  is tweak_app or edit_app, never a new app.
+- Questions get spoken answers. "What options are there for the bird", "show me other birds", "what could I use":
+  show_choices puts four numbered pictures on the screen (birds, cars, fish, heroes, pets, enemies, backgrounds,
+  ground); for anything else say two or three choices out loud in one sentence. Then wait for them to pick (by number
+  or name: pick_choice). Do not build, change or open anything until they choose. create_app only when they ask you
+  to make something new; a change to what is on the screen is tweak_app or edit_app, never a new app.
+- Websites: before create_app for a website, if they did not say the colours, show_choices "colour scheme" with
+  for_new and ask which one they like; then create_app with the picked colours in the description (exact hex
+  values), plus anything else they picked. "You pick" or "just build it": choose yourself and start.
 - Do what the person asks, nothing more. Do not steer the talk to any one thing, do not ask what to do next or what
   to build, and do not list what you can do unless they ask. After a task, a short confirmation is enough.
 - Things you can do when asked: build websites, apps and small games live on the screen; the weather and the time
@@ -178,6 +182,7 @@ ROOM_TOOLS = {
     "list_reminders": "List the user's reminders.",
     "delete_reminder": "Delete reminders: by words from it, its number, 'last', or 'all'.",
     "edit_reminder": "Change a reminder's text or time (\"scratch that, call father instead\": edit the last one).",
+    "list_items": "The person's lists (shopping, to-do, ...): add or remove items, read a list out, or clear it.",
     "music": "Play, pause, resume, stop or skip the music.",
     "volume": "Change the speaker volume (up/down or a level 0-100).",
 }
@@ -216,6 +221,8 @@ class Agent:
         self.quick: QuickAnswers | None = None      # predefined answers (quick_answers.txt), set in build()
         self.tasks: list[asyncio.Task] = []
         self.events: list[dict] = []
+        self.choice: dict | None = None               # the pick pop-up on the display (choices.py)
+        self.picked: dict[str, str] = {}              # what was picked for something not built yet
 
     def _event(self, kind: str, **kw):
         self.events.append({"t": time.time(), "kind": kind, **kw})
@@ -289,9 +296,21 @@ class Agent:
             properties={"action": {"type": "string", "enum": ["go", "close", "list"]},
                         "name": {"type": "string", "description": "the tab's name or a word of it"}},
             required=["action"], handler=self._interface_tab)
+        offer = FunctionSchema(
+            name="show_choices", description="Show 4 numbered choices on the screen to pick from: pictures from the "
+            "library (what: birds, cars, fish, heroes, pets, enemies, backgrounds, ground ...) or colour schemes "
+            "(what: 'colour scheme'). For the app on screen, setting = which of its settings it is for. for_new = "
+            "true when choosing for something not built yet. more = true for the next four.",
+            properties={"what": {"type": "string"}, "setting": {"type": "string"},
+                        "for_new": {"type": "boolean"}, "more": {"type": "boolean"}},
+            required=["what"], handler=self._show_choices_tool)
+        pick = FunctionSchema(
+            name="pick_choice", description="The person picked one of the choices on the screen: its number or "
+            "name as they said it ('two', 'the owl', 'the blue one'), or 'none' to close them.",
+            properties={"choice": {"type": "string"}}, required=["choice"], handler=self._pick_choice_tool)
         tools = ToolsSchema(standard_tools=[*remote.standard_tools,
                                             *room_tools(self.room, on_use=lambda: self._tab("room")), show, video,
-                                            nav, subtab])
+                                            nav, subtab, offer, pick])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
         self.context = LLMContext(messages=[*FEW_SHOT], tools=tools)
@@ -346,6 +365,167 @@ class Agent:
     def _tab(self, tab: str):
         if self.ui:
             self.ui.send({"type": "tab", "tab": tab})
+
+    # ---------------- the pick pop-up: 4 numbered choices on the display (choices.py) ----------------
+    async def _app_settings(self) -> dict:
+        """The live settings of the app on screen, as {key: value}."""
+        try:
+            r = await self.tools_conn.call("app_settings", {}, timeout=10)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"app_settings: {e}")
+            return {}
+        out = {}
+        if isinstance(r, dict) and r.get("ok"):
+            for part in str(r.get("settings", "")).split(", "):
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    out[k.strip()] = v.strip()
+        return out
+
+    async def _offer(self, what: str, setting: str = "", for_new: bool = False, more: bool = False) -> dict:
+        """Put up to 4 choices on the display. Returns the tool result for the LLM."""
+        from . import choices as C
+        from ..mcp_servers import live
+        prev = self.choice if more else None
+        if prev:                                       # "show me more": the same kind of thing, the next four
+            what, setting, for_new = prev["what"], prev.get("key") or "", prev["for_new"]
+        palette = bool(re.search(r"palette|scheme|theme|colou?rs?\b", what, re.I)) and C.group_of(what) is None
+        if palette:
+            off = (prev["offset"] + C.SHOW) if prev else 0
+            options, key, title = C.palette_choice(off), "", "Colour schemes"
+        else:
+            settings = {} if for_new else await self._app_settings()
+            key = live.match_key(setting or what, list(settings)) if settings else None
+            current = settings.get(key) if key else None
+            grp = C.group_of(what, current)
+            if grp is None:
+                return {"ok": False, "result": f"The picture library has no choices for {what!r}. Say two or three "
+                                               "ideas out loud instead and let them pick."}
+            off = (prev["offset"] + 1) if prev else 0
+            options = C.art_choice(grp[1], current, off)
+            title = f"Pick a {(setting or what).strip()}" if key or for_new else "Pick one"
+        if not options:
+            return {"ok": False, "result": "Nothing to choose from."}
+        self.choice = {"what": what, "key": key, "palette": palette,
+                       # a picture with no setting to put it in, or anything asked for a new build: kept for the build
+                       "for_new": for_new or (not palette and not key),
+                       "offset": off, "options": options, "t": time.monotonic()}
+        self._tab("design")
+        if self.ui:
+            self.ui.send(C.popup(title, options))
+        logger.info(f"choices shown ({what}): {[o['name'] for o in options]}")
+        return {"ok": True, "result": f"Showing on the screen, numbered: {C.spoken_list(options)}. Ask in a few words "
+                                      "which one they like (a number or a name); then pick_choice."}
+
+    def _close_choices(self):
+        self.choice = None
+        if self.ui:
+            self.ui.send({"type": "choices", "close": True})
+
+    async def _apply_pick(self, i: int) -> tuple[str, str]:
+        """Use choice i. Returns (what to say, a note for the LLM's history)."""
+        from . import choices as C
+        ch = self.choice
+        o = ch["options"][i]
+        self._close_choices()
+        if ch["palette"]:
+            note = C.palette_note(o)
+            if ch["for_new"] or not self.app_url:
+                self.picked["colours"] = note
+                return f"{o['say'].capitalize()} it is.", f"[picked on the screen: {note}; use it when building]"
+            try:
+                r = await self.tools_conn.call("edit_app", {"change": f"Use {note} for the whole page (as CSS "
+                                                                      "variables); keep everything else."}, timeout=30)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"edit_app (palette): {e}")
+                r = {}
+            if isinstance(r, dict) and r.get("ok"):
+                return f"Okay, switching it to {o['say']}. It takes a moment.", f"[picked: {note}; edit started]"
+            return "Sorry, I couldn't change the colours.", f"[picked {o['say']}, but the edit failed]"
+        if ch["for_new"]:
+            self.picked[ch["what"]] = o["img"]
+            return f"The {o['say']} it is.", f"[picked on the screen: {ch['what']} = {o['img']}; use it when building]"
+        try:
+            r = await self.tools_conn.call("tweak_app", {"changes": {ch["key"]: o["img"]}}, timeout=30)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"tweak_app (pick): {e}")
+            r = {}
+        if isinstance(r, dict) and r.get("ok"):
+            self._app_set(r)
+            return f"Done, the {ch['key']} is the {o['say']} now.", f"[picked: {ch['key']} = {o['say']}]"
+        return "Sorry, I couldn't change it.", f"[picked {o['say']}, but the change failed]"
+
+    async def _show_choices_tool(self, params):
+        a = params.arguments or {}
+        r = await self._offer(str(a.get("what", "")), str(a.get("setting", "") or ""), bool(a.get("for_new")),
+                              more=bool(a.get("more")) and self.choice is not None)
+        await params.result_callback(r)
+
+    async def _pick_choice_tool(self, params):
+        from . import choices as C
+        c = str((params.arguments or {}).get("choice", ""))
+        if self.choice is None:
+            await params.result_callback({"ok": False, "result": "There are no choices on the screen."})
+            return
+        if C.is_close(c):
+            self._close_choices()
+            await params.result_callback({"ok": True, "result": "closed the choices"})
+            return
+        i = C.parse_pick(c, self.choice["options"])
+        if i is None:
+            await params.result_callback({"ok": False, "result": "Which one? On the screen: " +
+                                          C.spoken_list(self.choice["options"])})
+            return
+        say, note = await self._apply_pick(i)
+        await params.result_callback({"ok": True, "result": f"{say} {note}"})
+
+    async def _choice_direct(self, text: str) -> bool:
+        """While choices are on the display: "number two", "the owl", "show me more", "none of them" at once,
+        without the LLM. Anything else goes on as usual (the choices stay up)."""
+        from . import choices as C
+        if self.choice is None:
+            return False
+        if time.monotonic() - self.choice["t"] > 300:     # nobody picked in 5 minutes: put them away
+            self._close_choices()
+            return False
+        said = strip_name(text, self.cfg.name)
+        if C.is_close(said):
+            self._close_choices()
+            if C.you_pick(said):
+                return False                               # "you pick": the LLM chooses and carries on
+            msg, note = "Okay.", "[closed the choices]"
+        else:
+            i = C.parse_pick(said, self.choice["options"])
+            if i is not None:
+                msg, note = await self._apply_pick(i)
+            elif C.is_more(said):
+                r = await self._offer("", more=True)
+                msg, note = ("Here are some more." if r.get("ok") else "That's all I have."), "[showed more choices]"
+            else:
+                return False
+        logger.info(f"choice (direct): {text!r} -> {msg!r}")
+        self.context.add_message({"role": "user", "content": f"{text} {note}"})
+        self.context.add_message({"role": "assistant", "content": msg})
+        await self._announce(msg)
+        return True
+
+    def on_choice(self, msg: dict):
+        """A tap on a choice card on the display."""
+        if self.choice is None:
+            return
+        try:
+            i = int(msg.get("n", 0)) - 1
+        except (TypeError, ValueError):
+            return
+        if not 0 <= i < len(self.choice["options"]):
+            return
+
+        async def go():
+            say, note = await self._apply_pick(i)
+            self.context.add_message({"role": "user", "content": f"(tapped choice {i + 1}) {note}"})
+            self.context.add_message({"role": "assistant", "content": say})
+            await self._announce(say)
+        self.tasks.append(asyncio.create_task(go()))
 
     async def _show_screen(self, params):
         tab = (params.arguments or {}).get("screen", "interface")
@@ -829,7 +1009,8 @@ class Agent:
             self.context.add_message({"role": "user", "content": text})
             self.context.add_message({"role": "assistant", "content": "(stopped)"})
             return True
-        return (await self._continue(text) or await self._view_direct(text) or await self._media_direct(text)
+        return (await self._continue(text) or await self._choice_direct(text) or await self._view_direct(text)
+                or await self._media_direct(text)
                 or await self._nav_direct(text) or await self._room_direct(text) or await self._quick(text)
                 or await self._direct_tweak(text))
 
