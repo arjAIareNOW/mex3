@@ -185,6 +185,63 @@ def t_rules():
                                                                     "how are you"), False)
 
 
+# ---------------------------------------------------------------- echo (its own voice through the mic)
+def t_echo():
+    from fda import rules
+    said = ("Sure, why did the scarecrow get promoted? Because he was outstanding in his field. "
+            "Do you want the blue one or the red one?")
+    for heard in ["because he was outstanding in his field", "why did the scarecrow get promoted",
+                  "Because he was outstanding in his fields.", "do you want the blue one or the red",
+                  "the scarecrow get promoted because he was"]:
+        check(f"echo: {heard!r}", rules.is_echo(heard, said), True)
+    for heard in ["the blue one", "red one please", "no, tell me another joke", "blue", "yes",
+                  "why did you say that", "make the bird blue and the pipes red"]:
+        check(f"not echo: {heard!r}", rules.is_echo(heard, said), False)
+    check("echo: nothing said lately", rules.is_echo("because he was outstanding in his field", ""), False)
+
+    import pipecat.processors.frame_processor as fp
+    from pipecat.frames.frames import TranscriptionFrame
+    from pipecat.processors.frame_processor import FrameDirection as D
+    from fda.pc.processors import DuplexGuard, HeardTap
+    fp.FrameProcessor.process_frame = lambda self, f, d: asyncio.sleep(0)
+
+    async def go():
+        io = FakeIO()
+        io.bot_speaking = True
+        heard_turns, ignored = [], []
+        tap = HeardTap(io, None, name="Elkit", on_heard=lambda: heard_turns.append(1),
+                       on_ignored=lambda: ignored.append(1), intercept=None, echo_text=lambda: said)
+        out = []
+
+        async def push(f, d=None):
+            out.append(f)
+        tap.push_frame = push
+        await tap.process_frame(TranscriptionFrame("Because he was outstanding in his field.", "u", "t"),
+                                D.DOWNSTREAM)
+        check("echo while talking: no turn, no resume", (len(out), heard_turns, ignored), (0, [], []))
+        io.bot_speaking, io.t_bot_stopped = False, time.monotonic() - 1.0
+        await tap.process_frame(TranscriptionFrame("do you want the blue one or the red one", "u", "t"),
+                                D.DOWNSTREAM)
+        check("echo 1 s after it stopped: no turn", len(out), 0)
+        await tap.process_frame(TranscriptionFrame("the blue one", "u", "t"), D.DOWNSTREAM)
+        check("a short answer right after: is a turn", (len(out), len(heard_turns)), (1, 1))
+        io.t_bot_stopped = time.monotonic() - 30
+        await tap.process_frame(TranscriptionFrame("because he was outstanding in his field", "u", "t"),
+                                D.DOWNSTREAM)
+        check("same words long after it spoke: a turn (you quoting it)", len(out), 2)
+
+        class Cfg:
+            name = "Elkit"
+        g = DuplexGuard(FakeIO(), Cfg())
+        g.bot_text = lambda: "Do you want the blue one or the red one?"     # the sentence playing now
+        g.echo_text = lambda: said                                           # and what came before it
+        check("overlap: late echo of the previous sentence does not stop it",
+              g.not_an_interruption("because he was outstanding in his field", b""), "echo")
+        check("overlap: a real interruption still stops it",
+              g.not_an_interruption("no wait tell me the weather instead", b""), "")
+    asyncio.run(go())
+
+
 # ---------------------------------------------------------------- room
 class _Fx:
     def push(self, *_):
@@ -533,6 +590,145 @@ def t_tweak():
     asyncio.run(go())
 
 
+# ---------------------------------------------------------------- room commands without the LLM
+class FakeWorker:
+    def __init__(self):
+        self.said = []
+
+    async def queue_frames(self, frames):
+        self.said += [getattr(f, "text", "") for f in frames]
+
+
+def t_fastroom():
+    async def go():
+        a, ui = make_agent()
+        a.worker = FakeWorker()
+        st = a.room.state
+        cases = [("Can you turn on the lights?", lambda: st["lights"]["power"] == "on"),
+                 ("Elkit, lights off please", lambda: st["lights"]["power"] == "off"),
+                 ("make the lights blue", lambda: st["lights"]["color"] == "blue"),
+                 ("dim the lights to 30 percent", lambda: st["lights"]["brightness"] == 30),
+                 ("set a timer for 5 minutes", lambda: st["timers"] and st["timers"][-1]["seconds"] == 300),
+                 ("set the thermostat to 22 degrees", lambda: st["thermostat_c"] == 22.0),
+                 ("volume 30", lambda: st["volume"] == 30),
+                 ("what are my reminders", lambda: True)]
+        for said, ok in cases:
+            n = len(a.worker.said)
+            handled = await a._room_direct(said)
+            check(f"room fast: {said!r}", (handled, bool(ok())), (True, True))
+            check(f"room fast: {said!r} answered", len(a.worker.said) > n or said.startswith("volume"), True)
+        n = len(a.context.get_messages())
+        await a._room_direct("turn on the lights")
+        check("room fast: the LLM's history knows it", len(a.context.get_messages()), n + 2)
+        a.worker.said.clear()
+        await a._room_direct("what time is it")
+        check("room fast: true time, no LLM", bool(a.worker.said and a.worker.said[0].startswith("It's ")), True)
+        for said in ["make the bird blue", "turn on the lights in the hallway and then tell me a story",
+                     "what's the weather in Davao", "can you make the temperature around 18 degrees",
+                     "stop"]:
+            check(f"room fast: not taken: {said!r}", await a._room_direct(said), False)
+        check("room fast: set thermostat 50 refused", (await a._room_direct("set the thermostat to 50 degrees"),
+                                                       st["thermostat_c"]), (False, 22.0))
+    asyncio.run(go())
+
+
+# ---------------------------------------------------------------- DGX3 off the VPN: speech never waits
+def t_dgx3():
+    import os
+    import socket
+    from fda.mcp_servers.dgx3 import DGX3
+
+    class Cfg:
+        asr_url = tts_url = "http://127.0.0.1:9"        # nothing listens there
+        tts_model = asr_model = "x"; voice = "ryan"; language = "English"; tts_rate = 24000; voice_style = ""
+    os.environ.setdefault("QWEN_API_KEY", "test")
+    d = DGX3(Cfg(), retry_s=0.2)
+    time.sleep(0.3)
+    check("dgx3 unreachable: marked down by the background check", d.available, False)
+    t = time.perf_counter()
+    r = d.speak("hello")
+    check("dgx3 down: speak gives up at once (no timeout)", (r is None, time.perf_counter() - t < 0.05), (True, True))
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(5)
+    port = srv.getsockname()[1]
+    d.cfg.asr_url = d.cfg.tts_url = f"http://127.0.0.1:{port}"     # the VPN comes back
+    for _ in range(40):
+        if d.available:
+            break
+        time.sleep(0.1)
+    check("dgx3 back: found by the background check", d.available, True)
+    srv.close()
+
+
+def t_polish():
+    import asyncio
+    import base64
+    import numpy as np
+    from fda.mcp_servers.chain import CloudASR
+    from fda.pc import processors as P
+    from fda.pc.services import McpTTSService, _EXTRA_OK
+
+    # Whisper hint: its prompt said back on noise is dropped; the name alone, or real speech, is kept
+    asr = CloudASR.__new__(CloudASR)
+    asr.hint = "Elkit, Manila."
+    asr._hint_words = {"elkit", "manila"}
+    asr.failed = asr.ok = lambda *a: None
+
+    class R:
+        status_code = 200
+        def __init__(self, t): self.t = t
+        def json(self): return {"text": self.t}
+
+    class H:
+        def __init__(self, t): self.t = t
+        def post(self, *a, **k): return R(self.t)
+    asr.base, asr.model = "x", "x"
+    for said, want in [("Elkit, Manila.", ""), ("Manila Elkit", ""), ("Elkit?", "Elkit?"),
+                       ("Elkit, turn on the lights.", "Elkit, turn on the lights."), ("...", "")]:
+        asr.http = H(said)
+        check(f"whisper hint: {said!r}", asr(np.zeros(1600, np.float32), 16000, "en"), want)
+
+    # a second "All set." after the real confirmation is not said; a first one, or a real sentence, is
+    for t, want in [("All set.", True), ("Done.", True), ("You're all set!", True), ("Okay.", True),
+                    ("Lights are on.", False), ("Done, the bird is blue.", False), ("Sure, here it is.", False)]:
+        check(f"extra ok pattern: {t!r}", bool(_EXTRA_OK.match(t)), want)
+
+    class Conn:
+        def __init__(self): self.said = []
+        async def call(self, tool, args, timeout=0):
+            self.said.append(args["text"])
+            return {"audio_b64": base64.b64encode(bytes(960)).decode(), "sample_rate": 24000}
+    conn = Conn()
+    tts = McpTTSService(conn)
+
+    async def say(text, ctx):
+        try:
+            async for _ in tts.run_tts(text, ctx):
+                pass
+        except Exception:  # noqa: BLE001  (no running pipeline here: only what was sent to the voice matters)
+            pass
+    for text, ctx in [("Lights are on.", "a"), ("All set.", "a"), ("All set.", "b"), ("Done.", "c"),
+                      ("Bird is blue.", "c"), ("Okay.", "c")]:
+        asyncio.run(say(text, ctx))
+    check("second confirmation not said; first one is", conn.said,
+          ["Lights are on.", "All set.", "Done.", "Bird is blue."])
+
+    # turn timing: each step measured once per turn, logged at the first audio
+    c = P.TurnClock()
+    seq = [("speech_end", 0.0), ("heard", 0.5), ("sent", 0.9), ("first_word", 1.3), ("first_word", 1.5),
+           ("first_audio", 1.8), ("first_audio", 2.5)]
+    real = time.monotonic
+    try:
+        for name, at in seq:
+            time.monotonic = lambda at=at: 100.0 + at
+            c.mark(name)
+    finally:
+        time.monotonic = real
+    check("turn timing steps", c.last, {"asr": 500, "turn wait": 400, "llm": 400, "tts": 500, "total": 1800})
+    c2 = P.TurnClock()
+    c2.mark("first_word"); c2.mark("first_audio")
+    check("turn timing: nothing logged without a turn sent", c2.last, {})
+
+
 # ---------------------------------------------------------------- history sent to the LLM
 def t_history():
     from fda.pc.fallback_llm import clean_messages
@@ -636,9 +832,9 @@ def replay():
     print(f"  {reps} times the same sentence was said twice in a row in that log (before the repeat fix)")
 
 
-SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "rules": t_rules, "room": t_room,
+SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "history": t_history, "tools": t_tools}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "history": t_history, "tools": t_tools}
 
 
 def main():

@@ -303,3 +303,16 @@ def is_garbage(text: str) -> bool:
     # junk = runs of dots / ellipses / "---" (emoji and a list "-" are not junk)
     junk = sum(1 for w in toks if re.fullmatch(r"[.…​‌‍]+[,!?]*|-{2,}|[.…]*-{2,}[.…]*", w))
     return len(toks) >= 4 and junk / len(toks) >= 0.5
+
+
+def is_echo(heard: str, said: str, min_run: int = 4) -> bool:
+    """`heard` is the bot's own voice coming back through the mic: a run of at least `min_run` words in a row (and
+    most of what was heard) that the bot itself just said. A person answering ("the blue one") is too short for it."""
+    h, s = norm(heard).split(), norm(said).split()
+    if len(h) < min_run or not s:
+        return False
+    from difflib import SequenceMatcher
+    m = SequenceMatcher(None, h, s, autojunk=False)
+    run = max((b.size for b in m.get_matching_blocks()), default=0)
+    covered = sum(b.size for b in m.get_matching_blocks())
+    return run >= min_run and covered >= 0.6 * len(h)

@@ -13,6 +13,7 @@ import copy
 import io
 import logging
 import os
+import re
 import time
 import wave
 
@@ -86,7 +87,9 @@ class DGX3ASR(Backend):
         self.dgx, self.model = DGX3(cfg, retry_s=self.retry_s), cfg.asr_model
         if not self.dgx.key:
             raise RuntimeError("QWEN_API_KEY is not set")
-        if not self.dgx.check():
+        if self.dgx.check():
+            self.dgx.down = False
+        else:
             log.warning("DGX3 is not reachable now (school network / VPN?); using the next engine until it is")
 
     @property
@@ -98,8 +101,10 @@ class DGX3ASR(Backend):
 
 
 class CloudASR(Backend):
-    def __init__(self, name: str):
+    def __init__(self, name: str, hint: str = ""):
         super().__init__(name)
+        self.hint = hint.strip()          # Whisper's prompt: names it should spell right (the agent's, places)
+        self._hint_words = set(re.findall(r"[a-z0-9']+", self.hint.lower()))
         import httpx
         base, key_env, model = CLOUD_ASR[name]
         self.base = (base or os.environ.get("ASR_BASE_URL", "")).rstrip("/")
@@ -115,7 +120,7 @@ class CloudASR(Backend):
             r = self.http.post(f"{self.base}/audio/transcriptions",
                                files={"file": ("turn.wav", _wav(x, rate), "audio/wav")},
                                data={"model": self.model, "language": language, "response_format": "json",
-                                     "temperature": "0"})
+                                     "temperature": "0", **({"prompt": self.hint} if self.hint else {})})
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:120]}")
             text = (r.json().get("text") or "").strip()
@@ -123,6 +128,9 @@ class CloudASR(Backend):
             self.failed(e)
             return None
         self.ok()
+        words = set(re.findall(r"[a-z0-9']+", text.lower()))
+        if self._hint_words and len(words) >= 2 and words <= self._hint_words:
+            return ""                     # Whisper said its prompt back on noise (just the name alone still counts)
         return text if any(c.isalnum() for c in text) else ""
 
 
@@ -132,7 +140,9 @@ def asr_backend(cfg, name: str) -> Backend:
     if name == "dgx3":
         return DGX3ASR(cfg)
     if name in CLOUD_ASR:
-        return CloudASR(name)
+        hint = ", ".join(x for x in (getattr(cfg, "name", ""), getattr(cfg, "location", ""),
+                                     getattr(cfg, "asr_hint", "")) if x)
+        return CloudASR(name, hint=hint + "." if hint else "")
     raise RuntimeError(f"unknown asr engine {name!r}: {', '.join([*LOCAL_ASR, 'dgx3', *CLOUD_ASR])}")
 
 
@@ -164,7 +174,9 @@ class DGX3TTS(Backend):
         self.dgx, self.rate = DGX3(cfg, retry_s=self.retry_s), cfg.tts_rate
         if not self.dgx.key:
             raise RuntimeError("QWEN_API_KEY is not set")
-        if not self.dgx.check():
+        if self.dgx.check():
+            self.dgx.down = False
+        else:
             log.warning("DGX3 is not reachable now (school network / VPN?); using the next voice until it is")
 
     @property

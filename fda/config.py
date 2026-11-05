@@ -109,6 +109,8 @@ class Config:
     history_turns: int = 8
     planner_say_first: bool = True    # ~190 ms faster first words; False = decide actions first
     location: str = "Quezon City"
+    asr_hint: str = ""                # names Whisper should spell right ("Mandaluyong, Davao"); the agent's name
+                                      # and location are always in it
     music_dir: str = "music"
     fast_path: bool = True
     vcm_fast_path: bool = True        # use the VCM intent Conformer as a second opinion

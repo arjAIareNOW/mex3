@@ -2,8 +2,8 @@
 tts MCP servers as engine "dgx3". Needs QWEN_API_KEY in .env and the school network or VPN.
 
 When the DGX3 does not answer (VPN off, server down), the MCP servers fall back to Moonshine / Piper on this
-machine. A failure "opens" the breaker: the DGX3 is tried again only after `retry_s`, so a dropped VPN does not
-add a timeout to every turn.
+machine. A failure marks it down and a background check (a quick connect, after 30 s, then 1, 2, 5 minutes) finds
+it again: speech never waits for a timeout while the VPN is off, and uses the DGX3 again as soon as it answers.
 """
 from __future__ import annotations
 
@@ -12,8 +12,11 @@ import io
 import logging
 import os
 import re
+import socket
+import threading
 import time
 import wave
+from urllib.parse import urlparse
 
 import httpx
 import numpy as np
@@ -59,23 +62,59 @@ class DGX3:
                                  timeout=httpx.Timeout(10.0, connect=0.8),
                                  limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=300))
         self.retry_s = retry_s
-        self.down_until = 0.0
         self.fails = 0
+        self.down = True                 # until the first check: it answers in milliseconds on the VPN
+        self._probing = threading.Lock()
+        if self.key:
+            self._start_probe(first_wait=0.0)
 
     @property
     def available(self) -> bool:
-        return bool(self.key) and time.monotonic() >= self.down_until
+        return bool(self.key) and not self.down
+
+    def _reachable(self) -> bool:
+        """A quick TCP connect to the DGX3 servers (no request, no model work)."""
+        for u in (self.cfg.asr_url, self.cfg.tts_url):
+            p = urlparse(u)
+            try:
+                with socket.create_connection((p.hostname, p.port or 80), timeout=1.5):
+                    pass
+            except OSError:
+                return False
+        return True
+
+    def _start_probe(self, first_wait: float):
+        if not self._probing.acquire(blocking=False):
+            return                       # a check is already running
+
+        def run():
+            try:
+                wait = first_wait
+                while self.down:
+                    time.sleep(wait)
+                    if self._reachable():
+                        self.down = False
+                        log.info("DGX3 answers: using it")
+                        return
+                    if wait == 0.0:
+                        log.info("DGX3 not reachable (VPN off?): local engine until it answers")
+                    wait = min(max(wait * 2, self.retry_s), 300.0)
+            finally:
+                self._probing.release()
+        threading.Thread(target=run, name="dgx3-check", daemon=True).start()
 
     def _failed(self, what: str, e: Exception):
         self.fails += 1
-        self.down_until = time.monotonic() + self.retry_s
-        log.warning("DGX3 %s failed (%s: %s); using the local engine for %.0f s",
-                    what, type(e).__name__, str(e)[:120], self.retry_s)
+        if not self.down:
+            log.warning("DGX3 %s failed (%s: %s); local engine until it answers again",
+                        what, type(e).__name__, str(e)[:120])
+        self.down = True
+        self._start_probe(first_wait=self.retry_s)
 
     def _ok(self):
         if self.fails:
             log.info("DGX3 is back")
-        self.fails, self.down_until = 0, 0.0
+        self.fails, self.down = 0, False
 
     def check(self) -> bool:
         try:

@@ -110,6 +110,7 @@ class DuplexGuard(FrameProcessor):
         self.asr = None                  # McpConnection to the asr server (set by the agent; None = no early peek)
         self.stt = None                  # McpSTTService (its user level, for the far-speech check)
         self.bot_text = lambda: ""       # what the bot is saying now (echo check)
+        self.echo_text = lambda: ""      # what it said in the last seconds (late echo check)
         self.on_bot = None               # callback(talking: bool) for the display
         self.on_user = None              # callback(event: dict) for the display: user voice on/off and its level
         self._t_mic = 0.0
@@ -147,6 +148,7 @@ class DuplexGuard(FrameProcessor):
             if io.bot_speaking and self.on_bot:
                 self.on_bot(False)
             io.bot_speaking = False
+            io.t_bot_stopped = time.monotonic()
             self._set_duck(False)
             self._cancel("_watch")
         elif isinstance(frame, VADUserStartedSpeakingFrame):
@@ -230,6 +232,8 @@ class DuplexGuard(FrameProcessor):
         said = set(rules.norm(self.bot_text() or "").split())
         if words and said and sum(w in said for w in words) / len(words) > 0.7:
             return "echo"
+        if rules.is_echo(text, self.echo_text()):        # its voice from a sentence or two ago (late through the room)
+            return "echo"
         if len(words) < 3:
             return "too short"
         return ""
@@ -274,6 +278,7 @@ class NotForMe(FrameProcessor):
         self.turn_said: list[str] = []   # replies already spoken for the current user turn
         self._turn = -1
         self.repeats = 0
+        self.recent: list[tuple[float, str]] = []   # (time, sentence) the speaker played lately (echo check)
         self.thinking = 0            # replies dropped because the model was thinking aloud ("The user wants ...")
         self._think_retry = False    # ask again for a direct answer when this reply ends
         self._think_retried_for = ""
@@ -349,6 +354,12 @@ class NotForMe(FrameProcessor):
             self.reply_done = True
             self.state = "idle"
         await self.push_frame(frame, direction)
+
+    def recent_text(self, window_s: float = 15.0) -> str:
+        """What the bot said in the last `window_s` seconds (its voice can come back through the mic late)."""
+        now = time.monotonic()
+        self.recent = [(t, s) for t, s in self.recent if now - t < window_s]
+        return " ".join(s for _, s in self.recent)
 
     def _said_before(self) -> bool:
         turn = getattr(self.io, "turn", 0)
@@ -503,6 +514,7 @@ class SpokenTap(FrameProcessor):
         if isinstance(frame, TTSTextFrame) and direction == FrameDirection.DOWNSTREAM and frame.text.strip()                 and not self.line.endswith(frame.text.strip()):      # the same text can come word- and sentence-wise
             self.nfm.spoken = (self.nfm.spoken + " " + frame.text).strip()
             self.nfm.last_sentence = frame.text.strip()
+            self.nfm.recent.append((time.monotonic(), frame.text.strip()))
             self.line = (self.line + " " + frame.text).strip()
             if self.ui:
                 self.ui.send({"type": "fda", "text": self.line, "final": False})
@@ -519,8 +531,11 @@ class HeardTap(FrameProcessor):
     """After the STT: shows transcripts on the display; drops pure backchannels while the bot is talking, so
     "uh huh" never becomes a turn of its own."""
 
-    def __init__(self, io, ui=None, name: str = "FDA", on_heard=None, on_ignored=None, intercept=None, **kw):
+    def __init__(self, io, ui=None, name: str = "FDA", on_heard=None, on_ignored=None, intercept=None,
+                 echo_text=None, **kw):
         super().__init__(**kw)
+        self.echo_text = echo_text or (lambda: "")       # what the bot said in the last seconds
+        self.echoes = 0
         self.io, self.ui, self.own_name, self.on_heard, self.on_ignored = io, ui, name, on_heard, on_ignored
         self.intercept = intercept       # async (text) -> True when it handled the request itself
         self.backchannels = 0
@@ -554,6 +569,11 @@ class HeardTap(FrameProcessor):
                 if self.on_ignored:
                     self.on_ignored()
                 return
+            near_bot = self.io.bot_speaking or time.monotonic() - getattr(self.io, "t_bot_stopped", 0.0) < 4.0
+            if near_bot and rules.is_echo(frame.text, self.echo_text()):
+                self.echoes += 1                         # its own voice through the mic: not a turn, no reply
+                logger.info(f"own voice heard back, ignored: {frame.text!r}")
+                return
             if self.io.bot_speaking and rules.is_backchannel(frame.text):
                 self.backchannels += 1
                 logger.info(f"backchannel while talking, ignored: {frame.text!r}")
@@ -578,4 +598,59 @@ class HeardTap(FrameProcessor):
             if _TIME_Q.search(frame.text):
                 # small models make up the time; the true one goes at the end of the prompt (keeps the cache)
                 frame.text += time.strftime(" [now: %I:%M %p, %A %B %d %Y]")
+        await self.push_frame(frame, direction)
+
+
+class TurnClock:
+    """Where the time of one turn goes, written to the log once the first audio of the reply is out:
+    speech end -> heard (ASR) -> sent to the LLM (turn detection) -> first word (LLM) -> first audio (TTS)."""
+
+    STEPS = [("speech_end", "heard", "asr"), ("heard", "sent", "turn wait"), ("sent", "first_word", "llm"),
+             ("first_word", "first_audio", "tts")]
+
+    def __init__(self):
+        self.t: dict[str, float] = {}
+        self.active = False
+        self.last: dict[str, int] = {}
+
+    def mark(self, name: str):
+        now = time.monotonic()
+        if name in ("speech_end", "heard"):           # the last one before the turn is sent counts
+            if not self.active:
+                self.t[name] = now
+        elif name == "sent":
+            self.t = {k: v for k, v in self.t.items() if k in ("speech_end", "heard")}
+            self.t["sent"], self.active = now, True
+        elif self.active and name not in self.t:      # first_word, first_audio: once per turn
+            self.t[name] = now
+            if name == "first_audio":
+                self.report()
+
+    def report(self):
+        self.active = False
+        parts, ms = [], {}
+        for a, b, label in self.STEPS:
+            if a in self.t and b in self.t and self.t[b] >= self.t[a]:
+                ms[label] = round((self.t[b] - self.t[a]) * 1000)
+                parts.append(f"{label} {ms[label]}")
+        start = self.t.get("speech_end", self.t.get("heard", self.t["sent"]))
+        ms["total"] = round((self.t["first_audio"] - start) * 1000)
+        self.last = ms
+        logger.info(f"turn timing (ms): {', '.join(parts)} | total {ms['total']}")
+        self.t = {}
+
+
+class Mark(FrameProcessor):
+    """Passes every frame on; marks the clock when the first frame of the given kinds goes down the pipeline."""
+
+    def __init__(self, clock: TurnClock, kinds: dict, **kw):
+        super().__init__(**kw)
+        self.clock, self.kinds = clock, kinds        # {FrameClass: mark name}
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if direction == FrameDirection.DOWNSTREAM:
+            for kind, name in self.kinds.items():
+                if isinstance(frame, kind):
+                    self.clock.mark(name)
         await self.push_frame(frame, direction)

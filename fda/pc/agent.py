@@ -28,7 +28,8 @@ from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import LLMMessagesAppendFrame, TTSSpeakFrame
+from pipecat.frames.frames import (FunctionCallsStartedFrame, LLMContextFrame, LLMMessagesAppendFrame, LLMTextFrame,
+                                   TranscriptionFrame, TTSAudioRawFrame, TTSSpeakFrame, VADUserStoppedSpeakingFrame)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -43,12 +44,13 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from mcp.client.session_group import StreamableHttpParameters
 
-from .. import brain
+from .. import brain, rules
 from . import fallback_llm
 from ..mcp_servers import llm as llmlib
 from ..room import Room
 from ..config import ROOT
-from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, NotForMe, SpokenTap, ToolFiller, is_bare_stop,
+from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, Mark, NotForMe, SpokenTap, ToolFiller, TurnClock,
+                         is_bare_stop,
                          strip_name)
 from .quick import QuickAnswers
 from .services import McpConnection, McpSTTService, McpTTSService
@@ -308,19 +310,26 @@ class Agent:
                              own_name=cfg.name)
         self.guard.asr, self.guard.stt = self.asr, stt
         self.guard.bot_text = lambda: self.nfm.reply_full
+        self.guard.echo_text = lambda: self.nfm.recent_text()      # its voice can come back late (Pi + PipeWire)
+        self.clock = TurnClock()          # 'turn timing (ms)' line in the log, per turn
         pipeline = Pipeline([
             self.transport.input(),
             VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(confidence=0.6, start_secs=0.15,
                                                                          stop_secs=0.2))),
             self.guard,
+            Mark(self.clock, {VADUserStoppedSpeakingFrame: "speech_end"}),
             stt,
             HeardTap(self.io, self.ui, name=cfg.name, on_heard=self._heard, on_ignored=self._resume_soon,
-                     intercept=self._intercept),
+                     intercept=self._intercept, echo_text=lambda: self.nfm.recent_text()),
+            Mark(self.clock, {TranscriptionFrame: "heard"}),
             agg.user(),
+            Mark(self.clock, {LLMContextFrame: "sent"}),
             llm,
+            Mark(self.clock, {LLMTextFrame: "first_word", FunctionCallsStartedFrame: "first_word"}),
             ToolFiller(slow=SLOW_TOOLS),
             self.nfm,
             McpTTSService(self.tts_conn),
+            Mark(self.clock, {TTSAudioRawFrame: "first_audio"}),
             SpokenTap(self.nfm, self.ui),
             self.transport.output(),
             agg.assistant(),
@@ -821,7 +830,34 @@ class Agent:
             self.context.add_message({"role": "assistant", "content": "(stopped)"})
             return True
         return (await self._continue(text) or await self._view_direct(text) or await self._media_direct(text)
-                or await self._nav_direct(text) or await self._quick(text) or await self._direct_tweak(text))
+                or await self._nav_direct(text) or await self._room_direct(text) or await self._quick(text)
+                or await self._direct_tweak(text))
+
+    async def _room_direct(self, text: str) -> bool:
+        """"Turn on the lights", "set a timer for 5 minutes", "volume 30", "what time is it": the room at once,
+        without the LLM (instant, no tokens). Only whole commands match (rules.match); anything else goes on."""
+        room = getattr(self, "room", None)
+        if room is None:
+            return False
+        hit = rules.match(strip_name(text, self.cfg.name), room.state)
+        if hit is None:
+            return False
+        actions, say = hit
+        if not actions and not say:
+            return False                               # a bare "stop": handled before this
+        t = time.perf_counter()
+        for a in actions:
+            r = await room.execute(a)
+            if not r.get("ok", True):
+                say = r.get("speak") or "Sorry, I couldn't do that."
+                break
+            say = r.get("speak") or say
+        logger.info(f"room (direct, {1000 * (time.perf_counter() - t):.0f} ms): {text!r} -> {actions} {say!r}")
+        self.context.add_message({"role": "user", "content": text})          # the LLM still knows it happened
+        self.context.add_message({"role": "assistant", "content": say or "(done)"})
+        if say:
+            await self._announce(say)
+        return True
 
     async def _quick(self, text: str) -> bool:
         """A question from quick_answers.txt: say its answer at once (no LLM round trip, no tokens)."""

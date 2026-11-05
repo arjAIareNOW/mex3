@@ -201,6 +201,11 @@ def speakable(text: str) -> str:
     return t if re.search(r"[A-Za-z0-9]", t) else ""             # nothing but punctuation: say nothing
 
 
+# a second confirmation tacked on after the real one ("Lights are on." + "All set."): said only as the first sentence
+_EXTRA_OK = re.compile(r"(?i)^\W*(?:(?:all|you'?re all|you are all) set|done|there you go|that'?s done|okay|ok|"
+                       r"got it|all done|sure)\W*$")
+
+
 class McpTTSService(TTSService):
     """Text-to-speech through the tts MCP server (Piper offline, or Deepgram Aura)."""
 
@@ -208,6 +213,7 @@ class McpTTSService(TTSService):
         super().__init__(push_start_frame=True, push_stop_frames=True,
                          settings=TTSSettings(model="mcp-tts", voice=None, language=None), **kwargs)
         self.conn = conn
+        self._reply_id, self._said_in_reply = None, 0
 
     def can_generate_metrics(self) -> bool:
         return True
@@ -216,6 +222,12 @@ class McpTTSService(TTSService):
         text = speakable(text)
         if not text.strip():
             return
+        if context_id != self._reply_id:
+            self._reply_id, self._said_in_reply = context_id, 0
+        if self._said_in_reply and _EXTRA_OK.match(text):
+            logger.info(f"second confirmation not said: {text!r}")
+            return
+        self._said_in_reply += 1
         try:
             await self.start_tts_usage_metrics(text)
             r = await self.conn.call("synthesize", {"text": text}, timeout=60)
