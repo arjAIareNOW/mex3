@@ -171,6 +171,7 @@ ROOM_TOOLS = {
     "timer": "Start a countdown timer (seconds).",
     "cancel_timer": "Cancel the running timer.",
     "alarm": "Set an alarm at a time like 06:30.",
+    "cancel_alarm": "Cancel an alarm (its time, or 'all').",
     "add_reminder": "Remember something for the user, optionally at a time like 15:00.",
     "list_reminders": "List the user's reminders.",
     "delete_reminder": "Delete reminders: by words from it, its number, 'last', or 'all'.",

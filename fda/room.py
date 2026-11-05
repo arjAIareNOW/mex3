@@ -144,6 +144,26 @@ class Room:
         self.state["alarms"].append({"id": next(_ids), "time": hhmm, "fired_on": ""})
         return {"ok": True, "note": f"alarm {hhmm}"}
 
+    def _do_cancel_alarm(self, a):
+        al = self.state["alarms"]
+        if not al:
+            return {"ok": False, "note": "no alarms", "speak": "You don't have any alarms set."}
+        want = (a.get("time") or "").strip().lower()
+        if want in ("all", "every", "everything", "all alarms") or (not want and len(al) == 1):
+            n = len(al); al.clear()
+            return {"ok": True, "note": f"cancelled {n} alarm{'s' if n > 1 else ''}"}
+        hhmm = _parse_hhmm(want) if want else None
+        hit = [x for x in al if hhmm and x["time"] == hhmm]
+        if not hit and hhmm and ":" not in want:              # "6" -> 06:00 or 18:00, whichever is set
+            h = int(hhmm[:2]) % 12
+            hit = [x for x in al if int(x["time"][:2]) % 12 == h and x["time"][3:] == hhmm[3:]]
+        if not hit:
+            times = ", ".join(_say_time(x["time"]) for x in al)
+            return {"ok": False, "note": f"which alarm? set: {times}"}
+        for x in hit:
+            al.remove(x)
+        return {"ok": True, "note": f"cancelled the {_say_time(hit[0]['time'])} alarm, {len(al)} left"}
+
     def _do_add_reminder(self, a):
         hhmm = _parse_hhmm(a.get("time", "") or "")
         self.state["reminders"].append({"id": next(_ids), "text": a["text"], "time": hhmm or "", "fired_on": ""})

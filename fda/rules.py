@@ -150,6 +150,7 @@ _EVIDENCE = {
     "timer": r"timer|minute|second|hour|countdown",
     "cancel_timer": r"timer|cancel",
     "alarm": r"alarm|wake",
+    "cancel_alarm": r"alarm|wake|cancel|delet|remov|turn off|clear",
     "stop_ringing": r"stop|enough|quiet|shut|off|okay|ok\b|dismiss",
     "add_reminder": r"remind|remember|forget",
     "list_reminders": r"remind|list|schedule|agenda|to ?do",
@@ -299,5 +300,6 @@ def is_garbage(text: str) -> bool:
     if not re.search(r"[A-Za-z0-9]", t):
         return len(t) >= 3
     toks = t.split()
-    junk = sum(1 for w in toks if not re.search(r"[A-Za-z0-9]", w))
+    # junk = runs of dots / ellipses / "---" (emoji and a list "-" are not junk)
+    junk = sum(1 for w in toks if re.fullmatch(r"[.…​‌‍]+[,!?]*|-{2,}|[.…]*-{2,}[.…]*", w))
     return len(toks) >= 4 and junk / len(toks) >= 0.5

@@ -20,6 +20,8 @@ TOOLS = {
     "timer": {"seconds": {"type": "integer", "minimum": 1}, "label": {"type": "string"}},
     "cancel_timer": {},
     "alarm": {"time": {"type": "string"}},
+    "cancel_alarm": {"time": {"type": "string", "description": "the alarm's time like 06:30, or 'all'; leave out "
+                              "when there is only one"}},
     "stop_ringing": {},
     "add_reminder": {"text": {"type": "string"}, "time": {"type": "string"}},
     "list_reminders": {},

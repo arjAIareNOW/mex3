@@ -181,8 +181,6 @@ def speakable(text: str) -> str:
     t = re.sub(r"₱\s?([0-9][0-9,]*(?:\.[0-9]+)?)", r"\1 pesos", text)      # ₱2,869 -> 2,869 pesos
     t = t.translate(_UNI)
     t = rules.drop_thinking(t)                                   # "The user wants ...": its thinking, not for us
-    if rules.is_garbage(t):                                      # "... Weird……… … It's …": say nothing
-        return ""
     t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)             # [label](url) -> label
     t = re.sub(r"https?://\S+|www\.\S+", "", t)                  # bare urls
     t = re.sub(r"【[^】]*】|†\S*", "", t)       # gpt-oss citation marks: 【1†source】
@@ -194,6 +192,8 @@ def speakable(text: str) -> str:
     t = re.sub(r"[*_`~|]+", "", t)                               # bold / italics / code / tables
     t = re.sub(r"[\U0001F000-\U0001FAFF☀-➿️]", "", t)   # emoji
     t = _CHATTER.sub("", t)
+    if rules.is_garbage(t):                                      # "... Weird……… … It's …": say nothing
+        return ""
     t = re.sub(r"\.{3,}|(?:\.\s){2,}", " ", t)                   # runs of dots (the model stuck on "........")
     t = re.sub(r"\(\s*(the|a|an)?\s*\)|\(\s*(the|a|an)\s*$", "", t, flags=re.I)   # "(the )" left over from it
     t = re.sub(r"\s+([,.!?])", r"\1", t)
