@@ -462,7 +462,8 @@ class Room:
         self._ring_task = asyncio.create_task(self._auto_stop())
 
     async def _auto_stop(self):
-        await asyncio.sleep(60)
+        # the alarm sound stops by itself after ring_max_s (10 s): set_loop(None) cuts it at the next audio block
+        await asyncio.sleep(float(getattr(self.cfg, "ring_max_s", 10.0)))
         self.stop_ringing()
 
     def stop_ringing(self):

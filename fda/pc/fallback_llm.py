@@ -8,6 +8,7 @@ own rate limit, so a busy model does not stop the conversation.
 from __future__ import annotations
 
 import os
+import re
 import time
 
 from loguru import logger
@@ -77,6 +78,33 @@ class FallbackLLMService(OpenAILLMService):
         if e["client"] is None:
             e["client"] = AsyncOpenAI(api_key=e["key"], base_url=e["base"], max_retries=0, timeout=20)
         return e["client"]
+
+    async def _process_context(self, context):
+        """One retry when the model's tool call was malformed mid-answer: gpt-oss on Groq sometimes writes a tool
+        name with an invisible character in front ("\\u200blist_items"), Groq rejects it while streaming, and the
+        turn would end in silence ("add milk to my list" -> nothing). Asking again almost always gives a clean call."""
+        # It can also call a tool that does not exist ("repo_browser.open_file") and repeat it on a plain retry,
+        # so the retries tell it what went wrong (a note that is taken out of the context again afterwards).
+        note = None
+        try:
+            for attempt in range(3):
+                try:
+                    return await super()._process_context(context)
+                except Exception as err:  # noqa: BLE001
+                    msg = str(err)
+                    if "tool call validation failed" not in msg.lower() or attempt == 2:
+                        raise
+                    logger.warning(f"LLM wrote a malformed tool call ({msg[:120]}); asking again ({attempt + 1}/2)")
+                    if note is None:
+                        m = re.search(r"call tool '([^']+)'", msg)
+                        note = {"role": "system", "content":
+                                (f"There is no tool called {m.group(1)!r}. " if m else
+                                 "Your last tool call was malformed. ")
+                                + "Use only the tools you were given, with their exact names, or just answer in words."}
+                        context.add_message(note)
+        finally:
+            if note is not None:
+                context.set_messages([x for x in context.get_messages() if x is not note])
 
     async def get_chat_completions(self, context):
         adapter = self.get_llm_adapter()

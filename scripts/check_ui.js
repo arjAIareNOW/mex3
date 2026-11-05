@@ -8,7 +8,7 @@ let sock = null; const sent = [], errors = [];
 class FakeWS { constructor(){ sock = this; this.readyState = 1; setTimeout(() => this.onopen && this.onopen(), 0); }
   send(x){ sent.push(JSON.parse(x)); } }
 const dom = new JSDOM(html, { runScripts: "dangerously", url: "http://localhost:8765/",
-  beforeParse(w){ w.WebSocket = FakeWS; w.addEventListener("error", e => errors.push(e.message)); } });
+  beforeParse(w){ w.WebSocket = FakeWS; w.Element.prototype.scrollIntoView = function(){}; w.addEventListener("error", e => errors.push(e.message)); } });
 const d = dom.window.document, $ = id => d.getElementById(id);
 const msg = m => sock.onmessage({ data: JSON.stringify(m) });
 const ok = (c, t) => { console.log((c ? "PASS " : "FAIL ") + t); if (!c) process.exitCode = 1; };
@@ -30,8 +30,11 @@ setTimeout(() => {
   ok(/70%/.test($("lampTxt").textContent) && /2:0[45]/.test($("tmTxt").textContent), "room shows lights and timer");
   ok(/Call mom/.test($("notes").textContent), "room shows reminders");
   msg({ type: "room", state: { ...room, ringing: "Alarm 06:30" } });
-  ok(!$("ring").hidden && /06:30/.test($("ringTxt").textContent), "ringing: the stop screen shows");
-  $("stopRing").click();
+  ok($("ring").hidden, "ringing: no full-screen red overlay");
+  ok($("clock").classList.contains("ringing") && $("ringStop").classList.contains("on") && /alarm/.test($("tmLbl").textContent),
+     "ringing: the timer clock rings (wiggle class, Stop under it, 'alarm' label)");
+  $("ringStop").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  ok(!$("clock").classList.contains("ringing") && !$("ringStop").classList.contains("on"), "tap Stop: the clock stops ringing");
   ok(sent.some(s => s.type === "action" && s.action.tool === "stop_ringing"), "tap Stop stops the ringing");
   msg({ type: "build", building: true, title: "Coffee page", chars: 1000, expect: 4000 });
   ok($("room").hidden && !$("stage").hidden, "a build switches back to Interface");
@@ -40,6 +43,24 @@ setTimeout(() => {
   ok(!$("room").hidden, "Room tab button works");
   $("tDesign").click();
   ok(!$("stage").hidden, "Interface tab button works");
+  // three tabs: lists on the home notepad, slides in the Virtual Office, games in Interface
+  ok(/Virtual Home/.test($("tRoom").textContent) && /Virtual Office/.test($("tOffice").textContent), "3 tabs named");
+  msg({ type: "room", state: { ...room, lists: { shopping: ["milk", "eggs"] } } });
+  ok(/shopping/.test($("lists").textContent) && /eggs/.test($("lists").textContent), "home: the shopping list shows under the reminders");
+  sent.length = 0;
+  msg({ type: "views", active: 2, views: [{ id: 1, kind: "app", kindword: "game", label: "Snake game", url: "/apps/snake/" },
+                                         { id: 2, kind: "app", kindword: "slides", label: "Sales slides", url: "/apps/sales/" }] });
+  ok($("tOffice").classList.contains("on") && !$("stage").hidden, "slides open in the Virtual Office tab");
+  const subs = [...d.querySelectorAll("#sub button")];
+  ok(subs.find(b => /Sales/.test(b.textContent)).hidden === false && subs.find(b => /Snake/.test(b.textContent)).hidden,
+     "office sub-tabs: only the slides, not the game");
+  ok(sent.some(s => s.type === "tab" && s.tab === "office"), "the display tells Elkit which tab is on screen");
+  sent.length = 0;
+  $("tDesign").click();
+  ok($("tDesign").classList.contains("on") && sent.some(s => s.type === "view" && s.id === 1),
+     "Interface tap: asks for its newest item (the game)");
+  ok(!$("empty").hidden || false, "until it comes, Interface does not show the slides");
+  msg({ type: "views", active: null, views: [] });
   // the pick pop-up
   ok($("choices").hidden, "no pop-up at start");
   msg({ type: "choices", title: "Pick a bird", options: [
@@ -58,5 +79,8 @@ setTimeout(() => {
      "pop-up: a colour scheme shows as a small page in its colours (old cards replaced)");
   msg({ type: "choices", close: true });
   ok($("choices").hidden, "pop-up closes");
+  msg({ type: "room", state: { ...room, ringing: "10 second timer" } });
+  sock.onclose();
+  ok($("ring").hidden && !$("clock").classList.contains("ringing"), "Elkit gone (connection lost): the clock stops ringing");
   dom.window.close();
 }, 30);

@@ -214,6 +214,12 @@ class DuplexGuard(FrameProcessor):
         why = self.not_an_interruption(text, audio)
         if why:
             logger.info(f"overlap {text!r}: {why}, keep talking")
+            # decided it is not a turn: full voice again now (a short reply was played ducked to the end)
+            if self._unduck is not asyncio.current_task():
+                self._cancel("_unduck")
+            if self.ducked:
+                self._set_duck(False)
+                self.stats["resumed"] += 1
             return why in ("to someone else", "echo")      # decided: no more peeks
         logger.info(f"interrupted by {text!r}: stopping")
         self.stats["early_stops"] += 1

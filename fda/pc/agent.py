@@ -92,8 +92,11 @@ How you work:
 - The person has no mouse or keyboard: everything is by voice. To use the app on the screen (go to a tab, page or
   section, click a button, scroll, type into a field, press a key in a game, read what it says), use app_control.
   If it says not found, choose from the options it lists, or tell them in a few words what is there.
-- The screen has two tabs: Interface and Room. "Show me the room" or "the lights" is show_screen room; "back to the
-  interface" is show_screen interface. Interface has a sub-tab for every app, game, video, photo set and search,
+- The screen has three tabs: Virtual Studio (games, websites, videos, photos, searches), Virtual Home (the room: lights,
+  thermostat, timers, alarms, reminders, lists, music) and Virtual Office (slides, documents, spreadsheets: build
+  them with create_app like any app; they open in the Office tab). "Show me the room" is show_screen room, "the
+  office" is show_screen office, "back to the studio" is show_screen interface. When a tool moves the
+  screen to another tab, say so first in a few words. Virtual Studio has a sub-tab for every app, game, video, photo set and search,
   each with its own name ("Snake game", "Davao links"); the tool results say the name. Switch or close one with
   interface_tab (action go / close / list); when you open something new, you may say which tab it is on.
 - Talk like a person: short acknowledgements, a little enthusiasm, an opinion when it helps. Do not repeat what they
@@ -159,9 +162,31 @@ def _content_words(text: str) -> list[str]:
             if len(w) > 2 and w not in _VIEW_STOP]
 
 
+# the three screen tabs (the display's ids -> what people call them)
+TAB_NAMES = {"design": "Virtual Studio", "room": "Virtual Home", "office": "Virtual Office"}   # "design" was "Interface"
+TAB_SETTLE_S = 0.7          # after moving to the Virtual Home: let the tab fade in before the room changes
+# office work opens in the Virtual Office tab (same words as OFFICE_WORDS in web/index.html)
+_SLIDE_WORDS = {"slides", "slide", "presentation", "deck", "ppt", "powerpoint"}
+_SHEET_WORDS = {"spreadsheet", "sheet", "budget", "invoice", "table"}
+_DOC_WORDS = {"document", "doc", "report", "letter", "resume", "cv", "memo", "essay"}
+OFFICE_KINDS = {"slides", "sheet", "doc"}
+
+
 def _app_kind(title: str) -> str:
     w = set(re.findall(r"[a-z]+", (title or "").lower()))
-    return "game" if w & _GAME_WORDS else "site" if w & _SITE_WORDS else "app"
+    if w & _GAME_WORDS:
+        return "game"
+    if w & _SLIDE_WORDS:
+        return "slides"
+    if w & _SHEET_WORDS:
+        return "sheet"
+    if w & _DOC_WORDS:
+        return "doc"
+    return "site" if w & _SITE_WORDS else "app"
+
+
+def _view_tab(v: dict | None) -> str:
+    return "office" if v and v.get("kindword") in OFFICE_KINDS else "design"
 
 
 # what each video_control action did (the tool result for the LLM, and the context line for direct commands)
@@ -194,11 +219,14 @@ def room_tools(room: Room, on_use=None) -> list[FunctionSchema]:
         props = brain.TOOLS[name]
 
         async def handler(params, _name=name):
-            if on_use:
-                on_use()
+            moved = (on_use() or "") if on_use else ""
+            if moved:
+                await asyncio.sleep(TAB_SETTLE_S)          # the Virtual Home shows first, then the change happens
             r = await room.execute({"tool": _name, **(params.arguments or {})})
             await params.result_callback({"ok": r.get("ok", True), "result": r.get("note", ""),
-                                          **({"say": r["speak"]} if r.get("speak") else {})})
+                                          **({"say": r["speak"]} if r.get("speak") else {}),
+                                          **({"screen": "the screen just moved to the Virtual Home tab: "
+                                              f"start your reply with \"{moved}\""} if moved else {})})
 
         out.append(FunctionSchema(name=name, description=desc, properties=props,
                                   required=brain.REQUIRED.get(name, []), handler=handler))
@@ -215,6 +243,7 @@ class Agent:
         self.worker: PipelineWorker | None = None
         self.app_url, self.app_keys = "", []          # the app on screen and its live settings
         self.views: list[dict] = []                   # Interface sub-tabs (apps, videos, photos, links)
+        self.cur_tab = "design"                        # the tab on screen: design (Interface) / room / office
         self.active_view: int | None = None
         self._view_n = 0
         self.context: LLMContext | None = None
@@ -266,9 +295,10 @@ class Agent:
         self.mcp_tools = mcp_tools
         remote = await mcp_tools.tools()
         show = FunctionSchema(
-            name="show_screen", description="Switch the screen tab: 'room' shows the room (lights, thermostat, "
-            "timers, alarms, reminders, music); 'interface' shows apps, videos, links and photos.",
-            properties={"screen": {"type": "string", "enum": ["interface", "room"]}}, required=["screen"],
+            name="show_screen", description="Switch the screen tab: 'room' is the Virtual Home (lights, "
+            "thermostat, timers, alarms, reminders, lists, music); 'interface' shows games, websites, videos, links "
+            "and photos; 'office' is the Virtual Office (slides, documents, spreadsheets).",
+            properties={"screen": {"type": "string", "enum": ["interface", "room", "office"]}}, required=["screen"],
             handler=self._show_screen)
         video = FunctionSchema(
             name="video_control", description="Control the video or photos on the screen. Video: pause, resume, "
@@ -291,7 +321,8 @@ class Agent:
                         "text": {"type": "string", "description": "for type: what to write"}},
             required=["action"], handler=self._app_control)
         subtab = FunctionSchema(
-            name="interface_tab", description="The Interface sub-tabs (one per app, game, video, photos, search). "
+            name="interface_tab", description="The sub-tabs of Virtual Studio and Virtual Office (one per app, game, "
+            "slides, video, photos, search). "
             "go: show the tab called `name`; close: close it (no name: the one showing); list: the tabs.",
             properties={"action": {"type": "string", "enum": ["go", "close", "list"]},
                         "name": {"type": "string", "description": "the tab's name or a word of it"}},
@@ -308,8 +339,21 @@ class Agent:
             name="pick_choice", description="The person picked one of the choices on the screen: its number or "
             "name as they said it ('two', 'the owl', 'the blue one'), or 'none' to close them.",
             properties={"choice": {"type": "string"}}, required=["choice"], handler=self._pick_choice_tool)
+        # every tool goes to its tab first: a new build by what it is (slides / docs -> Office), a change to an
+        # app -> that app's tab, videos and searches -> Interface (room tools: room_tools(on_use=...) below)
+        new_tab = (lambda a: "office" if _app_kind(f"{a.get('name', '')} {a.get('description', '')}")
+                   in OFFICE_KINDS else "design")
+        app_tab = (lambda a: self._app_tab(a.get("name", "")))
+        picks = {"create_app": new_tab, "edit_app": app_tab, "tweak_app": app_tab, "undo_app_change": app_tab,
+                 "restore_app_version": app_tab, "open_app": app_tab,
+                 "play_video": lambda a: "design", "web_search": lambda a: "design", "get_news": lambda a: "design"}
+        for fs in remote.standard_tools:
+            if fs.name in picks:
+                self._tab_first(fs, picks[fs.name])
+        self._tab_first(nav, lambda a: self._app_tab())
+        self._tab_first(video, lambda a: None if a.get("action") == "close" else "design")
         tools = ToolsSchema(standard_tools=[*remote.standard_tools,
-                                            *room_tools(self.room, on_use=lambda: self._tab("room")), show, video,
+                                            *room_tools(self.room, on_use=lambda: self._move_tab("room")), show, video,
                                             nav, subtab, offer, pick])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
@@ -328,6 +372,8 @@ class Agent:
         stt = McpSTTService(self.asr, far_db=cfg.far_speech_db, on_ignored=self._resume_soon,
                              own_name=cfg.name)
         self.guard.asr, self.guard.stt = self.asr, stt
+        stt.output_busy = lambda: bool(self.room.state.get("ringing")) or \
+            self.room.state.get("music", {}).get("state") == "playing"
         self.guard.bot_text = lambda: self.nfm.reply_full
         self.guard.echo_text = lambda: self.nfm.recent_text()      # its voice can come back late (Pi + PipeWire)
         self.clock = TurnClock()          # 'turn timing (ms)' line in the log, per turn
@@ -363,8 +409,66 @@ class Agent:
         return self.worker
 
     def _tab(self, tab: str):
+        self.cur_tab = tab
         if self.ui:
             self.ui.send({"type": "tab", "tab": tab})
+
+    def on_tab(self, msg: dict):
+        """The display says which tab is on screen (a tap, or a switch it made itself)."""
+        if msg.get("tab") in TAB_NAMES:
+            self.cur_tab = msg["tab"]
+
+    def _move_tab(self, tab: str) -> str:
+        """Switch to `tab`; if the screen was on another tab, the words that say so ("Over to the Virtual Home
+        tab."), so the person knows why the screen changed."""
+        was = getattr(self, "cur_tab", "design")
+        self._tab(tab)
+        return "" if was == tab else f"Over to the {TAB_NAMES[tab]} tab."
+
+    def _app_tab(self, name: str = "") -> str:
+        """The tab an app lives in: the one called `name` (or what its name says), else the app on screen."""
+        if name:
+            v = self._find_view(name)
+            if v is not None:
+                return _view_tab(v)
+            return "office" if _app_kind(name) in OFFICE_KINDS else "design"
+        return _view_tab(next((x for x in self.views if x["id"] == self.active_view), None))
+
+    async def _go_first(self, tab: str, speak: bool = True) -> str:
+        """Before doing something that shows on `tab`: go there first (and say so), let the tab settle, so the
+        change is seen happening. Returns the words said ("" when it was already there)."""
+        moved = self._move_tab(tab)
+        if moved:
+            if speak:
+                await self._announce(moved)
+            await asyncio.sleep(TAB_SETTLE_S)
+        return moved
+
+    def _tab_first(self, fs: FunctionSchema, pick) -> FunctionSchema:
+        """Wrap a tool: go to the tab `pick(arguments)` names before it runs; the result tells the LLM to say so."""
+        inner = fs.handler
+
+        async def handler(params):
+            tab = pick(params.arguments or {})
+            moved = await self._go_first(tab, speak=False) if tab else ""
+            if moved:
+                cb = params.result_callback
+                hint = f'the screen just moved to the {TAB_NAMES[tab]} tab: start your reply with "{moved}"'
+
+                async def with_hint(result, *a, **k):
+                    if isinstance(result, dict):
+                        result = {**result, "screen": hint}
+                    else:
+                        result = f"{result}\n({hint})"
+                    return await cb(result, *a, **k)
+                params.result_callback = with_hint
+            return await inner(params)
+        if inner is not None:
+            # (FunctionSchema.handler is read-only; keep the inner handler's @tool_options call options)
+            for k, v in vars(inner).items() if hasattr(inner, "__dict__") else ():
+                setattr(handler, k, v)
+            fs._handler = handler
+        return fs
 
     # ---------------- the pick pop-up: 4 numbered choices on the display (choices.py) ----------------
     async def _app_settings(self) -> dict:
@@ -410,12 +514,14 @@ class Agent:
                        # a picture with no setting to put it in, or anything asked for a new build: kept for the build
                        "for_new": for_new or (not palette and not key),
                        "offset": off, "options": options, "t": time.monotonic()}
-        self._tab("design")
+        # the pop-up shows over the app's tab: go there first (a new build: Interface, or Office for slides / docs)
+        moved = await self._go_first("design" if for_new else self._app_tab(), speak=False)
         if self.ui:
             self.ui.send(C.popup(title, options))
         logger.info(f"choices shown ({what}): {[o['name'] for o in options]}")
         return {"ok": True, "result": f"Showing on the screen, numbered: {C.spoken_list(options)}. Ask in a few words "
-                                      "which one they like (a number or a name); then pick_choice."}
+                                      "which one they like (a number or a name); then pick_choice.",
+                **({"screen": f'the screen just moved to that tab: start your reply with "{moved}"'} if moved else {})}
 
     def _close_choices(self):
         self.choice = None
@@ -496,6 +602,12 @@ class Agent:
             msg, note = "Okay.", "[closed the choices]"
         else:
             i = C.parse_pick(said, self.choice["options"])
+            if i is not None and self.choice["for_new"]:
+                # picked for something not built yet ("the dark one" before the website): the LLM carries on
+                # with the build, the pick in hand (not a dead end with "Midnight it is." and nothing built)
+                _, note = await self._apply_pick(i)
+                await self._carry_on(text, note)
+                return True
             if i is not None:
                 msg, note = await self._apply_pick(i)
             elif C.is_more(said):
@@ -509,6 +621,14 @@ class Agent:
         await self._announce(msg)
         return True
 
+    async def _carry_on(self, text: str, note: str):
+        """A pick for something not built yet: tell the LLM and let it continue (build, with the pick)."""
+        logger.info(f"choice for a new build: {note}")
+        if self.worker is None:
+            return
+        await self.worker.queue_frames([LLMMessagesAppendFrame(messages=[{"role": "user", "content":
+            f"{text} {note} Carry on with what they asked for, using this pick."}], run_llm=True)])
+
     def on_choice(self, msg: dict):
         """A tap on a choice card on the display."""
         if self.choice is None:
@@ -518,6 +638,12 @@ class Agent:
         except (TypeError, ValueError):
             return
         if not 0 <= i < len(self.choice["options"]):
+            return
+        if self.choice["for_new"]:
+            async def build():
+                _, note = await self._apply_pick(i)
+                await self._carry_on(f"(tapped choice {i + 1})", note)
+            self.tasks.append(asyncio.create_task(build()))
             return
 
         async def go():
@@ -529,8 +655,9 @@ class Agent:
 
     async def _show_screen(self, params):
         tab = (params.arguments or {}).get("screen", "interface")
-        self._tab("room" if tab == "room" else "design")
-        await params.result_callback({"ok": True, "result": f"the {tab} screen is showing"})
+        t = tab if tab in ("room", "office") else "design"
+        self._tab(t)
+        await params.result_callback({"ok": True, "result": f"the {TAB_NAMES[t]} tab is showing"})
 
     # ---- Interface sub-tabs ----
     def _active(self) -> dict | None:
@@ -611,7 +738,7 @@ class Agent:
         self.ui.send({"type": "views", "active": self.active_view,
                       "views": [{k: x[k] for k in keep if k in x} for x in self.views]})
         if self.active_view is not None:
-            self._tab("design")
+            self._tab(_view_tab(next((x for x in self.views if x["id"] == self.active_view), None)))
 
     def _find_view(self, target: str) -> dict | None:
         """The tab someone means: its key word ("the snake one"), else its kind if that is clear ("the video")."""
@@ -656,14 +783,28 @@ class Agent:
         t = strip_name(text, self.cfg.name).lower().strip(" .!?")
         t = re.sub(r"^(please |can you |could you |now |okay |ok )+", "", t)
         t = re.sub(r" please$", "", t)
-        if re.fullmatch(r"(?:go|switch|change|jump|move|head|take me|flip)(?: back)?(?: over)? to (?:the )?room(?: tab)?|"
-                        r"(?:show me|open|show) the room(?: tab)?|the room tab|room tab", t):
+        go = r"(?:go|switch|change|jump|move|head|take me|flip)(?: back)?(?: over)? to (?:the |my )?"
+        show = r"(?:show me|open|show) (?:the |my )?"
+        home = r"(?:room|home|house|virtual (?:home|room|house))"
+        if re.fullmatch(rf"{go}{home}(?: tab)?|{show}{home}(?: tab)?|(?:the )?{home} tab", t):
             self._tab("room")
-            return self._noted(text, "showing the Room tab")
-        if re.fullmatch(r"(?:go|switch|change|jump|move|head|take me|flip)(?: back)?(?: over)? to (?:the )?interface"
-                        r"(?: tab)?|(?:show me|open|show) the interface(?: tab)?|(?:the )?interface tab", t):
+            return self._noted(text, "showing the Virtual Home tab")
+        office = r"(?:virtual )?office"
+        if re.fullmatch(rf"{go}{office}(?: tab)?|{show}{office}(?: tab)?|(?:the )?{office} tab", t):
+            mine = [v for v in self.views if _view_tab(v) == "office"]
+            a = next((x for x in self.views if x["id"] == self.active_view), None)
+            if mine and _view_tab(a) != "office":
+                self._activate(mine[-1])               # its newest slides / document
+            self._tab("office")
+            return self._noted(text, "showing the Virtual Office tab")
+        studio = r"(?:virtual studio|studio|interface)"            # "interface": its old name still works
+        if re.fullmatch(rf"{go}{studio}(?: tab)?|{show}{studio}(?: tab)?|(?:the )?{studio} tab", t):
+            mine = [v for v in self.views if _view_tab(v) == "design"]
+            a = next((x for x in self.views if x["id"] == self.active_view), None)
+            if mine and _view_tab(a) != "design":
+                self._activate(mine[-1])
             self._tab("design")
-            return self._noted(text, "showing the Interface tab")
+            return self._noted(text, "showing the Virtual Studio tab")
         m = re.fullmatch(r"(next|previous|last|other) tab|(?:go|switch) to the (next|previous|other) tab", t)
         if m and len(self.views) > 1:
             i = next((n for n, v in enumerate(self.views) if v["id"] == self.active_view), 0)
@@ -863,6 +1004,7 @@ class Agent:
             cmd = {"action": "click", "target": m.group(1)}
         if cmd is None:
             return False
+        await self._go_first(_view_tab(a))            # the app's own tab first (Interface or Office)
         r = await self._app_cmd(cmd)
         if not r.get("ok"):
             return False                           # not found: the LLM gets it (it can look and choose)
@@ -889,6 +1031,8 @@ class Agent:
             action = ("close" if w & {"close", "exit", "hide", "quit"} else
                       "previous" if w & {"previous", "back", "last", "before"} else
                       "next" if w & {"next", "another", "more", "other"} else None)
+            if action is not None:
+                await self._go_first("design")         # photos live in Interface
             if action is None or not self._video_cmd(action):
                 return False
             self.context.add_message({"role": "user", "content": text})
@@ -913,6 +1057,8 @@ class Agent:
                   "pause" if w & {"pause", "stop"} else None)
         level = nums[0] if action == "volume" else None
         seconds = nums[0] if action in ("forward", "back") and nums else None
+        if action is not None and action != "close":
+            await self._go_first("design")             # the video lives in Interface
         if action is None or not self._video_cmd(action, level=level, seconds=seconds):
             return False
         logger.info(f"video {action} (direct)")
@@ -1009,6 +1155,10 @@ class Agent:
             self.context.add_message({"role": "user", "content": text})
             self.context.add_message({"role": "assistant", "content": "(stopped)"})
             return True
+        if self.room.state.get("ringing") and len(re.findall(r"[a-z']+", text.lower())) >= 2:
+            # someone talks to it while a timer / alarm rings: they noticed it, so it stops; then the request
+            logger.info(f"ringing stopped by a request: {text!r}")
+            self.room.stop_ringing()
         return (await self._continue(text) or await self._choice_direct(text) or await self._view_direct(text)
                 or await self._media_direct(text)
                 or await self._nav_direct(text) or await self._room_direct(text) or await self._quick(text)
@@ -1026,6 +1176,9 @@ class Agent:
         actions, say = hit
         if not actions and not say:
             return False                               # a bare "stop": handled before this
+        # it shows in the Virtual Home: go there first and say so, let the tab settle, THEN change the room,
+        # so the change is seen happening (the lamp fades to blue) instead of arriving already done
+        moved = await self._go_first("room") if actions else ""
         t = time.perf_counter()
         for a in actions:
             r = await room.execute(a)
@@ -1033,9 +1186,10 @@ class Agent:
                 say = r.get("speak") or "Sorry, I couldn't do that."
                 break
             say = r.get("speak") or say
-        logger.info(f"room (direct, {1000 * (time.perf_counter() - t):.0f} ms): {text!r} -> {actions} {say!r}")
+        logger.info(f"room (direct,{1000 * (time.perf_counter() - t):.0f} ms): {text!r} -> {actions} "
+                    f"{(moved + ' ' if moved else '') + (say or '')!r}")
         self.context.add_message({"role": "user", "content": text})          # the LLM still knows it happened
-        self.context.add_message({"role": "assistant", "content": say or "(done)"})
+        self.context.add_message({"role": "assistant", "content": f"{moved} {say}".strip() or "(done)"})
         if say:
             await self._announce(say)
         return True
@@ -1105,6 +1259,7 @@ class Agent:
         if key is None or not value or len(value.split()) > 6 or \
                 value.lower() in ("on", "off", "up", "down", "back", "over", "around", "it", "that"):
             return False
+        await self._go_first(self._app_tab())          # the app's own tab first, then the change is seen
         logger.info(f"live change by voice: {key} -> {value!r}")
         if re.search(r"photo|picture|image", value, re.I):
             await self._announce("Finding a picture.")

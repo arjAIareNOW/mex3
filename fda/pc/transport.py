@@ -103,7 +103,7 @@ class _Output(BaseOutputTransport):
 class FdaAudioTransport(BaseTransport):
     """Mic + speaker through FDA's AudioEngine (or the simulated room with sim=True)."""
 
-    def __init__(self, cfg, params: TransportParams, sim: bool = False):
+    def __init__(self, cfg, params: TransportParams, sim: bool = False, monitor: bool = False):
         super().__init__()
         self.cfg, self.params, self.sim = cfg, params, sim
         self.engine: AudioEngine | None = None
@@ -117,7 +117,7 @@ class FdaAudioTransport(BaseTransport):
         self._output = _Output(self, params)
         if sim:
             from ..sim import SimAudioEngine
-            self.engine = SimAudioEngine(cfg, self._on_audio)
+            self.engine = SimAudioEngine(cfg, self._on_audio, monitor=monitor)   # monitor: hear the room (live view)
         else:
             self.engine = AudioEngine(cfg, self._on_audio)
         self.mixer = self.engine.mixer

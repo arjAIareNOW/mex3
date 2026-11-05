@@ -95,6 +95,7 @@ class Config:
     bargein_margin_db: float = 18.0   # ...or this far above the residual-echo floor (energy detector)
     bargein_duck_gain: float = 0.25   # voice volume while deciding
     bargein_duck_ms: float = 40.0
+    ring_max_s: float = 10.0                 # a ringing timer / alarm stops by itself after this (was 60 s)
     bargein_confirm_s: float = 1.50   # sustained speech that stops FDA on sound alone; shorter utterances
                                       # ("stop" vs "uh huh") are decided by their words while FDA is ducked
     bargein_fade_ms: float = 80.0

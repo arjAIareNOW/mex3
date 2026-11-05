@@ -13,3 +13,8 @@ fda/mcp_servers/node_modules/
 .claude/
 music/
 room_state.json
+
+# local backups and live-view outputs
+*.bak-*
+tests/last_watch.txt
+tests/watch_next.txt

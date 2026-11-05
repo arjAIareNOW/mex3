@@ -5,6 +5,8 @@ with reverb and noise, and mixes in scripted user speech. Runs in real time, so 
 """
 from __future__ import annotations
 
+import collections
+import logging
 import threading
 import time
 
@@ -12,12 +14,21 @@ import numpy as np
 
 from .audio import AudioEngine
 
+log = logging.getLogger("fda.sim")
+
 
 class SimAudioEngine(AudioEngine):
     def __init__(self, cfg, on_audio, echo_gain: float = 0.5, echo_delay_ms: float = 25.0, noise_db: float = -60.0,
-                 seed: int = 0, drive: float = 0.0):
-        """drive > 0: overdriven small speaker (tanh distortion), the echo the AEC's linear filter cannot remove."""
+                 seed: int = 0, drive: float = 0.0, monitor: bool = False):
+        """drive > 0: overdriven small speaker (tanh distortion), the echo the AEC's linear filter cannot remove.
+        monitor: also play the room on this computer's speakers (FDA's voice + the scripted person), to watch a
+        simulated conversation live (tests/pc_watch.py). FDA still hears only the simulated mic."""
         self.drive = drive
+        self.monitor = monitor
+        self._mon_q: collections.deque = collections.deque(maxlen=25)      # ~0.5 s at most: never drifts behind
+        self._mon_left = np.zeros(0, np.float32)
+        self._mon_lock = threading.Lock()
+        self._mon_stream = None
         cfg._simulated = True
         super().__init__(cfg, on_audio)
         self.rng = np.random.default_rng(seed)
@@ -49,8 +60,47 @@ class SimAudioEngine(AudioEngine):
 
     def start(self):
         super().start()
+        if self.monitor:
+            self._open_monitor()
         self._sim = threading.Thread(target=self._run, name="sim-device", daemon=True)
         self._sim.start()
+
+    def stop(self):
+        super().stop()
+        if self._mon_stream is not None:
+            try:
+                self._mon_stream.stop()
+                self._mon_stream.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._mon_stream = None
+
+    def _open_monitor(self):
+        """The default speaker of this computer, fed from the simulated room."""
+        try:
+            import sounddevice as sd
+        except ImportError:
+            log.warning("monitor: sounddevice missing, no sound")
+            return
+
+        def cb(outdata, frames, _t, _status):
+            with self._mon_lock:
+                have = self._mon_left
+                while len(have) < frames and self._mon_q:
+                    have = np.concatenate([have, self._mon_q.popleft()])
+                out, self._mon_left = have[:frames], have[frames:]
+            if len(out) < frames:
+                out = np.pad(out, (0, frames - len(out)))
+            outdata[:] = np.clip(out, -1, 1)[:, None]
+
+        try:
+            self._mon_stream = sd.OutputStream(samplerate=self.rate, channels=1, dtype="float32", callback=cb,
+                                               blocksize=int(self.rate * self.cfg.block_ms / 1000))
+            self._mon_stream.start()
+            log.info("monitor: playing the simulated room on %s", sd.query_devices(kind="output")["name"])
+        except Exception as e:  # noqa: BLE001
+            log.warning("monitor: no speaker (%s)", e)
+            self._mon_stream = None
 
     def _run(self):
         rate, n = self.rate, int(self.rate * self.cfg.block_ms / 1000)
@@ -62,12 +112,17 @@ class SimAudioEngine(AudioEngine):
             echo = _fir(x, self.ir, n)
             self.hist = x[-len(self.ir):]
             mic = echo + self.rng.normal(0, self.noise, n).astype(np.float32)
+            person = np.zeros(n, np.float32)
             with self.lock:
                 for st, a in self.user:
                     lo, hi = max(st, self.sample), min(st + len(a), self.sample + n)
                     if lo < hi:
-                        mic[lo - self.sample:hi - self.sample] += a[lo - st:hi - st]
+                        person[lo - self.sample:hi - self.sample] += a[lo - st:hi - st]
                 self.user = [(st, a) for st, a in self.user if st + len(a) > self.sample]
+            mic += person
+            if self._mon_stream is not None:              # what a person in the room would hear
+                with self._mon_lock:
+                    self._mon_q.append(out_prev + person)
             out_prev = self.callback(mic.astype(np.float32), n)
             self.sample += n
             t_next += n / rate

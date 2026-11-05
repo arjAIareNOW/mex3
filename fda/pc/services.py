@@ -115,6 +115,7 @@ class McpSTTService(SegmentedSTTService):
         self.far_dropped = 0
         self.on_ignored = on_ignored
         self.own_name = own_name
+        self.output_busy = None          # callable: an alarm or music is playing now (set by the agent)
 
     def can_generate_metrics(self) -> bool:
         return True
@@ -147,14 +148,20 @@ class McpSTTService(SegmentedSTTService):
         if text:
             lvl = self.level_db(audio)
             logger.info(f"heard ({self.last_ms:.0f} ms, {len(audio) / 32000:.1f} s, {lvl:.0f} dB): {text}")
-            if self.far_db and self.user_db is not None and lvl < self.user_db - self.far_db and \
+            # an alarm or music playing: the echo canceller also turns the person down (by ~10 dB), so a level
+            # check would throw away "what time is it?" said right next to it. Judge only a quiet room.
+            busy = bool(self.output_busy and self.output_busy())
+            if busy:
+                logger.info("speaker busy (alarm / music): no far-away check")
+            if self.far_db and not busy and self.user_db is not None and lvl < self.user_db - self.far_db and \
                     self.own_name.lower() not in text.lower():          # "FDA, ..." from across the room still counts
                 self.far_dropped += 1                      # TV / radio / someone across the room
                 logger.info(f"far-away speech ({lvl:.0f} dB vs user {self.user_db:.0f} dB), ignored")
                 if self.on_ignored:
                     self.on_ignored()
                 return
-            self.user_db = lvl if self.user_db is None else 0.7 * self.user_db + 0.3 * lvl
+            if not busy:                                   # a level under the alarm is not their usual level
+                self.user_db = lvl if self.user_db is None else 0.7 * self.user_db + 0.3 * lvl
             yield TranscriptionFrame(text, self._user_id, time_now_iso8601(), Language.EN)
 
 
@@ -176,10 +183,18 @@ _STAGE = re.compile(r"(?i)[(\[]\s*(?:no\s+(?:further\s+|more\s+|other\s+)?(?:res
                     r"none|no\s+reply|stops?|stopped|continues?|smiles?|laughs?|chuckles?|sighs?)[^)\]]{0,30}[)\]]")
 
 
+# a bracketed aside that is the model talking to itself: a question, or a plan ("(should we open?)", "(maybe call
+# open_app)", "(need to check)"); a plain fact in brackets ("(about 5 km)") stays
+_ASIDE = re.compile(r"(?i)\s*[(\[](?=[^)\]]{0,120}[)\]])(?:[^)\]]*\?|\s*(?:should|shall|must|need|needs|maybe|"
+                    r"perhaps|probably|let'?s|we|i\s+(?:need|should|will|must)|actually|note|thinking|todo|"
+                    r"check|call|use|open)\b[^)\]]*)[)\]]")
+
+
 def speakable(text: str) -> str:
     """Make a reply safe to say aloud: no markdown, links, "(silent)", citation marks, odd Unicode or chatter."""
     t = re.sub(r"₱\s?([0-9][0-9,]*(?:\.[0-9]+)?)", r"\1 pesos", text)      # ₱2,869 -> 2,869 pesos
     t = t.translate(_UNI)
+    t = _ASIDE.sub("", t)                                        # "(should we open?)": a question to itself
     t = rules.drop_thinking(t)                                   # "The user wants ...": its thinking, not for us
     t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)             # [label](url) -> label
     t = re.sub(r"https?://\S+|www\.\S+", "", t)                  # bare urls

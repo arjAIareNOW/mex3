@@ -567,6 +567,14 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
     @mcp.tool()
     def open_app(name: str) -> dict:
         """Show an app that was built before on the display."""
+        job = apps.job
+        if job and job.get("state") == "building" and job.get("kind") == "build":
+            # asking for the app that is still being made (the LLM tried again and again): it opens by itself
+            if not name or _slug(name) == job["name"] or name.lower() in job["title"].lower() or \
+                    apps.find(name) is None:
+                return {"ok": False, "building": True,
+                        "message": f"{job['title']} is still being built; it opens by itself when it is ready. "
+                                   "Do not call open_app for it."}
         p = apps.find(name)
         if p is None:
             return {"ok": False, "message": f"I don't have an app called {name}."}

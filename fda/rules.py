@@ -51,7 +51,7 @@ def match(text: str, room: dict) -> tuple[list[dict], str] | None:
     if not t:
         return None
     L = r"(?:the |all the |all )?lights?"
-    m = re.fullmatch(rf"(?:turn|switch|put) (on|off) {L}|(?:turn|switch|put) {L} (on|off)|{L} (on|off)", t)
+    m = re.fullmatch(rf"(?:turn|turned|switch|put) (on|off) {L}|(?:turn|turned|switch|put) {L} (on|off)|{L} (on|off)", t)
     if m:
         p = next(g for g in m.groups() if g)
         return [{"tool": "lights", "power": p}], f"Lights {p}."
@@ -62,7 +62,7 @@ def match(text: str, room: dict) -> tuple[list[dict], str] | None:
         if n is not None and 0 <= n <= 100:
             return [{"tool": "lights", "power": "on", "brightness": n}], f"Lights at {n} percent."
     cm = "|".join(sorted(COLORS, key=len, reverse=True))
-    m = re.fullmatch(rf"(?:make|turn|set|change|switch) {L} (?:to )?({cm})|({cm}) {L}", t)
+    m = re.fullmatch(rf"(?:make|turn|turned|set|change|switch) {L} (?:to )?({cm})|({cm}) {L}", t)   # "turned": ASR tense
     if m:
         c = next(g for g in m.groups() if g)
         return [{"tool": "lights", "power": "on", "color": c}], f"Lights are {c} now."
@@ -78,6 +78,21 @@ def match(text: str, room: dict) -> tuple[list[dict], str] | None:
         n = number(m.group(1))
         if n and 10 <= n <= 35:
             return [{"tool": "thermostat", "celsius": n}], f"Thermostat set to {n} degrees."
+    # lists (shopping, to-do, packing ...): no LLM, so a bad tool call can never lose "add milk to my list"
+    N = r"(?:my |the |our )?((?:[a-z]+ ){0,2}?[a-z]+) list"
+    m = re.fullmatch(rf"(?:add|put|write|write down) (.+?) (?:to|on|in|onto) {N}", t)
+    if m:
+        return [{"tool": "list_items", "action": "add", "items": m.group(1), "list": m.group(2)}], ""
+    m = re.fullmatch(rf"(?:remove|take|delete|cross|cross out|scratch) (.+?) (?:off|from|out of) {N}", t)
+    if m:
+        return [{"tool": "list_items", "action": "remove", "items": m.group(1), "list": m.group(2)}], ""
+    m = re.fullmatch(rf"what s on {N}|what is on {N}|(?:read|show|show me|tell me|read me) {N}|"
+                     rf"what do i (?:need|have) on {N}", t)
+    if m:
+        return [{"tool": "list_items", "action": "show", "list": next(g for g in m.groups() if g)}], ""
+    m = re.fullmatch(rf"(?:clear|empty|delete|erase) {N}", t)
+    if m:
+        return [{"tool": "list_items", "action": "clear", "list": m.group(1)}], ""
     if re.fullmatch(r"(?:stop|stop it|stop that|be quiet|quiet|silence|enough|shut up|cancel|never mind|nevermind)", t):
         if room.get("ringing"):
             return [{"tool": "stop_ringing"}], "Okay."
@@ -276,10 +291,14 @@ THINKING = re.compile(
     r"|^\s*let'?s\s+(?:call|use|respond|answer|output|produce|craft|reply|think|see\s+what|check\s+(?:the|if|what))\b"
     r"|^\s*(?:probably|maybe|likely|perhaps)\s+(?:answer|respond|reply|say|call|use|just|we|they|the\s+user)\b"
     r"|^\s*(?:need\s+to|must|should)\s+(?:call|use|respond|answer|reply|output|produce|ask|say)\b"
+    r"|^\s*(?:actually|hmm+|oh|wait|but|so|okay|ok)[\s,.]+(?:i\s+|we\s+)?(?:need\s+to|must|should|have\s+to)\s+"
+    r"(?:open|call|use|run|show|switch|close|check|edit|create|tweak|respond|answer|reply|output|produce|ask|say)\b"
+    r"|^\s*(?:actually\s+)?(?:need\s+to|must|have\s+to)\s+(?:open|show|switch|close|run|edit|create|tweak)\s+"
+    r"(?:the\s+)?(?:app|game|site|tab|it|tool)\b"
     r"|^\s*(?:answer|response|reply|final|output|analysis)\s*:"
     r"|\b(?:edit_?app|create_?app|tweak_?app|open_?app|undo_?app|app_?settings|list_?apps|web_?search|"
     r"read_?page|play_?video|get_?news|get_?weather|get_?time|video_?control|app_?control|interface_?tab|"
-    r"show_?screen|function\s+call|tool\s+call|the\s+tools?\s+(?:to|we)|system\s+prompt|developer\s+message|"
+    r"show_?screen|show_?choices|pick_?choice|list_?items|function\s+call|tool\s+call|the\s+tools?\s+(?:to|we)|system\s+prompt|developer\s+message|"
     r"the\s+instructions?\s+say)\b")
 _SENT = re.compile(r"(?<=[.!?])\s+|\n+")
 

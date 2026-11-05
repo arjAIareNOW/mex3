@@ -94,7 +94,14 @@
   .view.links .n { color: var(--accent); font-weight: 700; margin-right: 6px; }
   @keyframes fadein { from { opacity: 0; } }
   @keyframes rise { from { transform: translateY(12px); opacity: 0; } }
-  /* ---- two tabs: Interface (apps, videos, links, photos) and Room (the virtual room) ---- */
+  /* ---- three tabs: Interface (games, websites, videos, links, photos), Virtual Home (the room),
+     Virtual Office (slides, documents, spreadsheets) ---- */
+  #sub button[hidden] { display: none; }
+  #lists { height: 100%; overflow: hidden; font: 600 10.5px/1.35 system-ui, sans-serif; color: #2b3344; }
+  #lists h5 { margin: 0 0 2px; font: 800 10px system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: #6a5a2a; }
+  #lists ul { margin: 0 0 4px; padding-left: 13px; }
+  #lists li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #lists .none { color: #9a8f74; margin-top: 30px; text-align: center; }
   #right { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
   #tabs { display: flex; gap: 6px; }
   #tabs[hidden] { display: none; }
@@ -129,6 +136,7 @@
   #notes .none { color: #b8a58f; font: 600 11px system-ui, sans-serif; margin: auto; }
   #notes .note small { display: block; font-weight: 700; opacity: .7; }
   #room[hidden] { display: none; }
+  #room:not([hidden]), #stage:not([hidden]) { animation: fadein .35s ease-out; }   /* a smooth tab change */
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex;
           flex-direction: column; gap: 8px; min-width: 0; }
   .card h3 { margin: 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
@@ -145,6 +153,23 @@
   #ring { position: fixed; inset: 0; background: rgba(13,17,23,.92); display: flex; flex-direction: column; align-items: center;
           justify-content: center; gap: 18px; z-index: 9; animation: flash 1.2s ease-in-out infinite; }
   #ring[hidden] { display: none; }
+  /* ringing: no full-screen overlay (RING_OVERLAY off); the timer clock wiggles and pulses red instead */
+  #clock.ringing { animation: wiggle .45s ease-in-out infinite; }
+  @keyframes wiggle { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-10deg); } 75% { transform: rotate(10deg); } }
+  #clock.ringing #tmArc { stroke: #ff5a52 !important; stroke-dasharray: 100 0 !important; opacity: 1 !important;
+                          animation: ringglow .45s ease-in-out infinite alternate; }
+  @keyframes ringglow { from { stroke-width: 4; filter: none; } to { stroke-width: 8; filter: drop-shadow(0 0 6px #ff5a52); } }
+  #ringStop { display: none; cursor: pointer; }
+  #ringStop.on { display: inline; }
+  /* live view (tests/pc_watch.py): what the scripted person says and what Elkit answers; hidden normally */
+  #demo { position: absolute; left: 0; right: 0; bottom: 18px; display: flex; flex-direction: column; gap: 8px; padding: 0 6px; }
+  #demo[hidden] { display: none; }
+  #demo .scene { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); text-align: center; }
+  #demo .line { font-size: 14px; line-height: 1.35; padding: 8px 10px; border-radius: 10px; background: var(--panel);
+                border: 1px solid var(--line); min-height: 20px; }
+  #demo .line b { display: block; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 2px; }
+  #demo .you b { color: #ffcf5c; } #demo .bot b { color: var(--accent); }
+  #demo .line:empty, #demo .line.none { display: none; }
   /* the pick pop-up: 4 numbered choices ("show me other birds", colour schemes before a website) */
   #choices { position: absolute; inset: 0; z-index: 6; background: rgba(8,10,15,.97); display: flex; flex-direction: column;
              align-items: center; justify-content: center; gap: 14px; padding: 18px; animation: chIn .25s ease-out; }
@@ -178,10 +203,13 @@
   <div id="pulse"><div class="core"></div><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="catch"></div><div class="orbit"><i></i></div></div>
   <div id="name">Elkit</div>
   <span id="conn" class="off"></span>
+  <div id="demo" hidden><div class="scene" id="dmScene"></div>
+    <div class="line you none" id="dmYou"><b>You</b><span></span></div>
+    <div class="line bot none" id="dmBot"><b>Elkit</b><span></span></div></div>
 </section>
 <section id="right">
-  <nav id="tabs"><button id="tDesign" class="on">Interface</button><button id="tRoom">Room</button></nav>
-  <nav id="sub" hidden aria-label="Interface tabs"></nav>
+  <nav id="tabs"><button id="tDesign" class="on">Virtual Studio</button><button id="tRoom">Virtual Home</button><button id="tOffice">Virtual Office</button></nav>
+  <nav id="sub" hidden aria-label="Sub-tabs"></nav>
   <section id="stage">
     <div id="bar"></div>
     <div id="empty">Elkit is listening.</div>
@@ -216,6 +244,12 @@
         <rect width="150" height="122" rx="6" fill="#3b2f25" stroke="#4d3d30" stroke-width="3"/>
         <foreignObject x="6" y="6" width="138" height="110"><div xmlns="http://www.w3.org/1999/xhtml" id="notes"></div></foreignObject>
       </g>
+      <!-- lists (shopping, to-do ...): a notepad under the reminders -->
+      <g transform="translate(30,300)">
+        <rect width="150" height="128" rx="5" fill="#f3ecd2" stroke="#cfc39c" stroke-width="2"/>
+        <rect width="150" height="12" rx="5" fill="#d9534f" opacity=".85"/>
+        <foreignObject x="9" y="16" width="134" height="108"><div xmlns="http://www.w3.org/1999/xhtml" id="lists"></div></foreignObject>
+      </g>
       <!-- the lamp's light -->
       <ellipse id="pool" cx="300" cy="332" rx="175" ry="26" fill="url(#gPool)" opacity="0"/>
       <path id="cone" d="M262 104 L338 104 L440 330 L160 330 Z" fill="url(#gCone)" opacity="0"/>
@@ -238,14 +272,19 @@
         <text id="tMode" y="22" text-anchor="middle" class="sub">comfort</text>
       </g>
       <!-- timer clock + alarms -->
-      <g transform="translate(440,180)">
+      <g transform="translate(440,180)"><g id="clock">
         <circle r="36" fill="#1b212d" stroke="#2b3344" stroke-width="2"/>
         <circle r="28" fill="none" stroke="#2b3344" stroke-width="5"/>
         <circle id="tmArc" r="28" fill="none" stroke="#b07aff" stroke-width="5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90)" stroke-linecap="round"/>
         <text id="tmTxt" y="4" text-anchor="middle" class="val small">--:--</text>
         <text id="tmLbl" y="18" text-anchor="middle" class="sub">no timer</text>
-      </g>
+      </g></g>
       <text id="alarmTxt" class="lbl" x="440" y="232" text-anchor="middle"></text>
+      <!-- ringing: the clock itself rings (wiggles, red pulse) with a small Stop under it -->
+      <g id="ringStop" transform="translate(440,246)" role="button" aria-label="Stop">
+        <rect x="-34" y="-14" width="68" height="28" rx="14" fill="#d9534f"/>
+        <text y="5" text-anchor="middle" fill="#fff" style="font: 700 14px system-ui, sans-serif">Stop</text>
+      </g>
       <!-- speaker -->
       <g transform="translate(508,250)">
         <g id="waves" fill="none" stroke="#7aa2ff" stroke-width="2.5" stroke-linecap="round">
@@ -371,11 +410,32 @@ function renderViews(m){
   for (const d of list){
     const b = document.createElement("button");
     b.className = "k-" + (d.kindword || d.kind) + (d.id === m.active ? " on" : "");
+    b.dataset.tab = tabOf(d);
     b.textContent = d.label; b.onclick = () => send({type:"view", id: d.id});
     bar.append(b);
   }
   activate(m.active);
-  tab(m.active != null ? "design" : ($("room").hidden ? "design" : "room"));
+  tab(m.active != null ? tabOf(views.get(m.active).data) : curTab);
+}
+// slides, documents and spreadsheets live in Virtual Office; games, websites, videos, photos, links in Interface
+const OFFICE = new Set(["slides", "doc", "sheet"]);
+const OFFICE_WORDS = /\b(slides?|presentation|deck|ppt|powerpoint|document|doc|report|letter|resume|cv|memo|essay|spreadsheet|sheet|budget|invoice|table)\b/i;
+function tabOf(d){ return d && OFFICE.has(d.kindword) ? "office" : "design"; }
+let curTab = "design";
+// show the active item if it belongs to the tab on screen, else this tab's empty text
+function showActive(){
+  const a = views.get(activeId), here = !!a && tabOf(a.data) === curTab;
+  for (const v of views.values()) v.el.hidden = !(here && v.id === activeId);
+  $("empty").hidden = here;
+  appFrame = here && a.kind === "app" ? a.frame : null;
+  if (!here && !$("bar").classList.contains("on"))
+    $("empty").textContent = curTab === "office" ? "Virtual Office: ask for slides, a document or a spreadsheet." : "Elkit is listening.";
+}
+// a tap on a tab: show that tab's newest item if the one showing belongs to the other tab
+function pickHere(){
+  const a = views.get(activeId); if (a && tabOf(a.data) === curTab) return;
+  const mine = [...views.values()].filter(v => tabOf(v.data) === curTab);
+  if (mine.length) send({type:"view", id: mine[mine.length - 1].id});
 }
 function activate(id){
   const prev = views.get(activeId);
@@ -523,7 +583,7 @@ function setValue(el, text){
 function appNav(m){
   const doc = navDoc(), act = m.action, want = (m.target || "").trim();
   if (!doc || !doc.body) return {ok:false, did:"no app is on the screen"};
-  tab("design");
+  tab(tabOf((views.get(activeId) || {}).data));
   if (act === "look"){
     const heads = [...doc.querySelectorAll("h1,h2,h3")].filter(seen).map(h => h.innerText.trim()).filter(Boolean).slice(0, 10);
     return {ok:true, did:"looked", title: doc.title, headings: heads, can_click: options(doc),
@@ -605,10 +665,18 @@ function lightColor(name){
 }
 let room = null;
 function act(action){ if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:"action", action})); }
-function tab(t){
+function tab(t, tapped){
+  t = t === "room" || t === "office" ? t : "design";
+  const changed = t !== curTab; curTab = t;
   const r = t === "room";
-  $("room").hidden = !r; $("stage").hidden = r; $("sub").hidden = r || !$("sub").children.length;
-  $("tRoom").classList.toggle("on", r); $("tDesign").classList.toggle("on", !r);
+  $("room").hidden = !r; $("stage").hidden = r;
+  $("tRoom").classList.toggle("on", r); $("tDesign").classList.toggle("on", t === "design");
+  $("tOffice").classList.toggle("on", t === "office");
+  let n = 0;                                   // the sub-tab bar shows only this tab's items
+  for (const b of $("sub").children){ b.hidden = b.dataset.tab !== t; n += !b.hidden; }
+  $("sub").hidden = r || !n;
+  if (!r) showActive();
+  if (tapped || changed) send({type:"tab", tab: t});      // the agent knows which tab is on screen
 }
 function fmt(s){ const m = Math.floor(s/60), r = s%60; return `${m}:${String(r).padStart(2,"0")}`; }
 function li(a, b){ const l = document.createElement("li"); l.innerHTML = "<span></span><span class='muted'></span>";
@@ -618,7 +686,10 @@ function li(a, b){ const l = document.createElement("li"); l.innerHTML = "<span>
 function hex2rgb(h){ const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h || ""); return m ? [1,2,3].map(i => parseInt(m[i], 16)) : [255,213,154]; }
 function mix(a, b, k){ const A = hex2rgb(a), B = hex2rgb(b); return "rgb(" + A.map((v, i) => Math.round(v + (B[i] - v) * k)).join(",") + ")"; }
 let timerEnd = 0, timerTotal = 0, timerLabel = "";
+const RING_OVERLAY = false;          // the old full-screen red "ringing" screen (kept, switched off)
+let ringing = "";
 function drawTimer(){
+  if (ringing){ $("tmTxt").textContent = "0:00"; $("tmLbl").textContent = /alarm/i.test(ringing) ? "alarm" : "time's up"; return; }
   const left = Math.max(0, Math.round((timerEnd - Date.now()) / 1000));
   $("tmArc").style.opacity = timerEnd ? 1 : 0;
   if (!timerEnd){ $("tmTxt").textContent = "--:--"; $("tmLbl").textContent = "no timer"; $("tmArc").style.strokeDasharray = "0 100"; return; }
@@ -674,11 +745,28 @@ function renderRoom(s){
     N.append(d);
   }
   if (!N.children.length){ const d = document.createElement("div"); d.className = "none"; d.textContent = "No reminders"; N.append(d); }
-  $("ring").hidden = !s.ringing; if (s.ringing) $("ringTxt").textContent = s.ringing;
+  const Ls = $("lists"); Ls.textContent = "";
+  const full = Object.entries(s.lists || {}).filter(([, items]) => items.length);
+  const each = full.length > 1 ? 3 : 6;               // one list: 6 lines; two or more: 3 each (the pad is small)
+  for (const [name, items] of full.slice(0, 2)){
+    const h = document.createElement("h5"), ul = document.createElement("ul");
+    h.textContent = name + (items.length > each ? ` (${items.length})` : "");
+    for (const it of items.slice(0, each)){ const l = document.createElement("li"); l.textContent = it; ul.append(l); }
+    Ls.append(h, ul);
+  }
+  if (!Ls.children.length){ const d = document.createElement("div"); d.className = "none"; d.textContent = "No lists"; Ls.append(d); }
+  ringing = s.ringing || "";
+  $("ring").hidden = !(RING_OVERLAY && ringing); if (ringing) $("ringTxt").textContent = ringing;
+  $("clock").classList.toggle("ringing", !!ringing); $("ringStop").classList.toggle("on", !!ringing);
+  $("alarmTxt").style.display = ringing ? "none" : ""; drawTimer();
 }
-$("tDesign").onclick = () => tab("design");
-$("tRoom").onclick = () => tab("room");
-$("stopRing").onclick = () => { $("ring").hidden = true; act({tool:"stop_ringing"}); };
+$("tDesign").onclick = () => { tab("design", true); pickHere(); };
+$("tRoom").onclick = () => tab("room", true);
+$("tOffice").onclick = () => { tab("office", true); pickHere(); };
+function stopRinging(){ $("ring").hidden = true; ringing = ""; $("clock").classList.remove("ringing");
+  $("ringStop").classList.remove("on"); $("alarmTxt").style.display = ""; drawTimer(); act({tool:"stop_ringing"}); }
+$("stopRing").onclick = stopRinging;
+$("ringStop").addEventListener("click", stopRinging);
 function showChoices(m){
   const box = $("choices");
   if (m.close || !m.options || !m.options.length){ box.hidden = true; return; }
@@ -704,8 +792,18 @@ function showChoices(m){
   }
   box.hidden = false;
 }
+function demo(m){                                  // live view captions (only sent by tests/pc_watch.py)
+  if (m.off){ $("demo").hidden = true; return; }
+  $("demo").hidden = false;
+  if (m.scene !== undefined) $("dmScene").textContent = m.scene;
+  for (const [k, id] of [["you", "dmYou"], ["bot", "dmBot"]]){
+    if (m[k] === undefined) continue;
+    const el = $(id); el.querySelector("span").textContent = m[k]; el.classList.toggle("none", !m[k]);
+  }
+}
 function onMsg(m){
   switch (m.type){
+    case "demo": demo(m); break;
     case "choices": showChoices(m); break;
     case "hello": if (pageV === null) pageV = m.v; else if (m.v !== pageV) location.reload(); break;
     case "status": setStatus(m.status); break;
@@ -720,7 +818,7 @@ function onMsg(m){
     case "app_set": { const base = (m.url || "").split("?")[0];
                       const v = [...views.values()].find(x => x.kind === "app" && x.data.url === base) || views.get(activeId);
                       if (v && v.frame) v.frame.contentWindow.postMessage({type:"fda_set", patch:m.patch}, "*"); break; }
-    case "build": if (m.building) tab("design"); showBuild(m); break;
+    case "build": if (m.building) tab(OFFICE_WORDS.test(m.title || "") ? "office" : "design"); showBuild(m); break;
     case "room": renderRoom(m.state); if (m.state && m.state.ringing) tab("room"); break;
     case "tab": tab(m.tab); break;
   }
@@ -728,7 +826,10 @@ function onMsg(m){
 function connect(){
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => $("conn").classList.remove("off");
-  ws.onclose = () => { $("conn").classList.add("off"); setStatus("offline"); setTimeout(connect, 1500); };
+  ws.onclose = () => { $("conn").classList.add("off"); setStatus("offline");
+                       $("ring").hidden = true;                 // Elkit is gone: nothing can be ringing
+                       ringing = ""; $("clock").classList.remove("ringing"); $("ringStop").classList.remove("on");
+                       setTimeout(connect, 1500); };
   ws.onmessage = e => { try { onMsg(JSON.parse(e.data)); } catch (err) {} };
 }
 connect();

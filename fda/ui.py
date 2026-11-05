@@ -23,7 +23,7 @@ class UI:
 
     def send(self, msg: dict):
         t = msg.get("type")
-        if t in ("room", "status", "health", "sources", "views", "build", "tab", "choices"):
+        if t in ("room", "status", "health", "sources", "views", "build", "tab", "choices", "demo"):
             self.last[t] = msg
         if not self.clients:
             return
@@ -82,6 +82,8 @@ class UI:
                             self.agent.on_app_result(msg)  # what a voice "click" / "go to" did inside the app
                         elif msg.get("type") == "choice" and hasattr(self.agent, "on_choice"):
                             self.agent.on_choice(msg)      # a tap on a card of the pick pop-up
+                        elif msg.get("type") == "tab" and hasattr(self.agent, "on_tab"):
+                            self.agent.on_tab(msg)         # which tab is on screen (a tap on Interface / Home / Office)
                         elif msg.get("type") == "view" and hasattr(self.agent, "on_view"):
                             self.agent.on_view(msg)        # a tap on an Interface sub-tab
                     except Exception:

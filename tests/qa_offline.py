@@ -242,6 +242,26 @@ def t_echo():
               g.not_an_interruption("because he was outstanding in his field", b""), "echo")
         check("overlap: a real interruption still stops it",
               g.not_an_interruption("no wait tell me the weather instead", b""), "")
+
+        # its own echo heard as "Not exactly." while ducked: full voice again as soon as that is decided
+        class DIO(FakeIO):
+            user_speaking = True
+            ducks = []
+
+            def duck(self, on):
+                self.ducks.append(on)
+
+        class Asr:
+            async def call(self, *_a, **_k):
+                return "Not exactly."
+        dio = DIO()
+        dio.bot_speaking = True
+        g2 = DuplexGuard(dio, Cfg())
+        g2.asr, g2.bot_text, g2.echo_text = Asr(), (lambda: "It's 9:51 PM."), (lambda: "")
+        g2._set_duck(True)
+        stopped = await g2._peek(b"\0" * 6400)
+        check("overlap 'too short': voice unducked at once, not stopped", (stopped, g2.ducked, dio.ducks),
+              (False, False, [True, False]))
     asyncio.run(go())
 
 
@@ -842,6 +862,13 @@ def t_choices():
         a.app_url, a.app_keys = "/apps/sky.html", ["bird", "pipe", "speed"]
         a.said = []
 
+        class Worker:
+            def __init__(self):
+                self.frames = []
+            async def queue_frames(self, fs):
+                self.frames += fs
+        a.worker = Worker()
+
         async def announce(t):
             a.said.append(t)
         a._announce = announce
@@ -868,10 +895,15 @@ def t_choices():
         await a._choice_direct("show me more")
         check("agent: 'show me more' = the next four schemes", [o["name"] for o in a.choice["options"]],
               ["candy", "coffee", "mono", "neon"])
+        a.said.clear()
         await a._choice_direct("the dark one")
         check("agent: scheme for a site not built yet: kept for the build, nothing edited",
               ("neon" in a.picked.get("colours", ""), [c[0] for c in a.tools_conn.calls]), (True, []))
-        check("agent: the build note has the exact colours", "#ff2d75" in a.context.msgs[-2]["content"], True)
+        f = a.worker.frames[-1] if a.worker.frames else None
+        check("agent: ... and the brain carries on with the build (not a dead end)",
+              (type(f).__name__, getattr(f, "run_llm", None), "#ff2d75" in str(getattr(f, "messages", ""))),
+              ("LLMMessagesAppendFrame", True, True))
+        check("agent: nothing said over it (the brain answers)", a.said, [])
 
         a = agent()
         a.app_keys = []
@@ -907,6 +939,78 @@ def t_choices():
           L.resolve_value("/assets/sprites/owl.svg", "/assets/sprites/bird.svg", web=False),
           ("/assets/sprites/owl.svg", "the owl picture"))
     check("spoken name of a background", L.resolve_value("night sky", "#000", web=False)[1], "the night sky picture")
+
+
+def t_watchfixes():
+    """Fixes from the first live view run (tests/pc_watch.py, 2026-11-05)."""
+    from fda import rules
+    from fda.pc.services import speakable
+    check("leak: '(should we open?) Actually need to open app.' is not said",
+          speakable("Your game is ready. (should we open?) Actually need to open app. It's on the Flappy game tab."),
+          "Your game is ready. It's on the Flappy game tab.")
+    check("leak: plain facts in brackets stay", speakable("The bakery opens at nine (on weekdays)."),
+          "The bakery opens at nine (on weekdays).")
+    check("leak: 'Actually, I think ...' is talk, not thinking", rules.is_thinking("Actually, I think the blue one is nicer."),
+          False)
+    check("leak: new tool names count as thinking", [rules.is_thinking(t) for t in
+          ("I'll call show_choices now.", "Use list_items for that.", "pick_choice two")], [True, True, True])
+
+    # open_app while that very app is still being built: "it opens by itself", not a retry loop
+    from fda.mcp_servers import tools_server as T
+    import inspect
+    src = inspect.getsource(T)
+    check("open_app knows about a build in progress", "is still being built; it opens by itself" in src, True)
+
+    # a request while a timer rings stops the ringing first (the person noticed it)
+    from fda.pc.agent import Agent
+    a = Agent.__new__(Agent)
+
+    class Room:
+        def __init__(self):
+            self.state = {"ringing": "10 second timer"}
+        def stop_ringing(self):
+            self.state["ringing"] = None
+
+    class Cfg:
+        name = "Elkit"
+    a.room, a.cfg = Room(), Cfg()
+
+    async def no(*_a, **_k):
+        return False
+    for m in ("_continue", "_choice_direct", "_view_direct", "_media_direct", "_nav_direct", "_room_direct", "_quick",
+              "_direct_tweak"):
+        setattr(a, m, no)
+    asyncio.run(a._intercept("What time is it?"))
+    check("a request while a timer rings stops the ringing", a.room.state["ringing"], None)
+    a.room.state["ringing"] = "alarm"
+    asyncio.run(a._intercept("uh"))
+    check("a single sound does not", a.room.state["ringing"], "alarm")
+
+    # the far-away check is off while the alarm / music plays (the echo canceller turns the person down too)
+    import base64 as b64
+    import numpy as np
+    from fda.pc.services import McpSTTService
+
+    class Conn:
+        async def call(self, *_a, **_k):
+            return "What time is it?"
+    stt = McpSTTService.__new__(McpSTTService)
+    stt.conn, stt.far_db, stt.user_db, stt.far_dropped, stt.on_ignored, stt.own_name = Conn(), 10, -14.0, 0, None, "Elkit"
+    stt.last_ms, stt._user_id = 0.0, "user"
+
+    async def nothing():
+        pass
+    stt.start_processing_metrics = stt.stop_processing_metrics = nothing
+    quiet = (np.sin(np.arange(32000) / 8) * 0.012 * 32767).astype("<i2").tobytes()      # about -41 dB
+    for busy, want in ((False, 0), (True, 1)):
+        stt.output_busy = (lambda b=busy: b)
+
+        async def run():
+            return [f async for f in stt.run_stt(quiet)]
+        got = asyncio.run(run())
+        check(f"quiet speech {'during the alarm: heard' if busy else 'in a quiet room: far away, ignored'}",
+              len(got), want)
+    check("a level under the alarm does not change the learned level", stt.user_db, -14.0)
 
 
 def t_appjobs():
@@ -1078,9 +1182,172 @@ def replay():
     print(f"  {reps} times the same sentence was said twice in a row in that log (before the repeat fix)")
 
 
+# ---------------------------------------------------------------- the 3 tabs: Interface, Virtual Home, Virtual Office
+def t_threetabs():
+    from fda.pc import agent as A
+    check("slides open in the Office tab", (A._app_kind("Q3 sales slides"), A._view_tab({"kindword": "slides"})),
+          ("slides", "office"))
+    check("a budget sheet / a report too", (A._app_kind("Family budget"), A._app_kind("Trip report")), ("sheet", "doc"))
+    check("games and websites stay in Interface", (A._view_tab({"kindword": "game"}), A._view_tab({"kindword": "site"})),
+          ("design", "design"))
+
+    room, _ = make_room()
+    a = A.Agent.__new__(A.Agent)
+
+    class Cfg:
+        name = "Elkit"
+
+    class Ui:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, m):
+            self.sent.append(m)
+
+    class Ctx:
+        def add_message(self, m):
+            pass
+    said = []
+
+    async def announce(s):
+        said.append(s)
+    a.room, a.cfg, a.ui, a.context, a._announce = room, Cfg(), Ui(), Ctx(), announce
+    a.views, a.active_view, a.cur_tab = [], None, "design"
+    asyncio.run(a._room_direct("set a timer for 5 minutes"))
+    check("set a timer from Interface: says it moves to the Virtual Home tab FIRST, then the timer",
+          (said[-2], said[-1], a.cur_tab), ("Over to the Virtual Home tab.", "5 minute timer, starting now.", "room"))
+    ti = [i for i, m in enumerate(a.ui.sent) if m == {"type": "tab", "tab": "room"}]
+    check("the tab switch comes before the timer starts", bool(ti) and bool(room.state["timers"]), True)
+    asyncio.run(a._room_direct("turn on the lights"))
+    check("already on Virtual Home: no mention", said[-1].startswith("Over to"), False)
+    a.on_tab({"tab": "office"})
+    asyncio.run(a._room_direct("what time is it"))
+    check("a question (no room change) does not move the screen", (a.cur_tab, said[-1].startswith("Over")),
+          ("office", False))
+    a.on_tab({"tab": "nonsense"})
+    check("an unknown tab from the display is ignored", a.cur_tab, "office")
+
+    for text, want in (("go to the office", "office"), ("show me the virtual home", "room"), ("home tab", "room"),
+                       ("switch to the interface", "design"), ("go to the virtual studio", "design"), ("studio tab", "design")):
+        a.cur_tab = "x"
+        asyncio.run(a._view_direct(text))
+        check(f"say {text!r}: the {want} tab", a.cur_tab, want)
+
+    # the room tool path (the LLM): the result tells it to say the screen moved
+    tools = A.room_tools(room, on_use=lambda: a._move_tab("room"))
+    lights = next(t for t in tools if t.name == "lights")
+    got = []
+
+    class P:
+        arguments = {"power": "off"}
+
+        async def result_callback(self, r):
+            got.append(r)
+    a.cur_tab = "design"
+    asyncio.run(lights.handler(P()))
+    check("room tool from Interface: the result says to mention the move",
+          "Over to the Virtual Home tab." in got[-1].get("screen", ""), True)
+    asyncio.run(lights.handler(P()))
+    check("room tool already on Home: nothing to mention", "screen" in got[-1], False)
+
+    # any tool goes to its own tab first: slides from Interface -> Office, a game edit from Home -> Interface
+    from pipecat.adapters.schemas.function_schema import FunctionSchema
+    order = []
+
+    async def make(params):
+        order.append(("ran", a.cur_tab))
+        await params.result_callback({"ok": True, "result": "building"})
+    fs = a._tab_first(FunctionSchema("create_app", "", {}, [], handler=make),
+                      lambda x: "office" if A._app_kind(x.get("description", "")) in A.OFFICE_KINDS else "design")
+
+    class P2:
+        arguments = {"description": "a short slide presentation about Bean There"}
+
+        async def result_callback(self, r):
+            order.append(("result", r))
+    a.cur_tab = "design"
+    asyncio.run(fs.handler(P2()))
+    check("slides asked on Interface: Office tab first, then the build",
+          (order[0], "Over to the Virtual Office tab." in order[1][1].get("screen", "")), (("ran", "office"), True))
+    a.views, a.active_view = [{"id": 1, "kind": "app", "kindword": "game", "label": "Flappy game", "key": "flappy"}], 1
+    check("an edit to the game belongs to Interface", a._app_tab(), "design")
+    check("an edit named for the slides belongs to Office", a._app_tab("Sales slides"), "office")
+
+    # a ringing timer stops by itself after ring_max_s (10 s by default; 0.05 s here), the sound cut at once
+    from fda.config import Config
+    check("ring_max_s defaults to 10 s", Config().ring_max_s, 10.0)
+    rroom, _ = make_room()
+    rroom.cfg.ring_max_s = 0.05
+
+    class Fx:
+        loop = None
+
+        def set_loop(self, x):
+            self.loop = x
+    rroom.mixer.fx = Fx()
+
+    async def ring_then_wait():
+        rroom.ring("10 second timer")
+        on = (bool(rroom.state["ringing"]), rroom.mixer.fx.loop is not None)
+        await asyncio.sleep(0.2)
+        return on, (rroom.state["ringing"], rroom.mixer.fx.loop)
+    on, off = asyncio.run(ring_then_wait())
+    check("ringing, then silent by itself after ring_max_s", (on, off), ((True, True), (None, None)))
+
+    page = (ROOT / "fda" / "web" / "index.html").read_text(encoding="utf-8")
+    check("the page has the 3 tabs and the list pad",
+          all(s in page for s in ('id="tDesign"', ">Virtual Home<", ">Virtual Office<", 'id="lists"')), True)
+
+
+# ---------------------------------------------------------------- lists without the LLM; a made-up tool call is retried
+def t_lists():
+    from fda import rules
+    room, _ = make_room()
+
+    async def run(t):
+        hit = rules.match(t, room.state)
+        if hit is None:
+            return None
+        return [await room.execute(a) for a in hit[0]][-1].get("speak", "")
+    check("add milk and eggs: straight to the list (no LLM)", asyncio.run(run("Add milk and eggs to my shopping list.")),
+          "Added milk and eggs to your shopping list.")
+    check("the items are on the list", room.state["lists"].get("shopping"), ["milk", "eggs"])
+    check("what's on my shopping list", asyncio.run(run("What's on my shopping list?")),
+          "Your shopping list has 2 items: milk and eggs.")
+    check("take eggs off", asyncio.run(run("Take eggs off my shopping list")), "Removed eggs.")
+    check("to do list", asyncio.run(run("Add call the plumber to my to do list")), "Added call the plumber to your to-do list.")
+    for t in ("add a red button to the page", "make a list of birds", "add the owl to my game"):
+        check(f"not a list command: {t!r}", rules.match(t, room.state), None)
+
+    # gpt-oss called a tool that does not exist ('repo_browser.open_file') twice in a row: the retry tells it so
+    from pipecat.processors.aggregators.llm_context import LLMContext
+    from pipecat.services.openai.llm import OpenAILLMService
+    from fda.pc.fallback_llm import FallbackLLMService
+    seen = []
+
+    async def fake(self, context):
+        seen.append([m["content"] for m in context.get_messages() if m.get("role") == "system"])
+        if len(seen) < 3:
+            raise RuntimeError("Error during completion: Tool call validation failed: tool call validation failed: "
+                               "attempted to call tool 'repo_browser.open_file' which was not in request.tools")
+        return "ok"
+    old = OpenAILLMService._process_context
+    OpenAILLMService._process_context = fake
+    try:
+        svc = FallbackLLMService.__new__(FallbackLLMService)
+        ctx = LLMContext(messages=[{"role": "user", "content": "Add milk and eggs to my shopping list."}])
+        got = asyncio.run(svc._process_context(ctx))
+    finally:
+        OpenAILLMService._process_context = old
+    check("made-up tool twice: third try answers", (got, len(seen)), ("ok", 3))
+    check("the retries tell it the tool does not exist", any("no tool called 'repo_browser.open_file'" in c
+                                                              for c in seen[1]), True)
+    check("the note is taken out again afterwards", [m["role"] for m in ctx.get_messages()], ["user"])
+
+
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
 
 
 def main():
