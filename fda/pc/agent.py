@@ -98,7 +98,9 @@ How you work:
   the number, the name, and which site it is from. The links show on the screen by themselves: say "the link is on
   the screen", never read a web address out loud. If the results do not say it, say so; never make up a price.
 - Videos: only when they ask for a video and say what it is, play_video with exactly what they asked; never pick
-  one they did not ask for. "Play a video" with no subject: ask which. While a video is on the screen, pause, play,
+  one they did not ask for. "Play a video" with no subject: ask which. "Open YouTube" means the real YouTube:
+  ask what they want to watch, then play_video. Never create_app a copy of YouTube or any real site or app
+  unless they say to build one. While a video is on the screen, pause, play,
   mute, louder, quieter, skip, restart or close mean the video: video_control (not the room volume or music).
   While a video plays you only hear requests that say your name.
 - The person has no mouse or keyboard: everything is by voice. To use the app on the screen (go to a tab, page or
@@ -202,6 +204,24 @@ _KIND_SAY = {"video": {"video", "youtube", "clip"}, "photos": {"photo", "photos"
              "links": {"links", "link", "search", "results"}, "game": {"game"}, "site": {"site", "website", "page"},
              "app": {"app", "application"}}
 MAX_VIEWS = 8
+
+
+# real sites and apps: "open YouTube" means the real one, never a copy built with create_app (YouTube itself cannot
+# be shown in the display's frame; its videos can: play_video). Only "build / make / clone a YouTube-like app" builds.
+_REAL_SERVICES = r"you\s?tube|netflix|spotify|facebook|instagram|tik\s?tok|twitter|google|gmail|messenger|whatsapp|" \
+                 r"reddit|amazon|shopee|lazada|wikipedia|twitch|disney\+?|hbo|prime video"
+_REAL = re.compile(rf"\b(?:{_REAL_SERVICES})\b", re.I)
+_BUILD_WORDS = re.compile(r"\b(?:build|make|create|design|code|clone|copy|replica|similar|mock\s?up|version of)\b",
+                          re.I)        # not "like": "I'd like to open YouTube" is an open
+REAL_SERVICE_NOTE = ("NOT built: they want to open the real service, not a copy. For YouTube use play_video (if they "
+                     "did not say what to watch, ask what they want to watch). For other sites say you cannot open "
+                     "that app here and offer a web search or a video instead. Never build a copy unless they "
+                     "ask to build one.")
+
+
+def real_service(what: str, said: str) -> bool:
+    """create_app for a real site (YouTube, Netflix...) when the person did not ask to build anything."""
+    return bool(_REAL.search(what or "") and _REAL.search(said or "") and not _BUILD_WORDS.search(said or ""))
 
 
 def _content_words(text: str) -> list[str]:
@@ -576,11 +596,26 @@ class Agent:
         inner = fs.handler
 
         async def handler(params):
+            if fs.name == "create_app":
+                said = self._last_heard()
+                what = f"{(params.arguments or {}).get('name', '')} {(params.arguments or {}).get('description', '')}"
+                if real_service(what, said):
+                    # "Open YouTube" is never a build (2026-11-06: it built a fake YouTube in 45 s)
+                    logger.info(f"create_app refused, they want the real thing: {said!r}")
+                    return await params.result_callback({"ok": False, "result": REAL_SERVICE_NOTE})
             self._build_t0 = time.monotonic()
             return await inner(params)
         if inner is not None:
             fs._handler = handler
         return fs
+
+    def _last_heard(self) -> str:
+        """The person's last words in the context (also while a tool call is under way)."""
+        for m in reversed(self.context.messages if self.context else []):
+            if isinstance(m, dict) and m.get("role") == "user":
+                c = m.get("content")
+                return c if isinstance(c, str) else " ".join(p.get("text", "") for p in c or [] if isinstance(p, dict))
+        return ""
 
     def _tab_first(self, fs: FunctionSchema, pick) -> FunctionSchema:
         """Wrap a tool: go to the tab `pick(arguments)` names before it runs; the result tells the LLM to say so."""

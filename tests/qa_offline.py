@@ -1669,6 +1669,22 @@ def t_filler():
     check("fillers are synthesized ahead (TTS cache)", asyncio.run(tts_go()), (1, True))
 
 
+def t_realservice():
+    """'Open YouTube' never builds a fake YouTube (2026-11-06); 'build a YouTube clone' still builds."""
+    from fda.pc.agent import REAL_SERVICE_NOTE, SYSTEM, real_service
+    opens = [("YouTube homepage", "Open YouTube."), ("YouTube", "Can you open YouTube for me?"),
+             ("YouTube", "I'd like to open YouTube"), ("YouTube", "Go to YouTube"), ("Netflix", "open netflix")]
+    builds = [("YouTube clone", "Build me a YouTube clone"), ("video site", "Make a site like YouTube"),
+              ("Snake game", "Make a snake game"), ("Bakery site", "open the bakery site")]
+    check("'open YouTube' (and Netflix...) -> create_app refused", [real_service(w, s) for w, s in opens],
+          [True] * len(opens))
+    check("asked to build (a YouTube clone, a site like it) -> builds", [real_service(w, s) for w, s in builds],
+          [False] * len(builds))
+    check("refusal tells the LLM to use play_video and ask what to watch",
+          ("play_video" in REAL_SERVICE_NOTE, "ask what they want to watch" in REAL_SERVICE_NOTE), (True, True))
+    check("prompt: 'Open YouTube' means the real YouTube", "\"Open YouTube\" means the real YouTube" in SYSTEM, True)
+
+
 def t_nophotos():
     """Live changes never fetch web photos (Openverse is not an approved service): library art or emoji."""
     from fda.mcp_servers import live
@@ -2132,7 +2148,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice}
 
 
 def main():
