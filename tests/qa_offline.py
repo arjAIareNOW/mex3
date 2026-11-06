@@ -1685,6 +1685,38 @@ def t_realservice():
     check("prompt: 'Open YouTube' means the real YouTube", "\"Open YouTube\" means the real YouTube" in SYSTEM, True)
 
 
+def t_quickbarge():
+    """Quick (offline) overlap checks stop the bot only when sure; everything else waits for the cloud peeks."""
+    import numpy as np
+    from fda.config import Config
+    from fda.mcp_servers.chain import ASRChain
+    from fda.pc.processors import DuplexGuard
+    from fda.pc.services import McpSTTService
+
+    class Stt:
+        level_db = staticmethod(McpSTTService.level_db)
+        user_db = -18.0
+    g = DuplexGuard.__new__(DuplexGuard)
+    g.cfg, g.bot_text, g.echo_text, g.stt = Config(), (lambda: "The pasta needs plenty of boiling water."), \
+        (lambda: ""), Stt()
+    loud = (np.sin(np.arange(16000) / 3) * 0.2 * 32767).astype("<i2").tobytes()       # ~ -17 dB
+    quiet = (np.sin(np.arange(16000) / 3) * 0.02 * 32767).astype("<i2").tobytes()     # ~ -37 dB: TV level
+    sure = ["By the way, what's the weather?", "Can we talk about something else?", "Oh, before I forget, can we",
+            "Actually, can we go", "Wait", "Hey, can I switch my phone?", "I'll do it myself"]
+    unsure = ["Sarah you done with", "Ralph pizza's here", "Chris your laptop's", "uh-huh yeah", "Oh, how you?",
+              "I see that", "I see the", "Oh, before I", "7. 7. 7.", "By the", "plenty of boiling water",
+              "Welfth, welfth, welfth"]
+    check("quick: sure interruptions stop", [g.sure_interruption(t, loud) for t in sure], [True] * len(sure))
+    check("quick: names, backchannels, short, echo, loops wait", [g.sure_interruption(t, loud) for t in unsure],
+          [False] * len(unsure))
+    check("quick: quieter than the user (TV / background) waits",
+          g.sure_interruption("By the way, what's the weather?", quiet), False)
+    g.stt.user_db = None
+    check("quick: no level of this person yet -> waits", g.sure_interruption("Can we talk about something", loud), False)
+    check("quick: config switch on by default", Config().bargein_quick, True)
+    check("chain: transcribe_local exists", callable(getattr(ASRChain, "transcribe_local", None)), True)
+
+
 def t_nophotos():
     """Live changes never fetch web photos (Openverse is not an approved service): library art or emoji."""
     from fda.mcp_servers import live
@@ -2148,7 +2180,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge}
 
 
 def main():

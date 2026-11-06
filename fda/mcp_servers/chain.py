@@ -307,6 +307,13 @@ class ASRChain(Chain):
                 return text, (a if f is fa else b)
         return None, None
 
+    def transcribe_local(self, x: np.ndarray, rate: int, language: str = "en") -> str:
+        """The offline engine only (the chain always ends with one): fast early checks during an overlap."""
+        for b in self.backends:
+            if isinstance(b, LocalASR):
+                return b(x, rate, language) or ""
+        return ""
+
     def transcribe(self, x: np.ndarray, rate: int, language: str = "en") -> str:
         text, used = self._hedged(x, rate, language)
         if used is None:

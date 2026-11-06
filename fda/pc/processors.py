@@ -101,12 +101,21 @@ class DuplexGuard(FrameProcessor):
 
     # fd-benchmark 2026-11-06: it stopped 2.2 s after an interruption began (peeks at 1.0 / 1.6 s needed 3 words,
     # fallback at 3 s). Now: earlier peeks, 2 words are enough once the overlap is ~0.7 s long, fallback at 2 s.
+    # Barge-in target 0.8 s (course, 2026-11-06): the cloud peeks above decide ~1.2 s after the overlap starts
+    # (Groq round trip ~0.5 s each). Quick peeks: the offline engine on the device (~20-100 ms) every
+    # `quick_every` s from `quick_from` s; they stop the bot only when sure (sure_interruption), else the cloud
+    # peeks decide as before. Simulated on the benchmark's clips: real interruptions stopped 0.2-1.0 s after the
+    # VAD fired; background, "uh-huh yeah" and "I see that" kept talking.
+    quick_from, quick_every, quick_until = 0.2, 0.1, 1.4
+
     def __init__(self, io, cfg, sustained_s: float = 2.0, unduck_s: float = 0.9, peek_s=(0.5, 0.9, 1.3), **kw):
         super().__init__(**kw)
         self.io, self.cfg = io, cfg
         self.sustained_s, self.unduck_s, self.peek_s = sustained_s, unduck_s, tuple(peek_s)
         self.ducked = False
         self._watch: asyncio.Task | None = None
+        self._quick: asyncio.Task | None = None
+        self._stopping = False           # this overlap already stopped the bot (quick and cloud peeks race)
         self._unduck: asyncio.Task | None = None
         self.t_user = 0.0
         self.asr = None                  # McpConnection to the asr server (set by the agent; None = no early peek)
@@ -152,7 +161,7 @@ class DuplexGuard(FrameProcessor):
             io.bot_speaking = False
             io.t_bot_stopped = time.monotonic()
             self._set_duck(False)
-            self._cancel("_watch")
+            self._cancel("_watch"); self._cancel("_quick")
         elif isinstance(frame, VADUserStartedSpeakingFrame):
             io.user_speaking = True
             if self.on_user is not None:
@@ -162,15 +171,18 @@ class DuplexGuard(FrameProcessor):
             if io.bot_speaking:
                 self._set_duck(True)
                 self.stats["ducks"] += 1
-                self._cancel("_watch")
+                self._cancel("_watch"); self._cancel("_quick")
                 self.buf = bytearray(self.pre)
+                self._stopping = False
                 self._watch = asyncio.create_task(self._sustained())
+                if self.asr is not None and getattr(self.cfg, "bargein_quick", True):
+                    self._quick = asyncio.create_task(self._quick_peeks())
         elif isinstance(frame, VADUserStoppedSpeakingFrame):
             io.user_speaking = False
             if self.on_user is not None:
                 self.on_user({"type": "voice", "on": False})
             peeked = self._watch is not None and self._watch.done()
-            self._cancel("_watch")
+            self._cancel("_watch"); self._cancel("_quick")
             if self.ducked:
                 # a short "stop" / "wait" ends before the first early check: check what was said right now
                 if not peeked and self.asr is not None and len(self.buf) >= 6400:      # >= 0.2 s
@@ -179,7 +191,7 @@ class DuplexGuard(FrameProcessor):
                     self._unduck = asyncio.create_task(self._unduck_later())
         elif isinstance(frame, InterruptionFrame):
             self.ducked = False
-            self._cancel("_watch"); self._cancel("_unduck")
+            self._cancel("_watch"); self._cancel("_unduck"); self._cancel("_quick")
         await self.push_frame(frame, direction)
 
     def _set_duck(self, on: bool):
@@ -196,7 +208,8 @@ class DuplexGuard(FrameProcessor):
             if await self._peek():
                 return
         await asyncio.sleep(max(0.0, self.sustained_s - (time.monotonic() - t0)))
-        if self.io.user_speaking and self.io.bot_speaking:
+        if self.io.user_speaking and self.io.bot_speaking and not self._stopping:
+            self._stopping = True
             logger.info("user kept talking over the bot: stopping")
             self.stats["sustained_stops"] += 1
             await self.broadcast_interruption()
@@ -223,11 +236,70 @@ class DuplexGuard(FrameProcessor):
                 self._set_duck(False)
                 self.stats["resumed"] += 1
             return why in ("to someone else", "echo")      # decided: no more peeks
+        if self._stopping:
+            return True
+        self._stopping = True
         logger.info(f"interrupted by {text!r}: stopping")
         self.stats["early_stops"] += 1
         self.io.last_heard = text
         await self.broadcast_interruption()
         return True
+
+    async def _quick_peeks(self):
+        """Offline transcripts of the overlap so far, one after another; stop as soon as one is a sure interruption."""
+        t0 = time.monotonic()
+        await asyncio.sleep(self.quick_from)
+        while time.monotonic() - t0 < self.quick_until:
+            if not (self.io.user_speaking and self.io.bot_speaking) or self._stopping:
+                return
+            t1 = time.monotonic()
+            audio = bytes(self.buf)
+            try:
+                text = await self.asr.call("transcribe", {"audio_b64": base64.b64encode(audio).decode(),
+                                                          "sample_rate": 16000, "quick": True}, timeout=2)
+            except Exception as e:  # noqa: BLE001  (an older asr server without quick: the cloud peeks decide)
+                logger.debug(f"quick peek failed: {e}")
+                return
+            text = (text or "").strip() if isinstance(text, str) else ""
+            if text and self.io.bot_speaking and self.io.user_speaking and not self._stopping:
+                if self.sure_interruption(text, audio):
+                    self._stopping = True
+                    logger.info(f"interrupted by {text!r} (quick check, {time.monotonic() - t0:.2f} s): stopping")
+                    self.stats["quick_stops"] = self.stats.get("quick_stops", 0) + 1
+                    self.io.last_heard = text
+                    await self.broadcast_interruption()
+                    return
+            await asyncio.sleep(max(0.0, self.quick_every - (time.monotonic() - t1)))
+
+    _INTERJ = {"oh", "uh", "um", "ah", "well", "hmm", "mm", "er"}
+    # how real interruptions start; a word not in here at the front is often a name ("Sarah, you done...",
+    # "Ralph, pizza's here": side talk) -> not sure, the cloud peeks decide
+    _OPENERS = set("""i i'm i'll i'd i've we we're we'll let's let can could would will should do does did don't is
+        are was were what what's when where who why how which wait no not actually so but and by before hey hold
+        hang tell give show play open make set turn stop please maybe sorry excuse quick also that that's this it
+        it's the a an my you your there is there's one just never change switch cancel go read find look""".split())
+
+    def sure_interruption(self, text: str, audio: bytes) -> bool:
+        """A quick (offline, short-audio) transcript is trusted only when it clearly is a new turn: passes the normal
+        checks, >= 3 words after any 'oh/uh', no repeated words (a mishearing loop), starts like a request, not
+        a backchannel start ('I see that'), and about as loud as this person usually is (TV / background: quieter)."""
+        if self.not_an_interruption(text, audio):
+            return False
+        if _STOP_WORDS.search(text):
+            return True
+        w = rules.norm(text).split()
+        while w and w[0] in self._INTERJ:
+            w = w[1:]
+        if len(w) < 3 or len(set(w)) < 0.7 * len(w) or w[0] not in self._OPENERS:
+            return False
+        if rules.is_backchannel(" ".join(w[:2])):
+            return False
+        stt = self.stt
+        user = getattr(stt, "user_db", None)
+        if stt is None or user is None:
+            return False
+        far = float(getattr(self.cfg, "far_speech_db", 10) or 10)
+        return stt.level_db(audio) >= user - far
 
     def not_an_interruption(self, text: str, audio: bytes) -> str:
         words = rules.norm(text).split()

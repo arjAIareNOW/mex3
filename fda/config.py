@@ -97,6 +97,7 @@ class Config:
     bargein_vad: float = 0.50         # while FDA talks: 2 of the last 3 windows above this -> duck
     bargein_min_db: float = -48.0     # echo-cancelled mic level needed to count as the user
     bargein_margin_db: float = 18.0   # ...or this far above the residual-echo floor (energy detector)
+    bargein_quick: bool = True        # early overlap checks with the offline ASR on the device (sure cases stop at once)
     bargein_duck_gain: float = 0.25   # voice volume while deciding
     bargein_duck_ms: float = 40.0
     ring_max_s: float = 10.0                 # a ringing timer / alarm stops by itself after this (was 60 s)

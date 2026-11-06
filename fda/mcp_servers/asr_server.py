@@ -59,10 +59,16 @@ def build(cfg: Config, engine: str) -> MCPServer:
     mcp = MCPServer("fda-asr", instructions="Speech to text for the FDA voice agent.")
 
     @mcp.tool()
-    def transcribe(audio_b64: str, sample_rate: int = 16000, language: str = "en") -> str:
-        """Transcribe one spoken turn. audio_b64: base64 of 16-bit mono PCM (or a WAV file). Returns the text."""
+    def transcribe(audio_b64: str, sample_rate: int = 16000, language: str = "en", quick: bool = False) -> str:
+        """Transcribe one spoken turn. audio_b64: base64 of 16-bit mono PCM (or a WAV file). Returns the text.
+        quick=true: the offline engine on this machine only (no network round trip, ~20-100 ms): for the early
+        checks while someone talks over the agent."""
         t = time.perf_counter()
         x, rate = decode_audio(audio_b64, sample_rate)
+        if quick:
+            text = eng.transcribe_local(x, rate, language)
+            log.debug("quick %.2f s audio -> %r in %.0f ms", len(x) / rate, text, (time.perf_counter() - t) * 1000)
+            return text
         text = eng.transcribe(x, rate, language)
         log.info("%s %.2f s audio -> %r in %.0f ms", getattr(eng, "last", engine), len(x) / rate, text,
                  (time.perf_counter() - t) * 1000)

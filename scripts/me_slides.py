@@ -303,12 +303,12 @@ def page2(prs):
     rep = pi_report()
     table(sl, 7.3, 4.05, [1.05, 2.4, 0.75, 0.6, 0.62], [
         ["Metric", "Definition", "Target", "Mean", "p95"],
-        ["E2E latency", "end of speech -> audio out", "< 1.0 s", *metric(rep, "E2E")],
-        ["ASR final", "end of speech -> transcript", "< 0.5 s", *metric(rep, "ASR")],
-        ["LLM TTFT", "turn end -> first token", "< 0.5 s", *metric(rep, "LLM")],
-        ["TTS TTFB", "text -> first audio chunk", "< 0.2 s", *metric(rep, "TTS")],
-        ["Barge-in", "speech -> playback stopped", "< 1.0 s", *metric(rep, "Barge")],
-        ["WER", "ASR accuracy on the clip set", "< 10 %", *metric(rep, "WER")],
+        ["E2E latency", "end of speech -> audio out", "< 4.0 s", *metric(rep, "E2E")],
+        ["ASR final", "end of speech -> transcript", "< 0.8 s", *metric(rep, "ASR")],
+        ["LLM TTFT", "turn end -> first token", "< 1.5 s", *metric(rep, "LLM")],
+        ["TTS TTFB", "text -> first audio chunk", "< 0.6 s", *metric(rep, "TTS")],
+        ["Barge-in", "speech -> playback stopped", "< 0.8 s", *metric(rep, "Barge")],
+        ["WER", "ASR accuracy on the clip set", "< 15 %", *metric(rep, "WER")],
     ], row_h=0.235, size=8.5)
     if rep:
         w = rep.get("wer") or {}
