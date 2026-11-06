@@ -574,6 +574,24 @@ def t_video():
         ui.sent.clear(); await a._media_direct("skip ahead 10 seconds")
         check("video: skip 10 s", ui.last("video_cmd").get("seconds"), 10)
         check("video: 'turn the lights up' is not for the video", await a._media_direct("turn the lights up"), False)
+        # the user, 2026-11-06: watching a video on the Interface, "the music" means that video, not the Virtual Home
+        a.cur_tab = "design"
+        for said, want in [("stop the music", "pause"), ("pause the music", "pause"), ("play the music", "resume"),
+                           ("play music", "resume"), ("Elkit, resume the song", "resume")]:
+            ui.sent.clear()
+            handled = await a._media_direct(said)
+            m = ui.last("video_cmd")
+            check(f"watching a video: {said!r} -> the video", (handled, m and m["action"]), (True, want))
+        check("watching a video: 'play some jazz music' is a new request", await a._media_direct("play some jazz music"),
+              False)
+        ui.sent.clear()
+        r = a._music_to_video("music", {"action": "stop"})
+        check("watching a video: the LLM's music tool -> the video", (bool(r and r["ok"]), ui.last("video_cmd")["action"]),
+              (True, "pause"))
+        a.cur_tab = "room"
+        check("in the Virtual Home: 'stop the music' is the room's music", await a._media_direct("stop the music"), False)
+        check("in the Virtual Home: the music tool is the room's", a._music_to_video("music", {"action": "stop"}), None)
+        a.cur_tab = "design"
         a.io.media_playing = True
         await a._intercept("stop")
         check("video: bare 'stop' pauses it", ui.last("video_cmd")["action"], "pause")

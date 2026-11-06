@@ -104,7 +104,8 @@ How you work:
   ask what they want to watch, then play_video. Never create_app a copy of YouTube or any real site or app
   unless they say to build one. While a video is on the screen, pause, play,
   mute, louder, quieter, skip, restart or close mean the video: video_control (not the room volume or music).
-  While a video plays you only hear requests that say your name.
+  "The music" or "the song" then means that video too (pause / play / stop the music: video_control), never the
+  Virtual Home's music tool. While a video plays, other talk needs your name.
 - The person has no mouse or keyboard: everything is by voice. To use the app on the screen (go to a tab, page or
   section, click a button, scroll, type into a field, press a key in a game, read what it says), use app_control.
   If it says not found, choose from the options it lists, or tell them in a few words what is there.
@@ -297,12 +298,16 @@ ROOM_TOOLS = {
 }
 
 
-def room_tools(room: Room, on_use=None) -> list[FunctionSchema]:
+def room_tools(room: Room, on_use=None, redirect=None) -> list[FunctionSchema]:
     out = []
     for name, desc in ROOM_TOOLS.items():
         props = brain.TOOLS[name]
 
         async def handler(params, _name=name):
+            r = redirect(_name, params.arguments or {}) if redirect else None
+            if r is not None:                              # "the music" meant the video on the screen
+                await params.result_callback(r)
+                return
             moved = (on_use() or "") if on_use else ""
             if moved:
                 await asyncio.sleep(TAB_SETTLE_S)          # the Virtual Home shows first, then the change happens
@@ -455,7 +460,7 @@ class Agent:
             # an older tools server (no room tools) or the hub port taken: the agent's own room tools, as before
             logger.warning("room tools served by the agent itself, not over MCP")
             remote.standard_tools[:] = [t for t in remote.standard_tools if t.name not in ROOM_TOOLS]
-            own_room = room_tools(self.room, on_use=lambda: self._move_tab("room"))
+            own_room = room_tools(self.room, on_use=lambda: self._move_tab("room"), redirect=self._music_to_video)
         tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
@@ -543,6 +548,9 @@ class Agent:
                 args = await req.json()
             except ValueError:
                 args = {}
+            v = self._music_to_video(name, args if isinstance(args, dict) else {})
+            if v is not None:                              # "the music" meant the video on the screen
+                return web.json_response(v)
             r = await self.room.execute({"tool": name, **(args if isinstance(args, dict) else {})})
             return web.json_response({"ok": r.get("ok", True), "result": r.get("note", ""),
                                       **({"say": r["speak"]} if r.get("speak") else {})})
@@ -872,6 +880,24 @@ class Agent:
     # ---- Interface sub-tabs ----
     def _active(self) -> dict | None:
         return next((v for v in self.views if v["id"] == self.active_view), None)
+
+    def _music_to_video(self, tool: str, args: dict) -> dict | None:
+        """The LLM called the Virtual Home's music tool while a video is on the screen: the person meant the video
+        ("pause the music" while watching a music video). None: not that case, the room's music as usual."""
+        if tool != "music" or not self._watching_video():
+            return None
+        act = {"play": "resume", "resume": "resume", "pause": "pause", "stop": "pause"}.get(
+            str(args.get("action", "")).lower())
+        if act is None or not self._video_cmd(act):
+            return None
+        logger.info(f"music tool while a video is on the screen -> video {act}")
+        return {"ok": True, "result": f"Done on the video on the screen ({VIDEO_ACTIONS[act]}): the music they meant "
+                                      "is that video, not the Virtual Home's music."}
+
+    def _watching_video(self) -> bool:
+        """A video is the thing on the screen now (Interface tab, its tab active): "the music" means that video."""
+        a = self._active()
+        return self.cur_tab == "design" and bool(a) and a["kind"] == "video"
 
     @property
     def video(self) -> dict | None:
@@ -1251,8 +1277,10 @@ class Agent:
             return True
         t = text.lower()
         w = set(re.findall(r"[a-z]+", t))
-        if w & {"light", "lights", "lamp", "thermostat", "temperature", "music", "song", "timer", "alarm", "heat"}:
+        if w & {"light", "lights", "lamp", "thermostat", "temperature", "timer", "alarm", "heat"}:
             return False                           # "turn the lights up" is for the room, not the video
+        if w & {"music", "song", "songs"} and not self._watching_video():
+            return False                           # no video on the screen: the Virtual Home's music
         nums = [int(n) for n in re.findall(r"[0-9]+", t)]
         up, down = bool(w & {"up", "louder", "higher"}), bool(w & {"down", "quieter", "softer", "lower"})
         action = ("close" if w & {"close", "exit", "quit", "hide"} else
@@ -1266,6 +1294,9 @@ class Agent:
                   "quieter" if down else
                   "resume" if w & {"resume", "unpause", "continue", "play"} else
                   "pause" if w & {"pause", "stop"} else None)
+        if action == "resume" and "play" in w and w - {"play", "the", "music", "song", "video", "it", "again", "please",
+                                                       "now", "some", "a", "this", "that", "resume", "continue"}:
+            return False                           # "play some jazz": something new (the LLM), not "resume"
         level = nums[0] if action == "volume" else None
         seconds = nums[0] if action in ("forward", "back") and nums else None
         if action is not None and action != "close":
