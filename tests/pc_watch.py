@@ -57,8 +57,12 @@ SCENES = [
         (SAY, "Show me other birds."),
         (PAUSE, 2.0),
         (SAY, "Number two.")]),
-    ("change_mind", "Changing my mind mid-sentence", [
-        (SAY, "Make the bird green. Wait, no. I want it to be black instead.")]),
+    ("change_mind", "Changing my mind: green, Elkit takes it, then black instead", [
+        (SAY_ONLY, "Make the bird green."),               # then stop: Elkit takes it and starts to answer
+        (CUT_IN, "Wait, no. I want it to be black instead.", 0.4)]),
+    ("change_mind_pipes", "Changing my mind on the pipes: red, Elkit takes it, then blue instead", [
+        (SAY_ONLY, "Make the pipes red."),
+        (CUT_IN, "Wait, no. I want them to be blue instead.", 0.4)]),
     ("background", "A library background", [
         (SAY, "Change the sky to the night sky.")]),
     ("website", "A website, colours first", [
@@ -243,14 +247,24 @@ def check(name: str, r: dict, w: Watch) -> tuple[bool, str]:
         ready = any(e["kind"] == "app_ready" for e in w.agent.events)
         pop = any(m.get("type") == "choices" and m.get("options") for m in msgs) if name == "website" else True
         return ready and pop, f"built={ready}" + (f" colours offered={pop}" if name == "website" else "")
+    if name == "open_game":
+        return bool(w.agent.app_keys), f"game on screen, its settings: {w.agent.app_keys}"
     if name == "pick":
         shown = [m for m in msgs if m.get("type") == "choices" and m.get("options")]
         changed = [m for m in msgs if m.get("type") == "app_set"]
         return bool(shown) and bool(changed), f"pop-up={bool(shown)} changed={[m['patch'] for m in changed][-1:]}"
-    if name == "change_mind":
+    if name in ("change_mind", "change_mind_pipes"):
+        c1, c2, c2_re = ("green", "black", r"black|#000(?:000)?\b") if name == "change_mind" else \
+            ("red", "blue", r"blue|#00f\b|#0000ff")
         sets = [m["patch"] for m in msgs if m.get("type") == "app_set"]
         last = sets[-1] if sets else {}
-        return any(re.search(r"black|#000(?:000)?\b", str(v)) for v in last.values()), f"last change={last}"
+        heard_1 = any(x[1] == "heard" and re.search(c1, x[2], re.I) and not re.search(c2, x[2], re.I) for x in log)
+        done_2 = any(re.search(c2_re, str(v), re.I) for v in last.values())
+        told = any(re.search(rf"not {c1}|instead of {c1}", x[2], re.I) for x in said)
+        never_1 = not any(re.search(rf"\b{c1}\b", str(v), re.I) for p in sets for v in p.values())
+        return heard_1 and done_2 and told and never_1, (
+            f"{c1} taken on its own={heard_1} then {c2}={done_2} {c1} never shown={never_1} "
+            f"said 'not {c1}'={told} last change={last}")
     if name == "background":
         sets = [m["patch"] for m in msgs if m.get("type") == "app_set"]
         return any("sky-night" in str(v) for p in sets for v in p.values()), f"changes={sets[-1:]}"
@@ -292,6 +306,12 @@ async def main():
             print(f"{n:12} {t}  ({len(s)} steps)")
         return
     scenes = [s for s in SCENES if not args.only or s[0] in args.only]
+    # a run that starts after the game scene (a fresh Elkit, no game on screen) opens the game from before first,
+    # by voice, or "make the bird black" has no bird to change
+    game_scenes = {"pick", "change_mind", "change_mind_pipes", "background", "interrupt_game"}
+    apps_dir = Path(__file__).resolve().parents[1] / "apps"
+    if args.only and "game" not in args.only and game_scenes & set(args.only) and (apps_dir / "flappy-bird.html").exists():
+        scenes.insert(0, ("open_game", "Opening the game from before", [(SAY, "Open the Flappy Bird game.")]))
 
     from pipecat.frames.frames import (BotStartedSpeakingFrame, BotStoppedSpeakingFrame, FunctionCallInProgressFrame,
                                        InterruptionFrame, TranscriptionFrame, TTSTextFrame)

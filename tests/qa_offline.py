@@ -604,14 +604,15 @@ def t_tweak():
         a, ui = make_agent()
         a._open_app_view("/apps/flappy-bird.html", "Flappy Bird")
         a.app_keys = ["bird", "pipe", "sky", "ground", "text", "speed"]
-        for said, key, value in [("flip the bird", "bird", "flip"), ("make the bird face right", "bird", "flip"),
+        for said, key, value in [("flip the bird", "bird", "flip"), ("make the bird face right", "bird", "face right"),
                                  ("the bird is facing the wrong way", "bird", "flip"),
                                  ("make the pipes blue", "pipe", "blue"), ("change the sky to night", "sky", "night")]:
             a.tools_conn.calls.clear()
             handled = await a._direct_tweak(said)
+            await a._flush_held()                # a colour is held a moment ("Green, okay."): made at once here
             got = a.tools_conn.calls[-1][1]["changes"] if a.tools_conn.calls else None
             check(f"tweak: {said!r}", (handled, got), (True, {key: value}))
-            if value == "flip":
+            if value == "flip":          # (the fake server here does not resolve "face right"; t_difficulty does)
                 check(f"tweak: {said!r} tells the display", "|flip" in json.dumps(ui.last("app_set") or {},
                                                                                   ensure_ascii=False), True)
         check("tweak: a question is not a tweak", await a._direct_tweak("what options are there for the bird"), False)
@@ -1403,9 +1404,348 @@ def t_speed():
     check("a short sentence stays whole", split_long("It's 11:08 PM."), ["It's 11:08 PM."])
 
 
+# ---------------------------------------------------------------- no "it's ready" while the build is still running
+def t_ready():
+    from fda.pc.services import McpTTSService
+
+    class Conn:
+        def __init__(self):
+            self.said = []
+
+        async def call(self, name, args, timeout=0):
+            self.said.append(args["text"])
+            return {"audio_b64": "AAAA", "sample_rate": 24000}
+    tts = McpTTSService.__new__(McpTTSService)
+    tts.conn, tts._reply_id, tts._said_in_reply = Conn(), None, 0
+    busy = [True]
+    tts.building = lambda: busy[0]
+
+    async def nothing(*_a, **_k):
+        pass
+    tts.start_tts_usage_metrics = tts.stop_ttfb_metrics = nothing
+
+    async def frames(*_a, **_k):
+        if False:
+            yield None
+    tts._stream_audio_frames_from_iterator = frames
+
+    async def say(t, cid):
+        return [f async for f in tts.run_tts(t, cid)]
+    for t, cid in (("The game is building now.", "a"), ("It’s ready—enjoy the Flappy Bird game.", "a"),
+                   ("Your 10 second timer is done.", "b"), ("I'll let you know when it's ready.", "d"),
+                   ("The game is ready.", "e"),
+                   # live 2026-11-06: said 10 s before the game was ready
+                   ("The game is coming up.", "h"), ("Ready!", "h"), ("Try tapping to make the bird fly.", "h"),
+                   ("Press space to jump.", "i"), ("All set.", "j")):
+        asyncio.run(say(t, cid))
+    check("while building: 'building now' / 'coming up' / 'I'll let you know when it's ready' said; "
+          "'it's ready', 'Ready!', 'Try tapping…' not; timer is",
+          tts.conn.said, ["The game is building now.", "Your 10 second timer is done.",
+                          "I'll let you know when it's ready.", "The game is coming up."])
+    # what is not said must not show in the caption / history either: pipecat calls run_tts, then
+    # _push_spoken_text with the original text; only the sentences actually said may get a spoken-text frame
+    from pipecat.services.tts_service import TTSService
+    pushed, orig = [], TTSService._push_spoken_text
+
+    async def rec(self, src, text, cid, app):
+        pushed.append(text)
+    TTSService._push_spoken_text = rec
+    try:
+        async def sentence(t, cid):
+            await say(t, cid)
+            await tts._push_spoken_text(None, t, cid, True)
+        for t, cid in (("Building it now.", "f"), ("It's ready, enjoy!", "f"), ("(silent)", "g"), ("Okay.", "g")):
+            asyncio.run(sentence(t, cid))
+    finally:
+        TTSService._push_spoken_text = orig
+    check("an unsaid sentence ('It's ready' while building, '(silent)') gets no caption / history text",
+          pushed, ["Building it now.", "Okay."])
+    busy[0] = False
+    asyncio.run(say("Flappy Bird is ready, it's on the Flappy game tab.", "c"))
+    check("after the build: 'is ready' is said", tts.conn.said[-1], "Flappy Bird is ready, it's on the Flappy game tab.")
+    from fda.mcp_servers import tools_server as T
+    import inspect
+    check("create_app's reply says it is NOT ready yet", "It is NOT ready yet" in inspect.getsource(T), True)
+    from fda.pc import agent as A
+    src = inspect.getsource(A)
+    check("the agent gives the voice its build state (tts.building) and marks build starts",
+          ("tts.building = " in src, "self._mark_build(fs)" in src, "            tts,\n" in src), (True, True, True))
+    # a game that drew its bird as a colour ("#FFCC00" = a yellow square) gets the library bird
+    check("bird as a colour -> the library bird; pipes / sky stay colours",
+          T.sprite_fixes({"bird": "#FFCC00", "pipe": "#3a3", "sky": "#7cf", "speed": 3, "fish": "🐟"}),
+          {"bird": "/assets/sprites/bird.svg"})
+    check("the builder is told: creatures are pictures, never a plain colour", "never a plain colour" in T.art_rule(), True)
+    # live 2026-11-06: "game over even when the bird is not touching the pipe": the collision used the bird's
+    # centre, the picture was drawn with its corner there (22 px lower / to the right)
+    g = ('if (bird.y - bird.r < top) gameOver();\nFDA.draw(ctx, "bird", bird.x, bird.y, bird.r * 2, bird.r * 2);\n'
+         'FDA.draw(ctx, "coin", coin.x, coin.y, coin.r * 2, coin.r * 2);')
+    fixed, n = T.centre_draw_fix(g)
+    check("a centre-kept bird drawn from its corner is drawn around its centre; a corner-kept coin stays",
+          (n, 'FDA.draw(ctx, "bird", bird.x - bird.r, bird.y - bird.r, bird.r * 2, bird.r * 2)' in fixed,
+           'FDA.draw(ctx, "coin", coin.x, coin.y, coin.r * 2, coin.r * 2)' in fixed), (1, True, True))
+    check("an already-correct draw is left alone", T.centre_draw_fix(fixed), (fixed, 0))
+    check("the builder is told: FDA.draw is the top-left corner; collide with the box you draw",
+          ("TOP-LEFT corner" in T.APP_SYSTEM, "you\n  SEE touches" in T.APP_SYSTEM or "you SEE touches" in T.APP_SYSTEM),
+          (True, True))
+
+
+def t_difficulty():
+    """'Make it easier' / 'set it to hard' / 'pipes to cactus' while a game runs: instant, no rebuild."""
+    from fda.pc import agent as A
+    from fda.mcp_servers import live as L, tools_server as T
+    got = {s: (lambda m: next((g for g in m.groups() if g), None) if m else None)(A._DIFFICULTY.match(s))
+           for s in ("Make it easier.", "make the game a bit harder", "Set it to hard.", "Easy mode please.",
+                     "It's too hard!", "change the difficulty to easy", "make the bird red", "make it hard to read",
+                     "set a timer to 5 minutes")}
+    check("difficulty phrases are heard; other requests are not",
+          list(got.values()), ["easier", "harder", "hard", "Easy", "too hard", "easy", None, None, None])
+    rv = lambda v, cur: L.resolve_value(v, cur, None)
+    check("difficulty values: easier from normal = easy, harder = hard, 'hard' = 3, already easy = no change",
+          (rv("easier", 2)[0], rv("harder", 2)[0], rv("hard", 1)[0], rv("easier", 1)), (1, 3, 3, (None, "it is already on easy")))
+    check("speed still works the old way", rv("faster", 2)[0], 3.0)
+    check("the builder gives every game a difficulty setting that changes speed, gaps and hitbox",
+          ("difficulty: 2" in T.APP_SYSTEM, "C.difficulty" in T.APP_SYSTEM, "hitbox is" in T.APP_SYSTEM), (True, True, True))
+    m = A._TWEAK.match("Change the pipes to cactus.")
+    check("'change the pipes to cactus' -> the pipe setting becomes a cactus",
+          (L.match_key(m.group(1), ["bird", "pipe", "sky"]), rv("cactus", "#228B22")[0]), ("pipe", "🌵"))
+
+    class Conn:
+        def __init__(self, ok=True, msg=""):
+            self.calls, self.ok, self.msg = [], ok, msg
+
+        async def call(self, name, args, timeout=0):
+            self.calls.append(args["changes"])
+            if not self.ok:
+                return {"ok": False, "message": self.msg}
+            ch = args["changes"]
+            return {"ok": True, "patch": {k: (1 if v in ("easier", "easy") else 3) if k == "difficulty" else v
+                                          for k, v in ch.items()}, "changed": str(ch)}
+
+    class Ctx:
+        def __init__(self):
+            self.msgs = []
+
+        def add_message(self, m):
+            self.msgs.append(m)
+
+    def run(keys, said, conn):
+        a = A.Agent.__new__(A.Agent)
+        a.app_keys, a.tools_conn, a.context, spoken = keys, conn, Ctx(), []
+
+        async def nothing(*_a, **_k):
+            return ""
+
+        async def announce(t):
+            spoken.append(t)
+        a._go_first, a._app_tab, a._app_set, a._announce = nothing, (lambda *x: "design"), (lambda r: r), announce
+        done = asyncio.run(a._difficulty_direct(said))
+        return done, conn.calls, spoken
+    check("new game: 'make it easier' -> difficulty, said 'on easy'",
+          run(["bird", "pipe", "speed", "gap", "difficulty"], "Make it easier.", Conn()),
+          (True, [{"difficulty": "easier"}], ["Done, it's on easy now."]))
+    check("older game without difficulty: easier = slower + wider gaps",
+          run(["bird", "pipe", "speed", "gap"], "It's too hard!", Conn()),
+          (True, [{"speed": "slower", "gap": "bigger"}], ["Done, it's easier now: slower, with more room."]))
+    check("already easiest: says so",
+          run(["difficulty"], "make it easier", Conn(False, "I couldn't change that. difficulty: it is already on easy")),
+          (True, [{"difficulty": "easier"}], ["It's already on easy."]))
+    check("no game settings to change: left to the LLM", run(["title", "color"], "make it easier", Conn())[0], False)
+    # found by going through every live edit (2026-11-06): "make the bird bigger" turned the bird into the word
+    # "bigger"; "face right" flipped a bird that already faced right; "the pipes is purple"
+    check("'bigger' / 'jump higher' on a picture or colour: refused (no size setting), never the word itself",
+          (rv("bigger", "🐤|flip")[0], rv("jump higher", "🐤")[0], rv("a lot wider", "#228B22")[0], rv("bigger", "#fff")[0]),
+          (None, None, None, None))
+    st = {"bird": "🐤|flip", "pipe": "#228B22", "size": 44, "gravity": 0.5, "jump": 7.2, "pipeWidth": 64}
+    check("'bird bigger' -> size, 'jump higher' -> jump, 'heavier' -> gravity, 'pipes wider' -> pipeWidth",
+          (L.number_key_for("bird", "bigger", st), L.number_key_for("bird", "jump higher", st),
+           L.number_key_for("bird", "heavier", st), L.number_key_for("pipe", "wider", st),
+           L.number_key_for("bird", "bigger", {"bird": "x"})), ("size", "jump", "gravity", "pipeWidth", None))
+    check("numbers: bigger 44 -> 61.6, higher 7.2 -> 9.36, more gravity 0.5 -> 0.65",
+          (rv("bigger", 44)[0], rv("higher", 7.2)[0], rv("more", 0.5)[0]), (61.6, 9.36, 0.65))
+    check("'face right' when it faces right: no change; 'face left': flipped back",
+          (rv("face right", "🐤|flip"), rv("face left", "🐤|flip")[0], rv("face right", "🐤")[0]),
+          ((None, "it already faces right"), "🐤", "🐤|flip"))
+
+    def tweak(keys, said, reply):
+        class C2(Conn):
+            async def call(self, name, args, timeout=0):
+                self.calls.append(args["changes"])
+                return reply(args["changes"])
+        a = A.Agent.__new__(A.Agent)
+        a.app_keys, a.tools_conn, a.context, a.cfg, spoken = keys, C2(), Ctx(), type("c", (), {"name": "Elkit"})(), []
+
+        async def nothing(*_a, **_k):
+            return ""
+
+        async def announce(t):
+            spoken.append(t)
+        a._go_first, a._app_tab, a._app_set, a._announce = nothing, (lambda *x: "design"), (lambda r: r), announce
+        return asyncio.run(a._direct_tweak(said)), spoken
+    ok = lambda ch: {"ok": True, "patch": ch, "changed": str(ch)}
+    check("'the pipes are purple' (plural)", tweak(["bird", "pipe"], "Change the pipes to purple.", ok),
+          (True, ["Done, the pipes are purple now."]))
+    check("'make the bird face right' when it already does: says so, no flip",
+          tweak(["bird", "pipe"], "Make the bird face right.",
+                lambda ch: {"ok": False, "message": "I couldn't change that. bird: it already faces right"}),
+          (True, ["The bird already faces right."]))
+    check("'make the bird bigger' with no size setting: left to the LLM (edit_app), nothing said",
+          tweak(["bird", "pipe"], "Make the bird bigger.",
+                lambda ch: {"ok": False, "message": "I couldn't change that. bird: its size is not a live setting"}),
+          (False, []))
+    check("grammar: 'the bird jumps higher', 'the ship shoots faster', 'the cactus is rocks'",
+          (tweak(["bird", "pipe", "jump"], "Make the bird jump higher.", ok)[1],
+           tweak(["ship", "enemy", "fireRate"], "Make it shoot faster.", ok)[1],
+           tweak(["dino", "cactus"], "Change the cactus to rocks.", ok)[1]),
+          (["Done, the bird jumps higher now."], ["Done, the ship shoots faster now."], ["Done, the cactus is rocks now."]))
+    # live 2026-11-06: "green... wait, no, black": black only, and Elkit says "not green" (user's choice)
+    check("change of mind: only black is done, and Elkit says 'not green'",
+          tweak(["bird", "pipe"], "Make the bird green. Wait, no. I want it to be black instead.", ok),
+          (True, ["Okay, not green: black instead. The bird is black now."]))
+    check("change of mind: 'the pipes red, actually blue'", tweak(["bird", "pipe"], "Make the pipes red, actually blue.", ok),
+          (True, ["Okay, not red: blue instead. The pipes are blue now."]))
+    def two(first, second, keys=("bird", "pipe")):
+        a = A.Agent.__new__(A.Agent)
+        calls, spoken = [], []
+
+        class C3:
+            async def call(self, name, args, timeout=0):
+                calls.append(args["changes"])
+                return ok(args["changes"])
+        a.app_keys, a.tools_conn, a.context, a.cfg = list(keys), C3(), Ctx(), type("c", (), {"name": "Elkit"})()
+
+        async def nothing(*_a, **_k):
+            return ""
+
+        async def announce(t):
+            spoken.append(t)
+        a._go_first, a._app_tab, a._app_set, a._announce = nothing, (lambda *x: "design"), (lambda r: r), announce
+
+        async def go():
+            return [await a._direct_tweak(first), await a._direct_tweak(second)]
+        return asyncio.run(go()), calls, spoken[-1:]
+    # the user's scene: green, a stop (Elkit takes it), then "wait, no... black instead" on its own
+    check("'green' then, on its own, 'wait, no, black instead': black, and 'not green'",
+          two("Make the bird green.", "Wait, no. I want it to be black instead."),
+          ([True, True], [{"bird": "green"}, {"bird": "black"}], ["Okay, not green: black instead. The bird is black now."]))
+    check("after a change, 'actually, what time is it?' is a question, not a correction",
+          two("Make the bird green.", "Actually, what time is it?")[0], [True, False])
+    check("after a change, 'no, I meant the pipes' goes to the LLM (which thing, not a value)",
+          two("Make the bird green.", "No, I meant the pipes.")[0], [True, False])
+
+    # live 2026-11-06: green showed at once, before "wait, no, black" came. Now a change is held a moment
+    # ("Green, okay."); talking meanwhile keeps it held until the words come; "wait, no..." drops it
+    def held(steps):
+        a = A.Agent.__new__(A.Agent)
+        calls, spoken = [], []
+
+        class C4:
+            async def call(self, name, args, timeout=0):
+                calls.append(args["changes"])
+                return ok(args["changes"])
+        a.app_keys, a.tools_conn, a.context, a.cfg = ["bird", "pipe"], C4(), Ctx(), type("c", (), {"name": "Elkit"})()
+        a.tweak_hold, a._held, a.io = 0.2, None, type("io", (), {"user_speaking": False})()
+
+        async def nothing(*_a, **_k):
+            return ""
+
+        async def announce(t):
+            spoken.append(t)
+        a._go_first, a._app_tab, a._app_set, a._announce = nothing, (lambda *x: "design"), (lambda r: r), announce
+
+        async def go():
+            seen = []
+            for kind, x in steps:
+                if kind == "say":
+                    await a._direct_tweak(x)
+                elif kind == "voice":
+                    a.io.user_speaking = x
+                elif kind == "bot":
+                    a.io.bot_speaking = x
+                    if not x:
+                        a.io.t_bot_stopped = time.monotonic()
+                elif kind == "wait":
+                    await asyncio.sleep(x)
+                elif kind == "flush":
+                    await a._flush_held()
+                seen.append(list(calls))
+            return seen
+        seen = asyncio.run(go())
+        return seen, spoken
+    check("held: 'Green, okay.' at once, green only after the hold",
+          held([("say", "Make the bird green."), ("wait", 0.6)]),
+          ([[], [{"bird": "green"}]], ["Green, okay."]))
+    check("held: while 'Green, okay.' is being said and a second after, green waits",
+          held([("say", "Make the bird green."), ("bot", True), ("wait", 0.6), ("bot", False), ("wait", 0.1),
+                ("wait", 0.4)]),
+          ([[], [], [], [], [], [{"bird": "green"}]], ["Green, okay."]))
+    check("held: talking during the hold, then 'wait, no, black instead': green is never made",
+          held([("say", "Make the bird green."), ("voice", True), ("wait", 0.5), ("voice", False),
+                ("say", "Wait, no. I want it to be black instead."), ("wait", 0.4)]),
+          ([[], [], [], [], [{"bird": "black"}], [{"bird": "black"}]],
+           ["Green, okay.", "Okay, not green: black instead. The bird is black now."]))
+    check("held: another request in the hold makes the held change first",
+          held([("say", "Make the bird green."), ("flush", None)]), ([[], [{"bird": "green"}]], ["Green, okay."]))
+    check("held: 'make the bird face right' is not held (it may say 'already faces right')",
+          held([("say", "Make the bird face right.")]), ([[{"bird": "face right"}]], ["Done, the bird faces right now."]))
+    # live 2026-11-06: "open the Flappy Bird game" opened an old flappy-bird-game.html, not the one just made
+    with tempfile.TemporaryDirectory() as d:
+        D = Path(d)
+        for stem, upd in (("flappy-bird-game", 100.0), ("flappy-bird", 200.0), ("neon-flappy", 50.0)):
+            (D / f"{stem}.html").write_text("<html></html>", encoding="utf-8")
+            (D / f"{stem}.json").write_text(json.dumps({"title": "Neon Flappy" if "neon" in stem else "Flappy Bird",
+                                                        "updated": upd}), encoding="utf-8")
+        ap = T.Apps.__new__(T.Apps)
+        ap.dir, ap.current = D, None
+        check("'Flappy Bird Game' opens the newest Flappy Bird; 'neon flappy' its own",
+              (ap.find("Flappy Bird Game").stem, ap.find("flappy bird").stem, ap.find("neon flappy").stem),
+              ("flappy-bird", "flappy-bird", "neon-flappy"))
+    check("'make the sky blue, no clouds' is not a change of mind (left to the LLM)",
+          tweak(["bird", "sky"], "Make the sky blue, no clouds.", ok), (False, []))
+    check("the builder is told: C.lives is the start, the game counts down its own lives; tests start fresh",
+          ("never change C.lives" in T.APP_SYSTEM, "reset() is called" in T.APP_SYSTEM), (True, True))
+    # trial 2026-11-06: tests ran one after another in the same game (a blink, a turned snake, a game over)
+    if shutil.which("node"):
+        g = ('<!DOCTYPE html><html><head><title>t</title></head><body><canvas id="c"></canvas><script>'
+             'const cv = document.getElementById("c"), ctx = cv.getContext("2d");'
+             'let state = "ready", score = 0, used = false;'
+             'function reset() { score = 0; used = false; state = "play"; }'
+             'function update() { }'
+             'function loop() { if (state === "play") update(); requestAnimationFrame(loop); } loop();'
+             '</script><script type="application/json" id="fda-tests">['
+             '{"name": "first", "setup": [], "before": "used", "do": ["run used = true"], "expect": "used === true"},'
+             '{"name": "fresh", "setup": [], "before": "used", "do": [], "expect": "used === false"}'
+             ']</script></body></html>')
+        res = L.run_check(g) or {}
+        check("behaviour tests: each starts from a fresh reset() game",
+              [t.get("ok") for t in res.get("tests", [])], [True, True])
+    # trial 2: a shooter that only failed a test was "repaired" into a syntax error and saved broken; a catcher's
+    # tests lacked one "]" and the good game was reported as broken
+    check("build problems ranked: none < 1 failing test < 2 failing tests < does not run",
+          (T.problem_rank(None), T.problem_rank("Behaviour test failed: 'a': expected x"),
+           T.problem_rank("Behaviour test failed: 'a': expected x; 'b': expected y"), T.problem_rank("Syntax error: y"),
+           T.problem_rank("When it runs: TypeError: z"), T.problem_rank("The game never draws bullet: ...")),
+          (0.0, 1.1, 1.2, 3.0, 3.0, 2.0))
+    # trial 4: a counting loop ("spawn67: 0.8, spawn68: 0.8, ...") was not seen as the model repeating itself
+    loop = "const C = {" + "".join(f"spawn{i}: 0.8, " for i in range(300))
+    check("a counting loop is caught as the model repeating itself; a normal game is not",
+          (T._looping(loop), any(T._looping(L.LIVE_JS[:i]) for i in range(1000, len(L.LIVE_JS), 250))), (True, False))
+    import inspect
+    src = inspect.getsource(T.Apps._build)
+    check("the build keeps the best version when a repair made it worse",
+          ("problem_rank(err) <= best[0]" in src, "html = best[1]" in src, "round_ == 2" in src), (True, True, True))
+    bad = ('<script type="application/json" id="fda-tests">[\n  {"name": "a", "setup": ["tap", "run x = 1", '
+           '"before": "score", "do": ["wait 3"], "expect": "score > before"},\n]</script>')
+    fixed_t = L.tests_of(bad)
+    check("tests with a missing ']' and a trailing comma are repaired",
+          json.loads(fixed_t)[0]["setup"] if fixed_t and fixed_t.startswith("[") else fixed_t, ["tap", "run x = 1"])
+    check("the builder: lists get their start value at the top", "draw() runs on the very first frame" in T.APP_SYSTEM, True)
+    check("the builder adds size / gravity / jump number settings",
+          ("size: 44, gravity: 0.5, jump: 7" in T.APP_SYSTEM, "its hitbox follow" in T.APP_SYSTEM), (True, True))
+
+
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
 
 
 def main():

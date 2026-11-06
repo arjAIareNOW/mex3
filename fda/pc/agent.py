@@ -73,11 +73,14 @@ How you work:
   (get_weather, get_time); the room on the screen: lights, thermostat, timers, alarms, reminders, music and volume.
 - Building: when they ask for an app, a website or a game and the idea is clear enough, start at once with create_app
   and a rich, specific description (purpose, sections or gameplay, layout, colours, fonts, mood, controls). If it is
-  very vague, ask one quick question, or suggest a direction and start. While it builds you can keep talking; you
-  are told when it is ready, then say one short thing about it.
+  very vague, ask one quick question, or suggest a direction and start. While it builds, describe in two or three
+  short sentences what you are building (what is in it, what to do or avoid); never say it is ready before you are
+  told it is ready, then say one short thing about it.
 - Remember what was built and what they liked or disliked, and build on it: "it", "that", "the button", "make it
   pop" mean the app on screen. Look changes to a game (colours, swap the bird for a butterfly, a photo for the
-  pipes, faster): tweak_app. Any other change, a new section or feature: edit_app with a clear instruction.
+  pipes, a cactus for the pipes, faster, easier / harder = its difficulty setting): tweak_app. When they change
+  their mind in the same breath ("green... wait, no, black"), do only the last one and say so: "Okay, not green:
+  black instead." Any other change, a new section or feature: edit_app with a clear instruction.
   "Undo that": undo_app_change. "The earlier version": restore_app_version (app_history lists them).
   "Show me the snake game": open_app.
 - Looking things up: for prices, flights, schedules, news, people or anything current or that you are not sure of,
@@ -127,6 +130,30 @@ _TWEAK = re.compile(r"^\W*(?:(?:can|could) you\s+|please\s+|now\s+|and\s+|okay,?
 
 _TWEAK_SHORT = re.compile(r"^\W*(?:(?:can|could) you\s+|please\s+|now\s+|okay,?\s+)*(?:make|turn|paint|colou?r)\s+"
                           r"(?:the\s+|my\s+|(?=it\s|him\s|her\s))([a-z]+)\s+((?:a (?:lot|bit|little) )?[a-z]+(?:\s[a-z]+)?)\W*$", re.I)
+
+# "make the bird green. wait, no. black instead" / "the pipes red, actually blue" / "make it green, sorry, black":
+# a correction needs a cue (wait / actually / sorry / instead), so "make the sky blue, no clouds" is not one
+_CORRECTION = re.compile(r"^(?P<first>.+?)[.,!]?\s+(?:(?:wait|hold on)[.,!]?\s+(?:no|nope)|actually|sorry|no wait|"
+                         r"(?:no|nope)(?=[.,!]?\s+.+\binstead\b))[.,!]?\s+(?:no[.,!]?\s+)?(?P<second>.+)$", re.I)
+
+_CORRECTION_ALONE = re.compile(r"^(?:(?:wait|hold on)[.,!]?\s+)?(?:no[.,!]?\s+wait|no|nope|actually|sorry|i meant)[.,!]?\s+"
+                               r"(?:no[.,!]?\s+)?(?P<second>.+)$", re.I)
+
+_LIVES = re.compile(r"^\W*(?:(?:can|could) you\s+|please\s+|okay,?\s+)*(?:give me|i want|let me have|set (?:it to|the lives to)"
+                    r"|make it|change (?:it|the lives) to)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
+                    r"\s+(?:lives|life|tries|chances)(?:\s+please)?\W*$", re.I)
+
+# "make it easier", "make the game a bit harder", "set it to hard", "change the difficulty to easy", "easy mode",
+# "it's too hard", "difficulty hard" -> one of the groups holds what they want
+_DIFFICULTY = re.compile(
+    r"^\W*(?:(?:can|could) you\s+|please\s+|now\s+|okay,?\s+|let'?s\s+)*(?:"
+    r"(?:make|set|put|change|turn|switch)\s+(?:it|this|the game|the difficulty|the level|difficulty)?\s*"
+    r"(?:(?:a )?(?:bit|little|lot)\s+)?(?:to\s+|on\s+|into\s+)?(easier|harder|more difficult|less difficult|"
+    r"more challenging|easy|normal|medium|hard)(?:\s+mode|\s+level|\s+difficulty)?"
+    r"|(easy|normal|medium|hard)\s+(?:mode|level|difficulty)"
+    r"|difficulty\s+(?:to\s+|on\s+)?(easy|normal|medium|hard)"
+    r"|(?:it'?s|it is|this is|the game is|that'?s)\s+(too hard|too difficult|too easy)"
+    r")(?:\s+please)?\W*$", re.I)
 
 # MCP tools the agent gets (the server has more; `wikipedia` is left out: general knowledge is answered directly,
 # which is ~5-8 s faster with a local model; current facts still go through web_search)
@@ -246,6 +273,10 @@ class Agent:
         self.app_url, self.app_keys = "", []          # the app on screen and its live settings
         self.views: list[dict] = []                   # Interface sub-tabs (apps, videos, photos, links)
         self.cur_tab = "design"                        # the tab on screen: design (Interface) / room / office
+        self._building, self._build_t0 = False, 0.0    # an app build running (for the premature "ready" filter)
+        # a voice change to a game waits this long before it is made, so "green... wait, no, black" never shows green
+        self.tweak_hold = 1.0          # (after "Green, okay." is said)
+        self._held: dict | None = None
         self.active_view: int | None = None
         self._view_n = 0
         self.context: LLMContext | None = None
@@ -352,6 +383,8 @@ class Agent:
         for fs in remote.standard_tools:
             if fs.name in picks:
                 self._tab_first(fs, picks[fs.name])
+            if fs.name in ("create_app", "edit_app"):
+                self._mark_build(fs)
         self._tab_first(nav, lambda a: self._app_tab())
         self._tab_first(video, lambda a: None if a.get("action") == "close" else "design")
         tools = ToolsSchema(standard_tools=[*remote.standard_tools,
@@ -379,6 +412,10 @@ class Agent:
         self.guard.bot_text = lambda: self.nfm.reply_full
         self.guard.echo_text = lambda: self.nfm.recent_text()      # its voice can come back late (Pi + PipeWire)
         self.clock = TurnClock()          # 'turn timing (ms)' line in the log, per turn
+        tts = McpTTSService(self.tts_conn)
+        # while a build runs, a spoken "it's ready / enjoy" is dropped (the LLM jumps ahead); app_status is polled
+        # every 1.5 s, so the first seconds after create_app / edit_app count as building too
+        tts.building = lambda: self._building or time.monotonic() - self._build_t0 < 6.0
         pipeline = Pipeline([
             self.transport.input(),
             VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(confidence=0.6, start_secs=0.15,
@@ -396,7 +433,7 @@ class Agent:
             Mark(self.clock, {LLMTextFrame: "first_word", FunctionCallsStartedFrame: "first_word"}),
             ToolFiller(slow=SLOW_TOOLS),
             self.nfm,
-            McpTTSService(self.tts_conn),
+            tts,
             Mark(self.clock, {TTSAudioRawFrame: "first_audio"}),
             SpokenTap(self.nfm, self.ui),
             self.transport.output(),
@@ -453,6 +490,17 @@ class Agent:
                 await self._announce(moved)
             await asyncio.sleep(TAB_SETTLE_S)
         return moved
+
+    def _mark_build(self, fs: FunctionSchema) -> FunctionSchema:
+        """create_app / edit_app: note when a build starts (before app_status shows it)."""
+        inner = fs.handler
+
+        async def handler(params):
+            self._build_t0 = time.monotonic()
+            return await inner(params)
+        if inner is not None:
+            fs._handler = handler
+        return fs
 
     def _tab_first(self, fs: FunctionSchema, pick) -> FunctionSchema:
         """Wrap a tool: go to the tab `pick(arguments)` names before it runs; the result tells the LLM to say so."""
@@ -1134,7 +1182,7 @@ class Agent:
             d = json.loads(output) if isinstance(output, str) else output
             if isinstance(d, dict) and d.get("ok") and d.get("patch") and self.ui:
                 self.app_url = d.get("url") or self.app_url
-                if any("|flip" in str(x) for x in d["patch"].values()):
+                if d.get("reload") or any("|flip" in str(x) for x in d["patch"].values()):
                     # an app built before flipping existed has the old runtime in the open page: load it again
                     base = (d.get("url") or self.app_url).split("?")[0]
                     v = next((x for x in self.views if x["kind"] == "app" and x.get("url") == base), None)
@@ -1169,6 +1217,11 @@ class Agent:
             # someone talks to it while a timer / alarm rings: they noticed it, so it stops; then the request
             logger.info(f"ringing stopped by a request: {text!r}")
             self.room.stop_ringing()
+        held = getattr(self, "_held", None)
+        if held and not held["task"].done():
+            said = strip_name(text, self.cfg.name).strip()
+            if not (_CORRECTION_ALONE.match(said) or _CORRECTION.match(said)):
+                await self._flush_held()           # a new request, not "wait, no...": the held change is made first
         return (await self._continue(text) or await self._choice_direct(text) or await self._view_direct(text)
                 or await self._media_direct(text)
                 or await self._nav_direct(text) or await self._room_direct(text) or await self._quick(text)
@@ -1241,6 +1294,76 @@ class Agent:
                 run_llm=True)])
         return True
 
+    async def _difficulty_direct(self, said: str) -> bool:
+        """'Make it easier', 'set it to hard', 'easy mode', 'it's too hard' while a game is on screen: the game's
+        difficulty setting (1 easy, 2 normal, 3 hard) at once. A game built before it had that setting gets
+        slower + wider gaps (easier) or faster + narrower gaps (harder)."""
+        lives = _LIVES.match(said.strip())
+        key = next((k for k in self.app_keys if k.lower() == "lives"), None)
+        if lives and key:                               # "give me three lives" / "five lives please"
+            r = await self.tools_conn.call("tweak_app", {"changes": {key: lives.group(1)}}, timeout=30)
+            if not (isinstance(r, dict) and r.get("ok")):
+                return False
+            self._app_set(r)
+            n = (r.get("patch") or {}).get(key)
+            msg = f"Done, you have {n if n is None else int(float(n))} {'life' if n == 1 else 'lives'} now."
+            self.context.add_message({"role": "user", "content": said})
+            self.context.add_message({"role": "assistant", "content": msg})
+            await self._announce(msg)
+            return True
+        m = _DIFFICULTY.match(said.strip())
+        if not m:
+            return False
+        want = next(g for g in m.groups() if g).lower()
+        if want in ("more difficult", "more challenging", "too easy"):
+            want = "harder"
+        elif want in ("less difficult", "less hard", "too hard", "too difficult"):
+            want = "easier"
+        elif want == "medium":
+            want = "normal"
+        key = next((k for k in self.app_keys if k.lower() == "difficulty"), None)
+        if key:
+            changes = {key: want}
+        else:                                           # an older game: speed and gaps instead
+            easier = want in ("easier", "easy")
+            changes = {}
+            if want == "normal":
+                return False                            # no level to go back to: let the LLM say so
+            if "speed" in self.app_keys:
+                changes["speed"] = "slower" if easier else "faster"
+            gap = next((k for k in self.app_keys if k.lower() in ("gap", "gapsize", "gap_size", "space")), None)
+            if gap:
+                changes[gap] = "bigger" if easier else "smaller"
+            if not changes:
+                return False
+        await self._go_first(self._app_tab())
+        logger.info(f"difficulty by voice: {changes}")
+        try:
+            r = await self.tools_conn.call("tweak_app", {"changes": changes}, timeout=30)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"tweak_app: {e}")
+            return False
+        if not isinstance(r, dict):
+            return False
+        if not r.get("ok"):
+            already = re.search(r"already on (\w+)", str(r.get("message", "")))
+            if not already:
+                return False
+            msg = f"It's already on {already.group(1)}."
+        else:
+            self._app_set(r)
+            lvl = (r.get("patch") or {}).get(key) if key else None
+            if lvl is not None:
+                from ..mcp_servers.live import LEVEL_NAMES
+                msg = f"Done, it's on {LEVEL_NAMES.get(round(float(lvl)), 'normal')} now."
+            else:
+                msg = ("Done, it's easier now: slower, with more room." if want in ("easier", "easy")
+                       else "Done, it's harder now: faster, with less room.")
+        self.context.add_message({"role": "user", "content": said})
+        self.context.add_message({"role": "assistant", "content": msg})
+        await self._announce(msg)
+        return True
+
     async def _direct_tweak(self, text: str) -> bool:
         """'Change the bird to a butterfly' while a game is on screen: change it at once, without the LLM
         (a small model routes this badly). Returns True when handled."""
@@ -1248,6 +1371,8 @@ class Agent:
             return False
         from ..mcp_servers import live
         said = strip_name(text, self.cfg.name)
+        if await self._difficulty_direct(said) or await self._correction_direct(said, text):
+            return True
         mf = re.match(r"^(?:please |can you |could you )?(?:flip|mirror|reverse|turn)(?: around)? (?:the )?(\w+)"
                       r"(?: around| over)?\W*$|^(?:make|have|let) (?:the )?(\w+) (?:face|look|point|go)(?: to)?(?: the)? "
                       r"(?:right|left|other way|forward|backward)s?\W*$|^(?:the )?(\w+) (?:is|are) facing the wrong way\W*$",
@@ -1257,10 +1382,59 @@ class Agent:
             return False
         if mf:
             what, value = next(g for g in mf.groups() if g), "flip"
+            side = re.search(r"\b(right|left|forwards?|backwards?)\b", said, re.I)
+            if side:                                 # "make the bird face right": that way, not a toggle
+                value = f"face {side.group(1).lower()}"
         else:
             what, value = m.group(1), m.group(2).strip(" .!?")
+        return await self._apply_tweak(what, value, text)
+
+    async def _correction_direct(self, said: str, text: str) -> bool:
+        """'Make the bird green. Wait, no. I want it to be black instead.': only the last one is done (green never
+        shows), and Elkit says so: "Okay, not green: black instead. The bird is black now." """
+        c = _CORRECTION.match(said.strip())
+        first = c and (_TWEAK.match(c["first"].strip()) or _TWEAK_SHORT.match(c["first"].strip()))
+        if first:
+            what1, v1 = first.group(1), first.group(2).strip(" .!?")
+            sec = c["second"]
+        else:
+            # said on its own, just after a change ("Make the bird green." ... "Wait, no. Black instead."):
+            # it corrects that change
+            alone = _CORRECTION_ALONE.match(said.strip())
+            last = getattr(self, "_last_tweak", None)
+            if not (alone and last and time.monotonic() - last[2] < 60):
+                return False
+            # "Actually, what time is it?" is a new question, not a correction; a plain "No, black." needs a
+            # clear cue (wait no / I meant / instead)
+            if re.match(r"(?:what|who|where|when|why|how|is|are|can|could|do|does|will|tell)\b", alone["second"], re.I) \
+                    or said.strip().endswith("?") or not re.search(r"\binstead\b|^\W*(?:wait|hold on)\W+no|^\W*no\W+wait|"
+                                                                     r"\bi meant\b", said, re.I):
+                return False
+            what1, v1, sec = last[0], last[1], alone["second"]
+        sec = sec.strip(" .!?")
+        m2 = _TWEAK.match(sec) or _TWEAK_SHORT.match(sec)
+        if m2:
+            what2, v2 = m2.group(1), m2.group(2).strip(" .!?")
+        else:
+            what2 = "it"
+            v2 = re.sub(r"^(?:i want (?:it|that|them)(?: to be)?|i meant|i'd like (?:it )?|make (?:it|that|them)|"
+                        r"let'?s (?:do|go with|have)|go with|it should be|(?:it'?s|that'?s))\s+", "", sec, flags=re.I)
+        v2 = re.sub(r"\s+instead(?: of \w+)?$", "", v2, flags=re.I).strip(" .!?")
+        if what2.lower() in ("it", "that", "this", "them"):
+            what2 = what1
+        if not v2 or len(v2.split()) > 4:
+            return False
+        if re.sub(r"^(?:the|my)\s+", "", v2.lower()).rstrip("s") in {k.lower().rstrip("s") for k in self.app_keys}:
+            return False                             # "No, I meant the pipes": which thing, not a new value: the LLM
+        logger.info(f"change of mind: {what1} {v1!r} -> {what2} {v2!r}")
+        self._drop_held()                            # green was still held: it is never made
+        return await self._apply_tweak(what2, v2, text, lead=f"Okay, not {v1}: {v2} instead.")
+
+    async def _apply_tweak(self, what: str, value: str, text: str, lead: str = "") -> bool:
+        from ..mcp_servers import live
         if re.fullmatch(r"(a (lot|bit|little) )?(faster|slower|quicker)", value, re.I):
-            what = "speed"                          # "make the snake faster" -> the speed setting
+            # "make the snake faster" -> speed; "make the ball faster" -> ballSpeed when the game has it
+            what = next((k for k in self.app_keys if k.lower() == f"{what.lower()}speed"), "speed")
         if what.lower() in ("it", "him", "her", "them", "this", "that", "player", "character"):
             # "change it to a dog" mid-game: the player (first thing that is not background/text/a number)
             what = next((k for k in self.app_keys if k.lower() not in
@@ -1273,22 +1447,92 @@ class Agent:
         logger.info(f"live change by voice: {key} -> {value!r}")
         if re.search(r"photo|picture|image", value, re.I):
             await self._announce("Finding a picture.")
+        elif getattr(self, "tweak_hold", 0) and not lead and value != "flip" and not value.startswith("face "):
+            # "Green, okay." now, the change a moment later: "wait, no, black instead" can still cancel it
+            self._drop_held()
+            self._last_tweak = (what, value, time.monotonic())
+            self._held = {"now": False, "task": asyncio.create_task(self._hold_then_tweak(key, what, value, text))}
+            await self._announce(f"{value[0].upper()}{value[1:]}, okay.")
+            return True
+        return await self._do_tweak(key, what, value, text, lead)
+
+    def _drop_held(self):
+        held, self._held = getattr(self, "_held", None), None
+        if held and not held["task"].done():
+            logger.info("held change dropped")
+            held["task"].cancel()
+
+    async def _flush_held(self):
+        held = getattr(self, "_held", None)
+        if held and not held["task"].done():
+            held["now"] = True
+            try:
+                await held["task"]
+            except asyncio.CancelledError:
+                pass
+
+    async def _hold_then_tweak(self, key: str, what: str, value: str, text: str):
+        """The held change is made tweak_hold seconds after "Green, okay." has been said (2 x tweak_hold if nothing is
+        heard of it). If the person starts talking meanwhile, it waits for what they say: a "wait, no..." drops it,
+        anything else lets it go first (3 s after they stop, at most)."""
+        t0 = last_voice = time.monotonic()
+        spoke = bot_seen = False
+        while True:
+            held = self._held
+            if held is None or held["task"] is not asyncio.current_task():
+                return
+            now = time.monotonic()
+            if getattr(self.io, "user_speaking", False):
+                spoke, last_voice = True, now
+            talking = bool(getattr(self.io, "bot_speaking", False))
+            bot_seen = bot_seen or talking
+            said_ok = (bot_seen and not talking and now - max(t0, getattr(self.io, "t_bot_stopped", t0)) >= self.tweak_hold) \
+                or (not bot_seen and now - t0 >= 2 * self.tweak_hold)
+            if held["now"] or (not spoke and said_ok) or (spoke and now - last_voice >= 3.0) or now - t0 >= 12.0:
+                break
+            await asyncio.sleep(0.05)
+        self._held = None
+        if not await self._do_tweak(key, what, value, text, quiet=True):
+            await self._announce(f"Sorry, I couldn't change the {what}.")
+
+    async def _do_tweak(self, key: str, what: str, value: str, text: str, lead: str = "", quiet: bool = False) -> bool:
         try:
             r = await self.tools_conn.call("tweak_app", {"changes": {key: value}}, timeout=30)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"tweak_app: {e}")
             return False
-        if not (isinstance(r, dict) and r.get("ok")):
+        if not isinstance(r, dict):
             return False
+        if not r.get("ok"):
+            already = re.search(r"already faces (\w+)", str(r.get("message", "")))
+            if not already:
+                return False                         # e.g. "bigger" with no size setting: the LLM (edit_app)
+            msg = f"The {what} already faces {already.group(1)}."
+            self.context.add_message({"role": "user", "content": text})
+            self.context.add_message({"role": "assistant", "content": msg})
+            await self._announce(msg)
+            return True
         self._app_set(r)
+        self._last_tweak = (what, value, time.monotonic())    # "wait, no, black instead" corrects this one
         flipped = any("flip" in str(c) for c in (r.get("changed") or {}).values()) if isinstance(r.get("changed"), dict) \
             else bool(re.search(r"flip|turned back", str(r.get("changed", "")), re.I))
-        msg = "Done, it's faster now." if re.search(r"faster|quicker", value, re.I) else \
+        are = "are" if what.lower().endswith("s") and not what.lower().endswith(("ss", "us", "is")) else "is"
+        verb = re.match(r"(?:(?:a )?(?:lot|bit|little)\s+)?(jump|fly|flap|bounce|shoot|fire|move|run|fall|spawn|come|grow)s?"
+                        r"\s+(\w+(?: often)?)$", value, re.I)
+        who = "it" if what.lower() in ("it", "this", "that") else f"the {what}"
+        msg = f"Done, {who} {verb.group(1).lower() + ('' if are == 'are' else 'es' if verb.group(1).lower().endswith('sh') else 's')} " \
+              f"{verb.group(2).lower()} now." if verb else \
+            "Done, it's faster now." if re.search(r"faster|quicker", value, re.I) else \
             "Done, it's slower now." if re.search(r"slower", value, re.I) else \
-            f"Done, the {what} faces the other way now." if value == "flip" or flipped else f"Done, the {what} is {value} now."
+            f"Done, the {what} {'face' if are == 'are' else 'faces'} {value[5:]} now." if value.startswith("face ") else \
+            f"Done, the {what} {'face' if are == 'are' else 'faces'} the other way now." if value == "flip" or flipped \
+            else f"Done, the {what} {are} {value} now."
+        if lead:                                     # "Okay, not green: black instead. The bird is black now."
+            msg = f"{lead} {msg[6].upper() + msg[7:] if msg.startswith('Done, ') else msg}"
         self.context.add_message({"role": "user", "content": text})
         self.context.add_message({"role": "assistant", "content": msg})
-        await self._announce(msg)
+        if not quiet:                                # a held change: "Green, okay." was said already
+            await self._announce(msg)
         return True
 
     def _open_app_view(self, url: str, title: str) -> dict:
@@ -1325,6 +1569,8 @@ class Agent:
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"app_status: {e}")
                 continue
+            if isinstance(st, dict):
+                self._building = bool(st.get("building"))
             if self.ui and isinstance(st, dict):
                 self.ui.send({"type": "build", **{k: st.get(k) for k in (
                     "building", "title", "elapsed_s", "chars", "expect", "code", "step", "eta_s", "kind", "change")}})
@@ -1339,7 +1585,9 @@ class Agent:
                     what = "changed" if job.get("kind") == "edit" else "ready"
                     msg = f"{job.get('title', 'Your app')} is {what}, it's on the {v['label']} tab."
                     if job.get("problems"):
-                        msg += " It may have a bug; tell me if something doesn't work."
+                        # not said any more (user 2026-11-06): only the log keeps it
+                        # msg += " It may have a bug; tell me if something doesn't work."
+                        logger.warning(f"app ready with problems (not said): {str(job.get('problems'))[:200]}")
                 else:
                     msg = f"Sorry, building {job.get('title', 'the app')} failed."
                 self._event("app_" + job.get("state", "?"), **{k: job.get(k) for k in ("title", "url", "seconds")})

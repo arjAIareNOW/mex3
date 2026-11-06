@@ -94,7 +94,7 @@ const g = {
   alert() {}, confirm: () => true, prompt: () => "", focus() {}, blur() {}, scrollTo() {}, open() {},
   localStorage: { getItem: k => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); },
     removeItem: k => { delete storage[k]; }, clear() {} },
-  performance: { now: () => Date.now() }, Date, Math, JSON, CustomEvent: class { constructor(t, o) { this.type = t; Object.assign(this, o); } },
+  performance: { now: () => 1000 + (globalThis.__simT || 0) },     // the stepped frames' clock (see runcheck_dom.js) Date, Math, JSON, CustomEvent: class { constructor(t, o) { this.type = t; Object.assign(this, o); } },
   Image: class { constructor() { this.complete = true; this.naturalWidth = 64; this.width = 64; this.height = 64; } },
   Audio: class { play() { return Promise.resolve(); } pause() {} },
   AudioContext: undefined, navigator: { userAgent: "node", vibrate() {} }, location: { reload() {}, href: "" },
@@ -142,7 +142,7 @@ const INPUT = { 8: "keydown", 9: "keyup", 20: "click", 30: "pointerdown", 31: "p
   50: "touchstart", 51: "touchend", 60: "keydown", 61: "keyup", 75: "click" };
 const pause = () => new Promise(r => setImmediate(r));
 async function runFrame() {
-  frame++; ts += 16.7;
+  frame++; ts += 16.7; globalThis.__simT = ts;
   const batch = rafs.splice(0);
   for (const fn of batch) { try { fn(ts); } catch (e) { fail(e); } }
   await pause();
@@ -166,7 +166,8 @@ async function doStep(step) {
     await runFrame(); for (const t of ["pointerup", "mouseup", "touchend", "click"]) fireOn(canvas, t); }
   else if (verb === "space" || verb === "key") {
     const k = verb === "space" ? " " : arg, code = verb === "space" ? "Space" : arg;
-    fireOn(body, "keydown", { key: k, code, keyCode: k === " " ? 32 : 0 }); await runFrame();
+    fireOn(body, "keydown", { key: k, code, keyCode: k === " " ? 32 : 0 });
+    for (let i = 0; i < 6; i++) await runFrame();       // held about 0.1 s, like a real key press
     fireOn(body, "keyup", { key: k, code, keyCode: k === " " ? 32 : 0 });
   }
   else if (verb === "click") { const e = el(arg); for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) fireOn(e, t); }
@@ -181,12 +182,20 @@ async function runTests() {
   for (const t of (Array.isArray(tests) ? tests : []).slice(0, 6)) {
     const r = { name: String(t.name || "test").slice(0, 80), ok: false };
     try {
+      // each test starts from a fresh game (the app's own reset()), as in runcheck_dom.js
+      try { vm.runInContext("if (typeof reset === 'function' && typeof state !== 'undefined') reset();", g); }
+      catch (e) {}
       for (const s of t.setup || []) await doStep(s);
       g.__before = t.before ? vm.runInContext(String(t.before), g) : undefined;
       if (g.__before && typeof g.__before === "object") g.__before = JSON.parse(JSON.stringify(g.__before));
       for (const s of t.do || []) await doStep(s);
       if (firstErr) { r.error = "the app crashed: " + out.error; res.push(r); break; }
-      r.ok = !!vm.runInContext("(before => (" + String(t.expect) + "))(__before)", g);
+      const expect = "(before => (" + String(t.expect) + "))(__before)";
+      r.ok = !!vm.runInContext(expect, g);
+      for (let i = 0; i < 90 && !r.ok && !firstErr; i++) {     // up to 1.5 s more, as in runcheck_dom.js
+        await runFrame();
+        try { r.ok = !!vm.runInContext(expect, g); } catch (e) { break; }
+      }
       if (!r.ok) {
         r.error = "expected " + t.expect;
         if (t.before) try { r.error += " (before: " + JSON.stringify(g.__before) + ", now: " +
@@ -198,7 +207,8 @@ async function runTests() {
   return res;
 }
 (async () => {
-  while (frame < 90 && !firstErr) {
+  for (let f = 105; f < 240; f += 45) { INPUT[f] = "pointerdown"; INPUT[f + 1] = "pointerup"; }   // as runcheck_dom.js
+  while (frame < 240 && !firstErr) {
     if (INPUT[frame + 1]) fire(INPUT[frame + 1]);
     await runFrame();
   }

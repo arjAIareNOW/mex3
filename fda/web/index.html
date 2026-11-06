@@ -343,8 +343,25 @@ function report(v, state){ if (v.yt.state !== state){ v.yt.state = state; send({
 function loadApp(v){
   const u = v.data.url;
   v.frame.classList.remove("updating");
+  v.frame.onload = () => { if (appFrame === v.frame) focusApp(); };
   v.frame.src = u + (u.includes("?") ? "&" : "?") + "v=" + Date.now();
 }
+// keys go to the game on screen: the keyboard focus moves into it when it is shown, and a key that still lands on
+// this page (after a tap on a tab, say) is passed on to it, so Space flaps the bird and never presses a button here
+function focusApp(){ try { if (appFrame && !appFrame.hidden) appFrame.contentWindow.focus(); } catch (e) {} }
+const GAME_KEYS = /^(Space|Arrow(Up|Down|Left|Right)|Key[A-Z]|Enter|Digit\d)$/;
+for (const type of ["keydown", "keyup"]) document.addEventListener(type, e => {
+  if (!appFrame || !$("empty").hidden || !GAME_KEYS.test(e.code) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  let doc; try { doc = appFrame.contentDocument; } catch (_) { return; }
+  if (!doc) return;
+  e.preventDefault();
+  const tgt = doc.activeElement && doc.activeElement !== doc.body ? doc.activeElement : (doc.body || doc.documentElement || doc);
+  const win = doc.defaultView || appFrame.contentWindow;
+  if (!win || !win.KeyboardEvent) return;
+  tgt.dispatchEvent(new win.KeyboardEvent(type, {key: e.key, code: e.code, keyCode: e.keyCode,
+    which: e.which, repeat: e.repeat, bubbles: true, cancelable: true}));
+  if (type === "keydown") focusApp();
+});
 function drawPhoto(v){
   const ps = v.data.photos || [], p = ps[v.phI] || ps[0]; if (!p) return;
   const img = v.el.querySelector("img"), cap = v.el.querySelectorAll(".cap span");
@@ -428,6 +445,7 @@ function showActive(){
   for (const v of views.values()) v.el.hidden = !(here && v.id === activeId);
   $("empty").hidden = here;
   appFrame = here && a.kind === "app" ? a.frame : null;
+  focusApp();
   if (!here && !$("bar").classList.contains("on"))
     $("empty").textContent = curTab === "office" ? "Virtual Office: ask for slides, a document or a spreadsheet." : "Elkit is listening.";
 }
@@ -445,6 +463,7 @@ function activate(id){
   $("empty").hidden = activeId !== null;
   const a = views.get(activeId);
   appFrame = a && a.kind === "app" ? a.frame : null;
+  focusApp();
   const btn = $("sub").querySelector(".on"); if (btn) btn.scrollIntoView({inline: "nearest", block: "nearest"});
   note("");
 }

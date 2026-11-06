@@ -53,6 +53,52 @@ WMO = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "cloudy", 45: "fogg
        81: "rain showers", 82: "heavy rain showers", 95: "thunderstorms", 96: "thunderstorms with hail",
        99: "thunderstorms with hail"}
 
+def problem_rank(err: str | None) -> float:
+    """How bad a build problem is: 0 none, 1.x some behaviour tests fail (x = how many), 2 it runs but something is
+    not drawn with FDA.draw / nothing moves, 3 it does not run (syntax error, crash)."""
+    if not err:
+        return 0.0
+    if err.startswith("Behaviour test failed"):
+        return 1 + min(err.count("expected") + err.count("not valid JSON"), 9) / 10
+    if err.startswith(("Syntax error", "When it runs")):
+        return 3.0
+    return 2.0
+
+
+_CENTRE_DRAW = re.compile(r"FDA\.draw\(\s*ctx\s*,\s*(\"[^\"]+\"|'[^']+')\s*,\s*(\w+)\.x\s*,\s*\2\.y\s*,\s*"
+                          r"\2\.(r|radius)\s*\*\s*2\s*,\s*\2\.\3\s*\*\s*2\s*\)")
+
+
+def centre_draw_fix(html: str) -> tuple[str, int]:
+    """A thing kept by its centre (bird.x, bird.y, bird.r; the collision uses bird.x - bird.r) but drawn with
+    FDA.draw(ctx, "bird", bird.x, bird.y, bird.r * 2, bird.r * 2) shows its picture r lower and r to the right
+    of where it really is: "game over" while the bird you see is clear of the pipe. Draw it around its centre."""
+    def fix(m):
+        o, r = m.group(2), m.group(3)
+        if not re.search(rf"\b{o}\.[xy]\s*[-+]\s*{o}\.{r}\b", html):
+            return m.group(0)                          # not a centre-based thing: leave it
+        return f"FDA.draw(ctx, {m.group(1)}, {o}.x - {o}.{r}, {o}.y - {o}.{r}, {o}.{r} * 2, {o}.{r} * 2)"
+    out = _CENTRE_DRAW.sub(fix, html)
+    return out, len(_CENTRE_DRAW.findall(html)) - len(_CENTRE_DRAW.findall(out))
+
+
+def sprite_fixes(settings: dict) -> dict:
+    """Settings named after a library sprite whose value is only a colour -> {name: the sprite's path}.
+    ("bird": "#FFCC00" draws a yellow square, not a bird; "pipe": "#3a3" stays: pipes are not a sprite.)"""
+    groups = live.manifest().get("groups", {})
+    # characters and things to collect, not obstacles / plants (pipes, rocks and walls are fine as coloured bars)
+    keep = {m for g, v in groups.items() if g not in ("obstacle", "plant", "sky", "scene", "ground")
+            for m in (v["members"] if isinstance(v, dict) else v)}
+    out = {}
+    for k, v in (settings or {}).items():
+        if not isinstance(v, str) or v.startswith(("data:", "/assets/", "http")) or live._is_sprite(v):
+            continue                                   # a picture, emoji or photo already (or not text)
+        pic = live.asset_for(k)
+        if pic and "/sprites/" in pic and pic.rsplit("/", 1)[-1][:-4] in keep:
+            out[k] = pic
+    return out
+
+
 def art_rule() -> str:
     """The app writer's note about Elkit's own art library (fda/assets), with every name in it ("" if absent)."""
     man = live.manifest()
@@ -69,6 +115,8 @@ Art library (on this device, works offline; use it instead of emoji when the thi
 - Icons "/assets/icons/NAME.svg" (dark line icons; "/assets/icons/white/NAME.svg" on dark colours): {names["icon"]}.
 Games use these paths as setting values (bird: "/assets/sprites/bird.svg", sky: "/assets/backgrounds/sky-day.svg"),
 drawn with FDA.draw like any other value; websites put icons in <img src="/assets/icons/NAME.svg" width="24">.
+A creature or object the player sees (the bird, a fish, a car, the player, an enemy, a coin) is ALWAYS a picture
+value (a library path above, or an emoji) - never a plain colour like "#ffcc00", which draws only a square.
 Only the names listed exist.
 Colour schemes (background, cards, main colour, accent, text) - when one is named, use exactly these colours as
 CSS variables: {pals}."""
@@ -82,12 +130,38 @@ Rules:
 - Games: one <canvas> filling the window, a requestAnimationFrame loop that moves things every frame. Start on a
   tap/click or Space, show the score, show "Game over - tap to restart" on the canvas (never alert/confirm).
   Work with mouse, touch AND keyboard. Anything that changes (positions, speed, score) is a let, never a const.
-- Games get their look from live settings that people change while it runs. Name each setting after a thing in the
-  game, with a colour, an emoji or a number:  const C = FDA.defaults({bird: "🐦", pipe: "#2e8b57", sky: "#87ceeb",
-  ground: "#deb887", text: "#ffffff", speed: 3, gap: 160});
+  Give every list and object its start value where it is declared, at the top (let pipes = [], stars = [...],
+  food = {x: 5, y: 5}): draw() runs on the very first frame, before any reset() or tap.
+- Games get their look AND feel from live settings that people change by voice while it runs ("make the snake
+  blue", "faster", "make it easier", "a bigger ship", "jump higher", "give me three lives"). Name each setting
+  after a thing in the game; its value is a colour, an emoji or a number. Every game has: the player, each kind of
+  obstacle / enemy / thing to collect, the background, text, and the numbers speed, size (the player's size in
+  px), lives (1 unless asked) and difficulty (2). Add the numbers its kind of game has, with exactly these names:
+    jumping, flapping or falling: gravity, jump (a positive number), gap (room to pass through)
+    shooting: fireRate (shots per second; the first shot comes the moment fire is pressed), bulletSpeed
+    ball and paddle: ballSpeed, paddleSize
+    snake: grow (segments per food)                          catching, dodging, waves of enemies: spawnRate (per second)
+  A flappy game:  const C = FDA.defaults({bird: "🐦|flip", pipe: "#2e8b57", sky: "#87ceeb", ground: "#deb887",
+    text: "#ffffff", speed: 3, gap: 160, size: 44, gravity: 0.5, jump: 7, lives: 1, difficulty: 2});
+  A space shooter: const C = FDA.defaults({ship: "🚀", enemy: "👾", bullet: "#ffee55", sky: "#050518",
+    text: "#ffffff", speed: 3, size: 48, fireRate: 4, bulletSpeed: 9, spawnRate: 1, lives: 3, difficulty: 2});
   Draw every thing with FDA.draw(ctx, "pipe", x, y, w, h) (it draws a colour, emoji or photo), the background with
   FDA.draw(ctx, "sky", 0, 0, W, H) first in every frame, text with ctx.fillStyle = FDA.color("text").
-  Read C.speed, C.gap... every frame (never copy them into constants).
+  Read every setting from C every frame (never copy one into a constant), so a change shows at once: the player's
+  drawn box AND its hitbox follow C.size.
+  difficulty (1 easy, 2 normal, 3 hard) changes the whole game at once, with const d = C.difficulty: every speed
+  (speed, ballSpeed, bulletSpeed of enemies) * (0.5 + 0.25 * d), gaps and room to move * (1.4 - 0.2 * d), spawnRate
+  * (0.5 + 0.25 * d), and the hitbox is (0.5 + 0.15 * d) of the drawn size (easy = more forgiving).
+  lives: C.lives is how many lives a game STARTS with (never change C.lives in the game); reset() sets
+  let lives = C.lives, and the game counts that down. Show them (e.g. "❤️ 3"); losing one that is not the last
+  puts the player back safely (a short blink, the danger right next to it cleared) and play goes on; game over
+  only at 0 lives. Keep the best score in
+  localStorage and show it on the game-over screen.
+  Fair collisions: FDA.draw's x, y is the TOP-LEFT corner. A thing kept by its centre (bird.x, bird.y, bird.r) is
+  drawn with FDA.draw(ctx, "bird", bird.x - bird.r, bird.y - bird.r, bird.r * 2, bird.r * 2). Collisions use
+  exactly the box that is drawn, times the hitbox factor, so a near miss is not a crash: a life is lost only when
+  the player you SEE touches a danger you SEE (an obstacle is hit with its full drawn size, including a pipe's
+  cap). Scenery (clouds, stars, decorations) never collides.
   Emoji animals and vehicles face LEFT in most fonts. If a thing looks or moves to the right (a flappy-style bird,
   a runner, a car driving right), add "|flip" to its value so FDA.draw mirrors it: bird: "🐦|flip".
   FDA is already loaded by the page before your script: just use it. NEVER define FDA, FDA.defaults or FDA.draw
@@ -113,7 +187,10 @@ Rules:
   Steps: "tap", "space", "key ArrowLeft", "click #id", "set #id value", "wait N" (N frames), "run <js>" (set up a
   situation directly, e.g. "run pipes = [{x: bird.x - 60, gapY: bird.y, scored: false}]"). "before" and "expect"
   are JavaScript run in the app's page and can read its variables (`before` = the value of "before" just before
-  the "do" steps). Games start in "ready": put a "tap" in "setup" to start playing.
+  the "do" steps). Games start in "ready": put a "tap" in "setup" to start playing. Before each test the game's
+  reset() is called, so every test starts from a fresh game. Tests read the game's own variables (lives, not
+  C.lives). A situation set up with "run" must be one the game's update code really reacts to: put things exactly
+  where it checks (the same names, the same hitbox), and wait enough frames for things to move there.
 - Put the app's short title in <title>.
 - Plain modern JavaScript, no frameworks. Make sure every function you call exists. No comments.
 - Keep it short: games and tools about 80-150 lines, websites up to about 250. Stop right after </html>.
@@ -121,7 +198,7 @@ Game skeleton (fill it in):
 <canvas id="c"></canvas><script>
 const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 let W, H; function fit() { W = cv.width = innerWidth; H = cv.height = innerHeight; } fit(); addEventListener("resize", fit);
-const C = FDA.defaults({player: "🙂", enemy: "#e04040", sky: "#102030", text: "#ffffff", speed: 3});
+const C = FDA.defaults({player: "🙂", enemy: "#e04040", sky: "#102030", text: "#ffffff", speed: 3, size: 44, lives: 1, difficulty: 2});
 let state = "ready", score = 0;
 function reset() { score = 0; state = "play"; }
 function action() { if (state !== "play") { reset(); return; } }
@@ -163,10 +240,14 @@ def extract_html(raw: str) -> str | None:
 
 
 def _looping(text: str, tail: int = 160, times: int = 3) -> bool:
-    """Small models sometimes repeat the same lines forever: the last `tail` characters occur `times`+ times."""
+    """Small models sometimes repeat the same lines forever: the last `tail` characters occur `times`+ times.
+    Digits are ignored, so counting loops ("spawn67: 0.8, spawn68: 0.8, spawn69: ...") are caught too."""
     if len(text) < tail * times:
         return False
-    return text.count(text[-tail:]) >= times
+    if text.count(text[-tail:]) >= times:
+        return True
+    flat = re.sub(r"\d+", "#", text[-tail * times * 4:])
+    return len(flat) >= tail * times and flat.count(flat[-tail:]) >= times
 
 
 def _html_done_or_looping(text: str) -> bool:
@@ -314,6 +395,9 @@ class Apps:
             if key is None:
                 unknown.append(str(k))
                 continue
+            cur = settings.get(key)
+            if not isinstance(cur, (int, float)) and live.SIZE_WORDS.match(str(v).strip()):
+                key = live.number_key_for(key, str(v), settings) or key     # "bird bigger" -> birdSize / size
             val, how = live.resolve_value(v, settings.get(key), web)
             if val is None:
                 said.append(f"{key}: {how}")
@@ -326,19 +410,28 @@ class Apps:
         settings.update(patch)
         meta["live"], meta["updated"] = settings, time.time()
         html = p.read_text(encoding="utf-8")
+        stale = live.LIVE_JS not in html          # built with an older runtime: the open page must load the new one
         p.write_text(live.inject_live(html, settings), encoding="utf-8")
         p.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
         self.current = p.stem
         self.commit(p, "tweak: " + "; ".join(said))
-        return {"ok": True, "url": f"/apps/{p.name}", "patch": patch, "changed": "; ".join(said),
+        return {"ok": True, "url": f"/apps/{p.name}", "patch": patch, "changed": "; ".join(said), "reload": stale,
                 "message": "Changed it live." + (f" Not found: {', '.join(unknown)}." if unknown else "")}
 
     def find(self, name: str) -> Path | None:
         if not name:
             return self.path(self.current) if self.current and self.path(self.current).exists() else None
+        cands = [q for q in self.dir.glob("*.html") if not q.name.endswith(".prev.html")]
+
+        def updated(q):
+            return self._meta(q).get("updated") or q.stat().st_mtime
         p = self.path(name)
         if p.exists():
-            return p
+            # "open the Flappy Bird game" with several games called Flappy Bird: the one changed last (the one
+            # just worked on), not an old one whose file happens to be named flappy-bird-game
+            t = self._meta(p).get("title", "")
+            same = [q for q in cands if t and self._meta(q).get("title", "") == t]
+            return max(same + [p], key=updated)
         stop = {"a", "an", "the", "my", "app", "page", "site", "website", "game", "of", "for", "and", "to", "type"}
         words = {w for w in _slug(name).split("-") if len(w) > 1 and w not in stop}
 
@@ -346,8 +439,7 @@ class Apps:
             title = _slug(self._meta(q).get("title", ""))
             return len(words & (set(q.stem.split("-")) | set(title.split("-"))))
         cur = self.path(self.current) if self.current and self.path(self.current).exists() else None
-        cands = [q for q in self.dir.glob("*.html") if not q.name.endswith(".prev.html")]
-        best = max(cands, key=score, default=None)
+        best = max(cands, key=lambda q: (score(q), updated(q)), default=None)
         if best is None or score(best) == 0 or (cur is not None and score(cur) >= score(best)):
             return cur                    # no clear other app named: the one on screen
         return best
@@ -368,7 +460,13 @@ class Apps:
                         "t0": time.time(), "description": description}
         threading.Thread(target=self._build, args=(kind, description, base), daemon=True).start()
         return {"ok": True, "building": True, "name": self.job["name"], "eta_s": self.coder.eta_s(kind),
-                "message": f"Started {kind} of {title}."}
+                "message": f"Started the {kind} of {title}. It is NOT ready yet (about {self.coder.eta_s(kind)} s). "
+                           "While it builds, tell them in two or three short sentences what you are building: "
+                           "the main things in it (who or what they play or see, what to avoid or do, the score "
+                           "or the parts), e.g. \"I'm building a game with a little bird that flaps between green "
+                           "pipes. Each pipe you pass gives you a point.\" Do not say it is ready or done, do not "
+                           "tell them how to play it yet, and do not tell them to enjoy or play it yet. "
+                           "You will be told when it is ready."}
 
     def _build(self, kind: str, description: str, base: Path | None):
         job = self.job
@@ -402,13 +500,16 @@ class Apps:
             if not html:
                 raise RuntimeError("the model did not write an HTML file")
             game = live.is_game(description if kind != "edit" else job["title"] + " " + description, html)
-            for round_ in range(2):          # repair rounds: show the model its own error
+            best = None                       # (how bad, html): a repair can make it worse (a game that only failed
+            for round_ in range(3):          # a test came back with a syntax error): keep the best version
                 err = js_syntax_error(html)
                 if err:
                     err = f"Syntax error: {err}"
                 else:
                     err = live.runtime_problem(live.run_check(html), game)
-                if not err:
+                if best is None or problem_rank(err) <= best[0]:
+                    best = (problem_rank(err), html)
+                if not err or round_ == 2:   # check, repair, check, repair, check
                     break
                 log.warning("problem in the new app (%s): asking the model to fix it", err)
                 job["fixing"] = err
@@ -420,6 +521,12 @@ class Apps:
                 if not fixed:
                     break
                 html = fixed
+            if best and best[1] is not html:
+                log.warning("the repair made it worse: keeping the earlier version")
+                html = best[1]
+            html, n = centre_draw_fix(html)
+            if n:
+                log.info("%d thing(s) drawn from their centre point as if it were the corner: drawn around it", n)
             res = live.run_check(html) or {}
             settings = res.get("settings") or {}
             still = js_syntax_error(html) or live.runtime_problem(res, game)
@@ -428,6 +535,11 @@ class Apps:
                 p.replace(p.with_suffix(".prev.html"))
             meta = self._meta(p) if kind == "edit" and p.exists() else {"description": description}
             saved = {k: v for k, v in (meta.get("live") or {}).items() if k in settings}   # keep earlier tweaks
+            # a thing drawn as a bare colour ("bird": "#FFCC00" = a yellow square) gets its library picture
+            for k, pic in sprite_fixes(settings).items():
+                if k not in saved:
+                    saved[k] = pic
+                    log.info("setting %r was only a colour (%r): the library picture %s instead", k, settings[k], pic)
             p.write_text(live.inject_live(html, saved), encoding="utf-8")
             t = re.search(r"<title>(.*?)</title>", html, re.S | re.I)
             meta.update({"title": (t.group(1).strip() if t else job["title"])[:60], "updated": time.time(),
@@ -546,7 +658,8 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
     def tweak_app(changes: dict, name: str = "") -> dict:
         """Change how a built app or game looks while it runs - instant, no rebuild. changes: setting -> new value,
         e.g. {"bird": "butterfly"}, {"bird": "red"}, {"pipe": "photo of bamboo"}, {"sky": "#000033"},
-        {"speed": "faster"}. Values: a colour, a thing (becomes an emoji or picture), "photo of ...", or a number.
+        {"speed": "faster"}, {"pipe": "cactus"}, {"difficulty": "easier"} / "harder" / "easy" / "hard".
+        Values: a colour, a thing (becomes an emoji or picture), "photo of ...", or a number.
         name: which app (default: the one shown last). For new features or rules use edit_app instead."""
         return apps.tweak(changes, name, web)
 

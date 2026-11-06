@@ -3,7 +3,8 @@ const fs = require("fs");
 const calls = [];
 const ctx2 = () => ({
   save() {}, restore() {}, translate() {}, scale() {}, fillRect(...a) { calls.push(["fillRect", this.fillStyle]); },
-  fillText() {}, drawImage(im) { calls.push(["drawImage", im.tag || im._src]); },
+  beginPath() {}, rect() {}, clip() {}, fillText(t, x, y) { calls.push(["fillText", t, Math.round(x), Math.round(y)]); },
+  drawImage(im) { calls.push(["drawImage", im.tag || im._src]); },
   createPattern(im) { calls.push(["pattern", im.tag || im._src]); return { p: im.tag || im._src }; },
   set globalCompositeOperation(v) {}, set globalAlpha(v) {},
 });
@@ -35,6 +36,19 @@ FDA.set({ pipe: "/assets/tiles/stone.svg" });
 calls.length = 0; FDA.draw(ctx, "pipe", 0, 0, 40, 300);
 ok("new picture: new pattern", calls[0], ["pattern", "/assets/tiles/stone.svg"]);
 calls.length = 0; FDA.draw(ctx, "e", 0, 0, 40, 40);
-ok("emoji tint still works", calls.map(c => c[1]), ["red", "tinted"]);
+ok("emoji tint still works", calls.filter(c => c[0] !== "fillText").map(c => c[1]), ["red", "tinted"]);
+FDA.set({ pipe: "🌵" });
+calls.length = 0; FDA.draw(ctx, "pipe", 0, 0, 64, 400);
+const texts = calls.filter(c => c[0] === "fillText");
+ok("a pipe turned cactus: the cactus repeats down the whole pipe (7 x 64 px for 400 px)",
+   [texts.length, texts[0][3], texts[6] && texts[6][3]], [7, 35, 419]);
+FDA.set({ pipe: "🌵@red" });
+calls.length = 0; FDA.draw(ctx, "pipe", 0, 0, 64, 400);
+ok("a tinted cactus pipe repeats too", calls.filter(c => c[0] === "drawImage").length, 7);
+calls.length = 0; FDA.draw(ctx, "e", 0, 0, 40, 40);
+ok("a square thing: one emoji", calls.filter(c => c[0] === "drawImage").length, 1);
+FDA.set({ e: "🐦" });
+calls.length = 0; FDA.draw(ctx, "e", 0, 0, 40, 40);
+ok("a square plain emoji: one", calls.filter(c => c[0] === "fillText").length, 1);
 ok("a colour is not a picture", FDA.isImg("#ff0000@x"), false);
 process.exit(fail ? 1 : 0);

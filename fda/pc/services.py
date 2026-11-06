@@ -229,18 +229,45 @@ class McpTTSService(TTSService):
                          settings=TTSSettings(model="mcp-tts", voice=None, language=None), **kwargs)
         self.conn = conn
         self._reply_id, self._said_in_reply = None, 0
+        self.building = None            # callable -> True while an app is being built (set by the agent)
 
     def can_generate_metrics(self) -> bool:
         return True
 
+    async def _push_spoken_text(self, src_frame, text: str, context_id: str, append_to_context: bool):
+        """A sentence run_tts did not say ("(silent)", a premature "It's ready", a second confirmation) gets no
+        spoken-text frame either: it must not show as said, nor go into the LLM's history as said."""
+        # pipecat runs run_tts (on the transformed text) and then this (on the original text) one after the
+        # other for the same sentence, so a one-shot flag set by run_tts marks exactly this sentence.
+        if text and getattr(self, "_unsaid", None) == context_id:
+            self._unsaid = None
+            return
+        self._unsaid = None
+        await super()._push_spoken_text(src_frame, text, context_id, append_to_context)
+
+    def _not_said(self, raw: str, context_id: str):
+        self._unsaid = context_id
+
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
+        raw = text
         text = speakable(text)
         if not text.strip():
+            self._not_said(raw, context_id)
             return
         if context_id != self._reply_id:
             self._reply_id, self._said_in_reply = context_id, 0
         if self._said_in_reply and _EXTRA_OK.match(text):
             logger.info(f"second confirmation not said: {text!r}")
+            self._not_said(raw, context_id)
+            return
+        if self.building and self.building() and _PREMATURE_READY.search(text) and \
+                not re.search(r"timer|alarm|reminder|\blist\b|lights?|music|song|weather|temperature", text, re.I) and \
+                not re.search(r"\b(?:when|once|until|till|as soon as|after)\s+(?:it[’']?s|it is|it[’']?ll be|is)\b|"
+                              r"\blet you know\b|\bnot (?:ready|done)\b", text, re.I):
+            # the LLM jumped ahead ("It's ready, enjoy!") while the build is still running: not said; the real
+            # "... is ready" comes when it is
+            logger.info(f"'ready' before the build finished, not said: {text!r}")
+            self._not_said(raw, context_id)
             return
         self._said_in_reply += 1
         # a long sentence is synthesized in comma-sized pieces, all started at once: the first (short) piece is
@@ -271,6 +298,18 @@ class McpTTSService(TTSService):
                 if not job.done():
                     job.cancel()                       # interrupted: the rest is not needed
             await self.stop_ttfb_metrics()
+
+
+
+
+_PREMATURE_READY = re.compile(r"\b(?:it[’']?s|it is|is|are)\s+(?:all\s+)?(?:ready|done|finished|built|live)\b|"
+                              r"\benjoy\b|\bhave fun\b|\bgo ahead and (?:play|try)\b|"
+                              # a bare "Ready!" / "Done." / "All set!", and how-to-play lines ("Try tapping to make
+                              # the bird fly.", "Press space to jump.") are also "it's ready" said too early
+                              r"^\W*(?:all\s+)?(?:ready|done|finished|all set|here it is|there you go)\b\W*$|"
+                              r"^\W*(?:all\s+)?(?:ready|done|all set)\s*[!.]|"
+                              r"\btry (?:tapping|clicking|pressing|it|playing|it out)\b|"
+                              r"\b(?:tap|click|press|hit)\b.{0,25}\bto (?:flap|fly|jump|play|start|shoot|move)\b", re.I)
 
 
 def split_long(text: str, longer_than: int = 70, min_piece: int = 25) -> list[str]:

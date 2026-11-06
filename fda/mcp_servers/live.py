@@ -40,7 +40,24 @@ _TESTS = re.compile(r"<script[^>]*id=[\"']fda-tests[\"'][^>]*>(.*?)</script>", r
 def tests_of(html: str) -> str | None:
     """The app's own behaviour tests (JSON text), if it has them."""
     m = _TESTS.search(html)
-    return m.group(1).strip() if m else None
+    if not m:
+        return None
+    text = m.group(1).strip()
+    try:
+        json.loads(text)
+        return text
+    except ValueError:
+        pass
+    # small slips the model makes: a "setup" list not closed before "before" / "do" / "expect", a trailing comma,
+    # a // comment. Repaired here, so a good app is not reported as broken for its tests' punctuation.
+    fixed = re.sub(r"^\s*//.*$", "", text, flags=re.M)
+    fixed = re.sub(r",\s*([\]}])", r"\1", fixed)
+    fixed = re.sub(r'(\[(?:\s*"(?:[^"\\]|\\.)*"\s*,?)*?)\s*,\s*("(?:before|do|expect)"\s*:)', r"\1], \2", fixed)
+    try:
+        json.loads(fixed)
+        return fixed
+    except ValueError:
+        return text
 
 
 def strip_live(html: str) -> str:
@@ -305,10 +322,50 @@ def is_flipped(v) -> bool:
     return isinstance(v, str) and "|flip" in v
 
 
+# "bigger", "a lot wider", "jump higher": a change of size or strength, which only a number setting can do
+SIZE_WORDS = re.compile(r"^(?:(?:a )?(?:lot|bit|little)\s+)?(?:much\s+)?"
+                        r"(?:(?:jump|fly|flap|bounce|shoot|fire|move|run|fall|spawn|come|grow)s?\s+)?"
+                        r"(bigger|larger|smaller|tinier|wider|narrower|thicker|thinner|taller|shorter|longer|"
+                        r"higher|lower|heavier|lighter|stronger|weaker|faster|quicker|slower|more|fewer|less|"
+                        r"more often|less often)\W*$", re.I)
+_WORD_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+             "ten": 10, "a dozen": 12, "twenty": 20}
+_FACE = re.compile(r"\b(?:face|facing|look|looking|point|pointing|go|going|fly|flying)(?: to the| to| towards the)? "
+                   r"(right|left|forwards?|backwards?)\b", re.I)
+
+
+def number_key_for(key: str, value: str, settings: dict) -> str | None:
+    """'bird' + 'bigger' -> the number setting that does it ('birdSize', 'size'); 'jump higher' -> 'jump'."""
+    nums = {k.lower().replace("_", ""): k for k, v in settings.items()
+            if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    v, k = value.lower(), key.lower()
+    if re.search(r"\b(shoots?|fires?)\b", v):                       # "shoot faster" / "fire more"
+        names = ["firerate", "shootrate", "bulletspeed"]
+    elif re.search(r"\b(spawns?|comes?)\b|more often|less often|\b(more|fewer|less)\b", v):
+        names = [f"{k}rate", f"{k}spawn", "spawnrate", f"{k}s", f"{k}count", "enemies", "count"]   # "more enemies"
+    elif re.search(r"\bgrows?\b", v):
+        names = ["grow", "growth"]
+    elif re.search(r"\b(jump|fly|flap|bounce)s?\b|higher|lower", v):
+        names = ["jump", "flap", "lift", "jumpheight", "flapstrength", "bounce"]
+    elif re.search(r"heavier|lighter", v):
+        names = ["gravity", "weight"]
+    elif re.search(r"faster|quicker|slower", v):                    # "the ball faster" -> ballSpeed
+        names = [f"{k}speed", "bulletspeed" if k in ("bullet", "bullets", "shot", "laser") else "", "speed"]
+    else:
+        names = [f"{k}size", f"{k}width" if re.search(r"wider|narrower|thicker|thinner", v) else "", "size", "scale"]
+    return next((nums[n] for n in names if n and n in nums), None)
+
+
 def resolve_value(value, current, web) -> tuple[object, str]:
     """resolve_value_plain, plus mirroring: "flip it" / "face right" toggles "|flip" on the current sprite or photo,
     and a new sprite for a flipped thing stays flipped (a butterfly replacing a flipped bird faces the same way)."""
     v = str(value).strip()
+    face = _FACE.search(v)
+    if isinstance(current, str) and current and face and not re.search(r"\d", v):
+        right = face.group(1).lower() in ("right", "forward", "forwards")   # forward = the way the game moves
+        if _faces_right(current) == right:
+            return None, f"it already faces {face.group(1).lower()}"
+        return (current.replace("|flip", "") if is_flipped(current) else current + "|flip"), f"faces {face.group(1).lower()}"
     if isinstance(current, str) and _FLIP.search(v) and not re.search(r"\d", v):
         if is_flipped(current):
             return current.replace("|flip", ""), "turned back"
@@ -330,6 +387,10 @@ def _faces_right(v: str) -> bool:
     return is_asset(v) != is_flipped(v)
 
 
+LEVELS = {"easy": 1, "normal": 2, "medium": 2, "hard": 3}
+LEVEL_NAMES = {1: "easy", 2: "normal", 3: "hard"}
+
+
 def resolve_value_plain(value, current, web) -> tuple[object, str]:
     """A spoken value -> what the app understands, and how to describe it.
     Numbers stay numbers; colours and emoji pass; "photo of bamboo" fetches a photo; "butterfly" -> 🦋."""
@@ -340,10 +401,27 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
         m = re.search(r"-?\d+(?:\.\d+)?", v)
         if m:
             return float(m.group()), m.group()
-        factor = {"faster": 1.5, "slower": 0.67, "bigger": 1.4, "smaller": 0.7, "double": 2.0, "half": 0.5}
+        w = next((n for word, n in _WORD_NUM.items() if re.search(rf"\b{word}\b", v.lower())), None)
+        if w is not None:                              # "three lives"
+            return w, str(w)
+        lv = v.lower()
+        lvl = re.fullmatch(r"(?:on |to )?(easy|normal|medium|hard)(?: mode| level)?", lv)
+        step = -1 if re.search(r"easier|less (?:difficult|hard)|too (?:hard|difficult)", lv) else \
+            1 if re.search(r"harder|more (?:difficult|challenging)|too easy", lv) else 0
+        if lvl or step:                                # difficulty: 1 easy, 2 normal, 3 hard
+            new = LEVELS[lvl.group(1)] if lvl else min(3, max(1, round(current) + step))
+            if new == round(current) and not lvl:
+                return None, f"it is already on {LEVEL_NAMES[new]}"
+            return new, f"{LEVEL_NAMES[new]} ({new})"
+        factor = {"faster": 1.5, "slower": 0.67, "bigger": 1.4, "smaller": 0.7, "double": 2.0, "half": 0.5,
+                  "larger": 1.4, "wider": 1.4, "taller": 1.4, "thicker": 1.4, "longer": 1.4, "tinier": 0.7,
+                  "narrower": 0.7, "thinner": 0.7, "shorter": 0.7, "higher": 1.3, "lower": 0.77, "heavier": 1.3,
+                  "lighter": 0.77, "stronger": 1.3, "weaker": 0.77, "more": 1.3, "less": 0.77}
         for w, f in factor.items():
             if w in v.lower():
                 return round(current * f, 2), f"{w} ({round(current * f, 2)})"
+    if SIZE_WORDS.match(v):                         # "make the bird bigger": not a new look (the bird would turn
+        return None, "its size is not a live setting"   # into the word "bigger"): a number setting or edit_app
     base = v.split("@")[0].replace("|flip", "")
     if is_asset(base) and (ASSETS.parent / base.lstrip("/")).is_file():
         return v, f"the {_label(v)} picture"            # a library picture by its path (the pick pop-up)

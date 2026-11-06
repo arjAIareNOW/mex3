@@ -60,6 +60,15 @@ setTimeout(() => {
   ok($("tDesign").classList.contains("on") && sent.some(s => s.type === "view" && s.id === 1),
      "Interface tap: asks for its newest item (the game)");
   ok(!$("empty").hidden || false, "until it comes, Interface does not show the slides");
+  // live 2026-11-06: "it says I can tap space, but it's not working": the key went to this page, not the game
+  msg({ type: "views", active: 1, views: [{ id: 1, kind: "app", kindword: "game", label: "Snake game", url: "/apps/snake/" }] });
+  const gameFrame = [...d.querySelectorAll("iframe")].find(f => !f.closest("[hidden]"));
+  const gameDoc = gameFrame && gameFrame.contentDocument;
+  const gotKeys = [];
+  if (gameDoc) gameDoc.addEventListener("keydown", e => gotKeys.push(e.code));
+  const sp = new dom.window.KeyboardEvent("keydown", { key: " ", code: "Space", keyCode: 32, bubbles: true, cancelable: true });
+  d.body.dispatchEvent(sp);
+  ok(gotKeys.includes("Space") && sp.defaultPrevented, "Space pressed on the display reaches the game (and presses nothing here)");
   msg({ type: "views", active: null, views: [] });
   // the pick pop-up
   ok($("choices").hidden, "no pop-up at start");

@@ -56,6 +56,11 @@ for (const [k, v] of Object.entries({ innerWidth: 800, innerHeight: 480, deviceP
   Object.defineProperty(w, k, { value: v, configurable: true, writable: true });
 w.requestAnimationFrame = fn => (rafs.push(fn), rafs.length);
 w.cancelAnimationFrame = () => {};
+if (!w.PointerEvent) w.PointerEvent = w.MouseEvent;     // jsdom has no PointerEvent; apps and tests may use it
+// the app's clock follows the frames we step (16.7 ms each), not the real clock: frames here run far faster than
+// real time, so a game timing its shots with performance.now() would otherwise never fire twice
+let simT = 0;
+try { Object.defineProperty(w.performance, "now", { value: () => 1000 + simT, configurable: true }); } catch (e) {}
 w.alert = () => {}; w.confirm = () => true; w.prompt = () => "";
 w.scrollTo = () => {}; w.focus = () => {}; w.open = () => null;
 w.matchMedia = w.matchMedia || (() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -95,7 +100,7 @@ for (const t of ["DOMContentLoaded", "load"]) {
 let frame = 0, ts = 0;
 const pause = () => new Promise(r => setImmediate(r));
 async function runFrame() {
-  frame++; ts += 16.7;
+  frame++; ts += 16.7; simT = ts;
   const batch = rafs; rafs = [];
   for (const fn of batch) { try { fn(ts); } catch (e) { fail(e); } }
   await pause();
@@ -140,7 +145,7 @@ async function doStep(step) {
     const kc = { " ": 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Enter: 13 }[key] || 0;
     const tgt = document.activeElement || document.body;
     send(tgt, "keydown", { key, code, keyCode: kc, which: kc });
-    await runFrame();
+    for (let i = 0; i < 6; i++) await runFrame();       // held about 0.1 s, like a real key press
     send(tgt, "keyup", { key, code, keyCode: kc, which: kc });
   } else if (verb === "click") {
     const el = find(rest);
@@ -163,12 +168,23 @@ async function runTests() {
   for (const t of (Array.isArray(tests) ? tests : []).slice(0, 6)) {
     const r = { name: String(t.name || "test").slice(0, 80), ok: false };
     try {
+      // each test starts from a fresh game (the app's own reset()), not from where the test before it left
+      // things: a blink after a lost life, a snake that already turned, a game that is over
+      try { vm.runInContext("if (typeof reset === 'function' && typeof state !== 'undefined') reset();", ctxVM); }
+      catch (e) {}
       for (const s of t.setup || []) await doStep(s);
       w.__before = t.before ? vm.runInContext(String(t.before), ctxVM) : undefined;
       if (w.__before && typeof w.__before === "object") w.__before = JSON.parse(JSON.stringify(w.__before));
       for (const s of t.do || []) await doStep(s);
       if (firstErr) { r.error = "the app crashed: " + out.error; res.push(r); break; }
-      r.ok = !!vm.runInContext("(before => (" + String(t.expect) + "))(__before)", ctxVM);
+      const expect = "(before => (" + String(t.expect) + "))(__before)";
+      r.ok = !!vm.runInContext(expect, ctxVM);
+      // not yet: things may still be on their way (a fruit falling off the screen): up to 1.5 s more, as a
+      // person watching would wait. Something that never happens still fails.
+      for (let i = 0; i < 90 && !r.ok && !firstErr; i++) {
+        await runFrame();
+        try { r.ok = !!vm.runInContext(expect, ctxVM); } catch (e) { break; }
+      }
       if (!r.ok) {
         r.error = "expected " + t.expect;
         try {
@@ -184,7 +200,10 @@ async function runTests() {
 const WARMUP = { 8: "keydown", 9: "keyup", 20: "click", 30: "pointerdown", 31: "pointerup", 40: "mousedown",
   41: "mouseup", 50: "touchstart", 51: "touchend", 60: "keydown", 61: "keyup", 75: "click" };
 (async () => {
-  while (frame < 90 && !firstErr) {
+  // 4 s of play (a tap now and then after the first 1.5 s): some things only come after a while (the first
+  // cactus of a runner), and "the game never draws X" must not be said of them
+  for (let f = 105; f < 240; f += 45) { WARMUP[f] = "pointerdown"; WARMUP[f + 1] = "pointerup"; }
+  while (frame < 240 && !firstErr) {
     const t = WARMUP[frame + 1];
     if (t) send(/^key/.test(t) ? document.body : canvas(), t, /^key/.test(t) ? { key: " ", code: "Space", keyCode: 32, which: 32 } : {});
     await runFrame();

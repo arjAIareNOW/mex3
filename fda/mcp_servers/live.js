@@ -70,9 +70,10 @@ window.FDA = (function () {
     } else {                                       // emoji or text ("🐦", or "🐦@red" = tinted red)
       const [glyph, tint] = String(v).split("@");
       const s = Math.max(4, Math.min(w, h));
+      let off = null;
       if (tint) {
         const key = v + "|" + Math.round(s);
-        let off = tinted[key];
+        off = tinted[key];
         if (!off && typeof document !== "undefined" && document.createElement) {
           off = document.createElement("canvas"); off.width = off.height = Math.ceil(s * 1.2);
           const o = off.getContext("2d");
@@ -82,10 +83,18 @@ window.FDA = (function () {
           o.fillRect(0, 0, off.width, off.height);
           tinted[key] = off;
         }
-        if (off) ctx.drawImage(off, x + w / 2 - off.width / 2, y + h / 2 - off.height / 2);
-      } else {
-        ctx.font = Math.round(s * 0.9) + "px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText(glyph, x + w / 2, y + h / 2 + s * 0.05);
+      }
+      // a long thing (a pipe turned into a cactus) repeats its emoji along its length, so what you see fills the
+      // box the game collides with (one small emoji in a tall box = "game over" in empty air)
+      const along = h > 2.2 * w ? "y" : w > 2.2 * h ? "x" : "";
+      const n = along ? Math.ceil((along === "y" ? h : w) / s) : 1;
+      if (along) { ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip(); }
+      if (!tint) { ctx.font = Math.round(s * 0.9) + "px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; }
+      for (let i = 0; i < n; i++) {
+        const cx = along === "x" ? x + s / 2 + i * s : x + w / 2;
+        const cy = along === "y" ? y + s / 2 + i * s : y + h / 2;
+        if (tint) { if (off) ctx.drawImage(off, cx - off.width / 2, cy - off.height / 2); }
+        else ctx.fillText(glyph, cx, cy + s * 0.05);
       }
     }
     ctx.restore();
