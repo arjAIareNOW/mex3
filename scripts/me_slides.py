@@ -42,7 +42,7 @@ def metric(rep: dict | None, prefix: str) -> tuple[str, str]:
         w = (rep.get("wer") or {}).get("wer")
         return (f"{100 * w:.1f} %" if w is not None else "-"), "-"
     s = next((v for k, v in rep.get("metrics_s", {}).items() if k.startswith(prefix)), None) or {}
-    f = lambda v: f"{v:.2f} s" if v is not None else "-"   # noqa: E731
+    f = lambda v: f"{v + 1e-9:.2f} s" if v is not None else "-"   # noqa: E731  (half up: 1.545 -> 1.55)
     return f(s.get("mean")), f(s.get("p95"))
 
 
@@ -176,7 +176,7 @@ def table(sl, x, y, widths, rows, row_h=0.26, size=8.5, head_fill=NAVY, blank_co
 # --------------------------------------------------------------------------------------------- page 1
 def page1(prs):
     sl = prs.slides.add_slide(prs.slide_layouts[6])
-    header(sl, "MACHINE EXERCISE - ELKIT (FDA) v2.8", "Full-Duplex Voice Agent on a Raspberry Pi",
+    header(sl, "MACHINE EXERCISE - ELKIT (FDA) v3.0", "Full-Duplex Voice Agent on a Raspberry Pi",
            "Raspberry Pi 5 · Pipecat 1.15 · MCP")
 
     section(sl, 0.6, 1.3, 1, "SYSTEM DIAGRAM", "the one diagram that explains the build")
@@ -189,7 +189,7 @@ def page1(prs):
     box(sl, 3.74, 1.93, 1.56, 2.15, None, ORANGE, dash=True, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
     node(sl, 3.82, 2.0, 1.4, 0.46, "asr-mcp :8101", "transcribe()", line=ORANGE)
     node(sl, 3.82, 3.1, 1.4, 0.42, "tts-mcp :8102", "synthesize()", line=ORANGE)
-    node(sl, 3.82, 3.6, 1.4, 0.42, "tools-mcp :8103", "36 tools: apps, web, room", line=ORANGE)
+    node(sl, 3.82, 3.6, 1.4, 0.42, "tools-mcp :8103", "39 tools: apps, web, room, phone", line=ORANGE)
     text(sl, 3.74, 2.52, 1.56, 0.2, "OUR MCP SERVERS", size=7, color=ORANGE, bold=True, align=PP_ALIGN.CENTER)
     # audio in -> VAD -> guard -> asr-mcp
     node(sl, 0.72, 2.0, 0.62, 0.46, "Mic", "USB")
@@ -205,16 +205,15 @@ def page1(prs):
     # voice out
     node(sl, 0.72, 3.1, 1.5, 0.42, "Speaker", "stops on barge-in")
     arrow(sl, 3.82, 3.31, 2.22, 3.31)
-    text(sl, 0.72, 3.62, 2.9, 0.4, "agent calls asr / tts / tools over MCP (HTTP)\noffline on the Pi: Moonshine ASR · Piper TTS",
+    text(sl, 0.72, 3.62, 2.9, 0.4, "agent calls asr / tts / tools over MCP (HTTP)\non the Pi: Piper voice (main) · Moonshine ASR (backup)",
          size=7.5, color=TEAL, italic=True)
     # cloud
     node(sl, 5.65, 2.0, 1.85, 0.46, "Groq Whisper", "large-v3-turbo (+v3)", line=ORANGE)
     node(sl, 5.65, 2.62, 1.85, 0.42, "Groq LLM", "gpt-oss-120b", line=ORANGE)
-    node(sl, 5.65, 3.1, 1.85, 0.42, "DGX3 Qwen3-TTS", "school GPU, VPN", line=ORANGE)
+    node(sl, 5.65, 3.1, 1.85, 0.42, "(no cloud voice)", "Piper runs on the RPi", line=LINE)
     node(sl, 5.65, 3.6, 1.85, 0.42, "Web APIs", "weather · search · news", line=ORANGE)
     arrow(sl, 5.22, 2.23, 5.65, 2.23, both=True)
     arrow(sl, 3.56, 2.83, 5.65, 2.83, both=True)
-    arrow(sl, 5.22, 3.31, 5.65, 3.31, both=True)
     arrow(sl, 5.22, 3.81, 5.65, 3.81, both=True)
 
     box(sl, 0.6, 4.24, 7.0, 0.32, NAVY, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
@@ -222,7 +221,7 @@ def page1(prs):
          "voice in -> Silero VAD -> asr-mcp (Whisper) -> gpt-oss-120b (+tools-mcp) -> tts-mcp -> voice out",
          size=8.5, color=WHITE, font=MONO, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
     text(sl, 0.6, 4.58, 7.0, 0.25,
-         "barge-in: VAD start -> duck -> ASR peek (2+ words) -> stop TTS + cancel LLM -> listen",
+         "barge-in: VAD start -> duck -> quick ASR peek (0.1 s) -> stop TTS + cancel LLM -> listen",
          size=8.5, color=ORANGE, bold=True, font=MONO, align=PP_ALIGN.CENTER)
 
     text(sl, 7.95, 1.75, 4.8, 3.1, [
@@ -231,13 +230,13 @@ def page1(prs):
         "- LLM: Groq gpt-oss-120b (commercial API, streaming), fallback gpt-oss-20b; app coder qwen3.8-27b",
         "- Our 3 MCP servers, built by us, run on the RPi: asr :8101, tts :8102, tools :8103",
         "- Barge-in cancels TTS playback and the LLM stream; \"mm-hm\", side talk and TV are not barge-in",
-        "- Each engine has a fallback: Whisper v3, Piper, Moonshine; Elkit keeps talking offline",
+        "- Voice: Piper (en_US-ryan) on the RPi, no VPN; listening falls back to Whisper v3, then Moonshine offline",
     ], size=10.5, space=5)
 
     section(sl, 0.6, 4.98, 2, "PROMPT", "kept in the repo, versioned (fda/pc/agent.py SYSTEM)")
     box(sl, 0.6, 5.36, 7.0, 1.62, LIGHT, LINE, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
     text(sl, 0.75, 5.42, 6.75, 1.5, [
-        [("SYSTEM PROMPT (v2.8) - excerpt", {"bold": True, "color": TEAL})],
+        [("SYSTEM PROMPT (v3.0) - excerpt", {"bold": True, "color": TEAL})],
         "You are {name}, a voice assistant on a small screen. You speak out",
         "loud in real time: warm, relaxed and natural, usually one or two",
         "short sentences. Everything you write is spoken: no lists, no markdown.",
@@ -272,7 +271,7 @@ def page1(prs):
 # --------------------------------------------------------------------------------------------- page 2
 def page2(prs):
     sl = prs.slides.add_slide(prs.slide_layouts[6])
-    header(sl, "MACHINE EXERCISE - ELKIT (FDA) v2.8", "MCP Services, Evaluation & Model Serving",
+    header(sl, "MACHINE EXERCISE - ELKIT (FDA) v3.0", "MCP Services, Evaluation & Model Serving",
            "build + run servers on the RPi")
 
     section(sl, 0.6, 1.3, 4, "MCP SERVICES", "+ section 6: model serving (one table, one truth)")
@@ -281,49 +280,50 @@ def page2(prs):
         ["ASR", "asr-mcp / HTTP :8101", "transcribe(audio) -> text, asr_info()",
          "Groq Whisper large-v3-turbo -> large-v3 -> Moonshine", "RPi server; final on VAD end; FLAC upload; backup after 0.7 s"],
         ["TTS", "tts-mcp / HTTP :8102", "synthesize(text, voice, speed) -> audio",
-         "DGX3 Qwen3-TTS -> Piper (offline)", "RPi server; sentence by sentence, cancelled on barge-in"],
+         "Piper en_US-ryan-medium (on the RPi)", "RPi server; sentence by sentence, cancelled on barge-in"],
         ["LLM", "(Pipecat MCP client)", "function calling: MCP + screen tools",
          "Groq gpt-oss-120b -> gpt-oss-20b", "commercial API; streaming tokens"],
         ["VAD", "in-process", "VADProcessor(frames)", "Silero VAD (0.6, start 0.15 s, stop 0.2 s)",
          "RPi on-device, 16 kHz mono"],
-        ["Task", "tools-mcp / HTTP :8103", "create_app, edit_app, get_weather, web_search, lights, timer, list_items ... (36)",
+        ["Task", "tools-mcp / HTTP :8103", "create_app, edit_app, get_weather, web_search, lights, timer, call, message ... (39)",
          "app coder: Groq qwen3.8-27b; web APIs", "RPi server; room tools call the agent's room hub"],
     ], row_h=0.3, size=8.5)
 
     section(sl, 0.6, 3.68, 5, "EVALUATION & BENCHMARK", "standardized latency method (classwork)")
     text(sl, 0.6, 4.08, 6.4, 1.6, [
-        "- One clock: RPi monotonic; Pipecat Mark processors stamp every stage of each turn",
-        "- VAD end -> ASR final -> LLM 1st token -> TTS 1st audio -> speaker (\"turn timing\" log)",
-        "- E2E = first audio - VAD end; barge-in = playback stopped - user speech start",
-        "- fd-benchmark: 42 clips (14 tasks x 3 rounds, seed 11273), same clips every run; "
-        "mean + p95 over all spoken turns",
-        "- WER: what Elkit heard vs each clip's transcript (normalised, word Levenshtein)",
-        "- report: scripts/latency_report.py <run> -> latency_report.json",
+        "- One clock: the RPi's monotonic clock; fd-benchmark's Pipecat observer marks every stage",
+        "- VAD end -> ASR final -> LLM 1st token -> TTS 1st audio -> speaker; E2E = audio out - VAD end",
+        "- barge-in = playback stopped - user speech start; LLM TTFT includes tool (MCP) time",
+        "- course stage-latency test: 10 phrases x 3 runs, mean + p95; then 3 Full-Duplex-Bench rounds",
+        "- WER: Elkit's own ASR vs each phrase's transcript; Pi CPU / RAM / temperature logged",
+        "- report: fd-benchmark results.csv -> scripts/fdbench_to_deck.py -> this table",
     ], size=9.5, space=3)
     rep = pi_report()
     table(sl, 7.3, 4.05, [1.05, 2.4, 0.75, 0.6, 0.62], [
         ["Metric", "Definition", "Target", "Mean", "p95"],
         ["E2E latency", "end of speech -> audio out", "< 4.0 s", *metric(rep, "E2E")],
         ["ASR final", "end of speech -> transcript", "< 0.8 s", *metric(rep, "ASR")],
-        ["LLM TTFT", "turn end -> first token", "< 1.5 s", *metric(rep, "LLM")],
+        ["LLM TTFT", "transcript -> first token", "< 1.5 s", *metric(rep, "LLM")],
         ["TTS TTFB", "text -> first audio chunk", "< 0.6 s", *metric(rep, "TTS")],
         ["Barge-in", "speech -> playback stopped", "< 0.8 s", *metric(rep, "Barge")],
-        ["WER", "ASR accuracy on the clip set", "< 15 %", *metric(rep, "WER")],
+        ["WER", "ASR accuracy on the test set", "< 15 %", *metric(rep, "WER")],
     ], row_h=0.235, size=8.5)
     if rep:
-        w = rep.get("wer") or {}
+        w, r = rep.get("wer") or {}, rep.get("resources") or {}
+        temp = f" · peak {r['peak_temp_c']:.0f} °C, never throttled" if r.get("peak_temp_c") is not None and \
+            not r.get("throttled_rate") else ""
         results = [
-            f"- {rep['device']}",
-            f"- cooling: {rep.get('cooling') or '-'} · network: {rep.get('network') or '-'}",
-            f"- run {rep['run']} · report {rep['date']} · WER {w.get('errors')}/{w.get('ref_words')} words",
+            f"- {rep['device'].split(', Linux')[0]}",
+            f"- cooling: {rep.get('cooling') or '-'}{temp} · {rep.get('network') or '-'}",
+            f"- run {rep['run']} · WER {100 * (w.get('wer') or 0):.1f} % on {w.get('trials') or '-'} phrases",
             "- models: Whisper large-v3-turbo, gpt-oss-120b,",
-            "  Qwen3-TTS / Piper, Silero VAD, Pipecat 1.15"]
+            "  Piper en_US-ryan, Silero VAD, Pipecat 1.15"]
     else:
         results = [
             [("Mean / p95: filled from the RPi run", {"italic": True, "color": GRAY})],
             [("RPi 5 · ___ GB RAM · cooling ___ · network ___ · date ___", {"italic": True, "color": GRAY})],
             "- models: Whisper large-v3-turbo, gpt-oss-120b,",
-            "  Qwen3-TTS / Piper, Silero VAD, Pipecat 1.15",
+            "  Piper en_US-ryan, Silero VAD, Pipecat 1.15",
             [("latency chart: per-stage bars, mean + p95", {"italic": True, "color": GRAY})]]
 
     for x, title, body in (
@@ -332,13 +332,14 @@ def page2(prs):
             "- \"Weather in Quezon City?\" live tools-mcp call",
             "- talk over it: stops; \"mm-hm\" and side talk do not",
             "- \"Build me a snake game\": create_app on screen",
-            "- recovery: VPN off -> Piper voice; slow Groq -> v3 backup"]),
+            "- pretend phone: \"call my wife\" rings; \"text Mommy\"; a joke waits for \"why?\""]),
         (4.72, "RESULTS (RPi run)" if rep else "RESULTS (after the RPi run)", results),
         (8.84, "CHALLENGES & REFERENCES", [
-            "- flat 0.8 s turn wait -> final transcript + wait by text: turn-taking 4.30 -> 1.44 s*",
-            "- late barge-in stop -> ASR peeks at 0.5/0.9/1.3 s: stop 2.2 -> 1.6-1.9 s*",
-            "- deaf after a test video, slow lookups -> fixes: failed trials 12 -> 6 of 42*",
-            [("* laptop, fd-benchmark. refs: modelcontextprotocol.io, docs.pipecat.ai, fd-benchmark, repo",
+            "- barge-in 1.45 -> 0.89 s: quick offline peeks (0.1 s)",
+            "- LLM 1.55 s incl. web tools (MCP 1.26 s mean)",
+            "- no VPN: Piper on the RPi, TTS 0.77 -> 0.67 s",
+            "- turn wait by text: turn-taking 4.30 -> 1.44 s (laptop)",
+            [("refs: modelcontextprotocol.io · docs.pipecat.ai · fd-benchmark · repo",
               {"size": 7.5, "color": GRAY, "italic": True})]]),
     ):
         box(sl, x, 5.82, 3.9, 1.18, LIGHT, LINE, shape=MSO_SHAPE.ROUNDED_RECTANGLE)

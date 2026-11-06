@@ -1,0 +1,1096 @@
+{
+  "about": "Stage latency per turn (course template, section 5). Times in seconds on the assistant machine's monotonic clock; e2e = audio_out - vad_end; e2e_heard = reply audio start - true end of speech (fdbench's audio clock); endpointing = vad_end - true end of speech.",
+  "phrases": 10,
+  "runs": 3,
+  "turns": [
+    {
+      "trial": "r01_stage_latency_phrase_v15_backchannel_48",
+      "run": 1,
+      "clip": "phrase_v15_backchannel_48",
+      "ref": "Explain the periodic table completely.",
+      "e2e": 2.94,
+      "e2e_source": "marks",
+      "e2e_heard": 3.108,
+      "endpointing": 0.1104,
+      "asr_final": 0.8077,
+      "llm_ttft": 1.0051,
+      "tts_ttfb": 1.071,
+      "transcript": "Explain the periodic table completely.",
+      "context_tokens": 184,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 5,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_backchannel_50",
+      "run": 1,
+      "clip": "phrase_v15_backchannel_50",
+      "ref": "Detail earthquakes thoroughly.",
+      "e2e": 2.9015,
+      "e2e_source": "marks",
+      "e2e_heard": 3.012,
+      "endpointing": 0.0931,
+      "asr_final": 0.5288,
+      "llm_ttft": 1.3154,
+      "tts_ttfb": 0.9912,
+      "transcript": "Detail earthquakes thoroughly.",
+      "context_tokens": 132,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_backchannel_51",
+      "run": 1,
+      "clip": "phrase_v15_backchannel_51",
+      "ref": "Describe tsunamis comprehensively.",
+      "e2e": 3.9324,
+      "e2e_source": "marks",
+      "e2e_heard": 4.068,
+      "endpointing": 0.1143,
+      "asr_final": 1.2569,
+      "llm_ttft": 1.1163,
+      "tts_ttfb": 1.4199,
+      "transcript": "Describe tsunamis comprehensively.",
+      "context_tokens": 55,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_backchannel_63",
+      "run": 1,
+      "clip": "phrase_v15_backchannel_63",
+      "ref": "Describe space telescopes completely.",
+      "e2e": 2.8173,
+      "e2e_source": "marks",
+      "e2e_heard": 2.948,
+      "endpointing": 0.1133,
+      "asr_final": 0.75,
+      "llm_ttft": 0.9699,
+      "tts_ttfb": 1.0359,
+      "transcript": "Describe space telescopes completely.",
+      "context_tokens": 47,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 4,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_backchannel_7",
+      "run": 1,
+      "clip": "phrase_v15_backchannel_7",
+      "ref": "Give a detailed introduction to the stock market.",
+      "e2e": 2.5443,
+      "e2e_source": "marks",
+      "e2e_heard": 2.692,
+      "endpointing": 0.1648,
+      "asr_final": 0.6656,
+      "llm_ttft": 0.7903,
+      "tts_ttfb": 1.0353,
+      "transcript": "Give a detailed introduction to the stock market.",
+      "context_tokens": 50,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_background_27",
+      "run": 1,
+      "clip": "phrase_v15_background_27",
+      "ref": "Define the word 'ephemeral'.",
+      "e2e": 7.1894,
+      "e2e_source": "marks",
+      "e2e_heard": 7.3,
+      "endpointing": 0.091,
+      "asr_final": 0.5412,
+      "llm_ttft": 5.9501,
+      "tts_ttfb": 0.6183,
+      "transcript": "Define the word ephemeral.",
+      "context_tokens": 177,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 4,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_background_54",
+      "run": 1,
+      "clip": "phrase_v15_background_54",
+      "ref": "What's the stock price of Tesla right now?",
+      "e2e": 2.2982,
+      "e2e_source": "marks",
+      "e2e_heard": 2.468,
+      "endpointing": 0.1221,
+      "asr_final": 0.962,
+      "llm_ttft": null,
+      "tts_ttfb": 0.0065,
+      "transcript": "What's the stock price of Tesla right now?",
+      "context_tokens": 159,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_background_76",
+      "run": 1,
+      "clip": "phrase_v15_background_76",
+      "ref": "Cancel all timers.",
+      "e2e": 8.0822,
+      "e2e_source": "marks",
+      "e2e_heard": null,
+      "endpointing": 0.1308,
+      "asr_final": 0.5372,
+      "llm_ttft": 7.2054,
+      "tts_ttfb": 0.2972,
+      "transcript": "Cancel all timers.",
+      "context_tokens": 84,
+      "context_messages": 7,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_background_95",
+      "run": 1,
+      "clip": "phrase_v15_background_95",
+      "ref": "Set a 10‑minute timer for pasta.",
+      "e2e": 2.4612,
+      "e2e_source": "marks",
+      "e2e_heard": 2.596,
+      "endpointing": 0.1225,
+      "asr_final": 1.3128,
+      "llm_ttft": 1.1203,
+      "tts_ttfb": 0.0087,
+      "transcript": "Set a 10-minute timer for pasta.",
+      "context_tokens": 59,
+      "context_messages": 7,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 7,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_interruption_30",
+      "run": 1,
+      "clip": "phrase_v15_interruption_30",
+      "ref": "My tomatoes are not growing well this season",
+      "e2e": 3.65,
+      "e2e_source": "marks",
+      "e2e_heard": 3.78,
+      "endpointing": 0.1132,
+      "asr_final": 1.263,
+      "llm_ttft": 1.8846,
+      "tts_ttfb": 0.4233,
+      "transcript": "My tomatoes are not growing well this season.",
+      "context_tokens": 49,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_backchannel_48",
+      "run": 2,
+      "clip": "phrase_v15_backchannel_48",
+      "ref": "Explain the periodic table completely.",
+      "e2e": 3.2802,
+      "e2e_source": "marks",
+      "e2e_heard": 3.46,
+      "endpointing": 0.1046,
+      "asr_final": 1.3598,
+      "llm_ttft": 0.8846,
+      "tts_ttfb": 0.9852,
+      "transcript": "Explain the periodic table completely.",
+      "context_tokens": 168,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 5,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_backchannel_50",
+      "run": 2,
+      "clip": "phrase_v15_backchannel_50",
+      "ref": "Detail earthquakes thoroughly.",
+      "e2e": 3.1416,
+      "e2e_source": "marks",
+      "e2e_heard": 3.236,
+      "endpointing": 0.0775,
+      "asr_final": 0.5997,
+      "llm_ttft": 1.4304,
+      "tts_ttfb": 1.0235,
+      "transcript": "Detail earthquakes thoroughly.",
+      "context_tokens": 162,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_backchannel_51",
+      "run": 2,
+      "clip": "phrase_v15_backchannel_51",
+      "ref": "Describe tsunamis comprehensively.",
+      "e2e": 2.7347,
+      "e2e_source": "marks",
+      "e2e_heard": 2.852,
+      "endpointing": 0.1115,
+      "asr_final": 0.5609,
+      "llm_ttft": 0.8288,
+      "tts_ttfb": 1.2576,
+      "transcript": "Describe tsunamis comprehensively.",
+      "context_tokens": 46,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_backchannel_63",
+      "run": 2,
+      "clip": "phrase_v15_backchannel_63",
+      "ref": "Describe space telescopes completely.",
+      "e2e": 2.9031,
+      "e2e_source": "marks",
+      "e2e_heard": 3.076,
+      "endpointing": 0.1016,
+      "asr_final": 0.5359,
+      "llm_ttft": 1.2637,
+      "tts_ttfb": 1.0386,
+      "transcript": "Describe space telescopes completely.",
+      "context_tokens": 47,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 4,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_backchannel_7",
+      "run": 2,
+      "clip": "phrase_v15_backchannel_7",
+      "ref": "Give a detailed introduction to the stock market.",
+      "e2e": 2.4209,
+      "e2e_source": "marks",
+      "e2e_heard": 2.564,
+      "endpointing": 0.1159,
+      "asr_final": 0.5393,
+      "llm_ttft": 0.7675,
+      "tts_ttfb": 1.0624,
+      "transcript": "Give a detailed introduction to the stock market.",
+      "context_tokens": 50,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_background_27",
+      "run": 2,
+      "clip": "phrase_v15_background_27",
+      "ref": "Define the word 'ephemeral'.",
+      "e2e": 2.0831,
+      "e2e_source": "marks",
+      "e2e_heard": 2.18,
+      "endpointing": 0.0723,
+      "asr_final": 0.5298,
+      "llm_ttft": 0.8916,
+      "tts_ttfb": 0.6216,
+      "transcript": "Define the word ephemeral.",
+      "context_tokens": 44,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 4,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_background_54",
+      "run": 2,
+      "clip": "phrase_v15_background_54",
+      "ref": "What's the stock price of Tesla right now?",
+      "e2e": 1.4794,
+      "e2e_source": "marks",
+      "e2e_heard": 1.604,
+      "endpointing": 0.1074,
+      "asr_final": 0.6168,
+      "llm_ttft": null,
+      "tts_ttfb": 0.2354,
+      "transcript": "What's the stock price of Tesla right now?",
+      "context_tokens": 181,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_background_76",
+      "run": 2,
+      "clip": "phrase_v15_background_76",
+      "ref": "Cancel all timers.",
+      "e2e": 3.7634,
+      "e2e_source": "marks",
+      "e2e_heard": 3.876,
+      "endpointing": 0.1151,
+      "asr_final": 1.0932,
+      "llm_ttft": 2.4269,
+      "tts_ttfb": 0.2224,
+      "transcript": "Cancel all timers.",
+      "context_tokens": 58,
+      "context_messages": 7,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_background_95",
+      "run": 2,
+      "clip": "phrase_v15_background_95",
+      "ref": "Set a 10‑minute timer for pasta.",
+      "e2e": 1.55,
+      "e2e_source": "marks",
+      "e2e_heard": 1.668,
+      "endpointing": 0.1089,
+      "asr_final": 0.5273,
+      "llm_ttft": null,
+      "tts_ttfb": 0.0025,
+      "transcript": "Set a 10-minute timer for pasta.",
+      "context_tokens": 133,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 7,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_interruption_30",
+      "run": 2,
+      "clip": "phrase_v15_interruption_30",
+      "ref": "My tomatoes are not growing well this season",
+      "e2e": 1.6025,
+      "e2e_source": "marks",
+      "e2e_heard": 1.764,
+      "endpointing": 0.1017,
+      "asr_final": 0.5543,
+      "llm_ttft": 0.8417,
+      "tts_ttfb": 0.1827,
+      "transcript": "My tomatoes are not growing well this season.",
+      "context_tokens": 185,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_backchannel_48",
+      "run": 3,
+      "clip": "phrase_v15_backchannel_48",
+      "ref": "Explain the periodic table completely.",
+      "e2e": 2.6019,
+      "e2e_source": "marks",
+      "e2e_heard": 2.724,
+      "endpointing": 0.1114,
+      "asr_final": 0.5364,
+      "llm_ttft": 0.8783,
+      "tts_ttfb": 1.1225,
+      "transcript": "Explain the periodic table completely.",
+      "context_tokens": 47,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 5,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_backchannel_50",
+      "run": 3,
+      "clip": "phrase_v15_backchannel_50",
+      "ref": "Detail earthquakes thoroughly.",
+      "e2e": 2.4093,
+      "e2e_source": "marks",
+      "e2e_heard": 2.5,
+      "endpointing": 0.0824,
+      "asr_final": 0.6311,
+      "llm_ttft": 0.8262,
+      "tts_ttfb": 0.8981,
+      "transcript": "Detail earthquakes thoroughly.",
+      "context_tokens": 45,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_backchannel_51",
+      "run": 3,
+      "clip": "phrase_v15_backchannel_51",
+      "ref": "Describe tsunamis comprehensively.",
+      "e2e": 2.6638,
+      "e2e_source": "marks",
+      "e2e_heard": 2.788,
+      "endpointing": 0.1343,
+      "asr_final": 0.5521,
+      "llm_ttft": 0.7984,
+      "tts_ttfb": 1.248,
+      "transcript": "Describe tsunamis comprehensively.",
+      "context_tokens": 46,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_backchannel_63",
+      "run": 3,
+      "clip": "phrase_v15_backchannel_63",
+      "ref": "Describe space telescopes completely.",
+      "e2e": 3.7085,
+      "e2e_source": "marks",
+      "e2e_heard": 3.94,
+      "endpointing": 0.1128,
+      "asr_final": 1.7761,
+      "llm_ttft": 0.7519,
+      "tts_ttfb": 1.0751,
+      "transcript": "Describe space telescopes completely.",
+      "context_tokens": 47,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 4,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_backchannel_7",
+      "run": 3,
+      "clip": "phrase_v15_backchannel_7",
+      "ref": "Give a detailed introduction to the stock market.",
+      "e2e": 3.2418,
+      "e2e_source": "marks",
+      "e2e_heard": 3.396,
+      "endpointing": 0.1101,
+      "asr_final": 1.3199,
+      "llm_ttft": 0.8214,
+      "tts_ttfb": 1.0431,
+      "transcript": "Give a detailed introduction to the stock market.",
+      "context_tokens": 180,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_background_27",
+      "run": 3,
+      "clip": "phrase_v15_background_27",
+      "ref": "Define the word 'ephemeral'.",
+      "e2e": 2.0777,
+      "e2e_source": "marks",
+      "e2e_heard": 2.18,
+      "endpointing": 0.0798,
+      "asr_final": 0.5232,
+      "llm_ttft": 0.8313,
+      "tts_ttfb": 0.6847,
+      "transcript": "Define the word ephemeral.",
+      "context_tokens": 173,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 4,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_background_54",
+      "run": 3,
+      "clip": "phrase_v15_background_54",
+      "ref": "What's the stock price of Tesla right now?",
+      "e2e": 2.726,
+      "e2e_source": "marks",
+      "e2e_heard": 2.884,
+      "endpointing": 0.1199,
+      "asr_final": 0.6434,
+      "llm_ttft": null,
+      "tts_ttfb": 0.0088,
+      "transcript": "What's the stock price of Tesla right now?",
+      "context_tokens": 166,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_background_76",
+      "run": 3,
+      "clip": "phrase_v15_background_76",
+      "ref": "Cancel all timers.",
+      "e2e": 2.6044,
+      "e2e_source": "marks",
+      "e2e_heard": 2.724,
+      "endpointing": 0.1265,
+      "asr_final": 0.5257,
+      "llm_ttft": 1.8418,
+      "tts_ttfb": 0.2161,
+      "transcript": "Cancel all timers.",
+      "context_tokens": 194,
+      "context_messages": 8,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 3,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_background_95",
+      "run": 3,
+      "clip": "phrase_v15_background_95",
+      "ref": "Set a 10‑minute timer for pasta.",
+      "e2e": 2.3229,
+      "e2e_source": "marks",
+      "e2e_heard": 2.436,
+      "endpointing": 0.114,
+      "asr_final": 1.0086,
+      "llm_ttft": null,
+      "tts_ttfb": 0.006,
+      "transcript": "Set a 10-minute timer for pasta.",
+      "context_tokens": 46,
+      "context_messages": 5,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 7,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_interruption_30",
+      "run": 3,
+      "clip": "phrase_v15_interruption_30",
+      "ref": "My tomatoes are not growing well this season",
+      "e2e": 1.9145,
+      "e2e_source": "marks",
+      "e2e_heard": 2.116,
+      "endpointing": 0.1245,
+      "asr_final": 0.5176,
+      "llm_ttft": 1.1843,
+      "tts_ttfb": 0.1872,
+      "transcript": "My tomatoes are not growing well this season.",
+      "context_tokens": 184,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    }
+  ],
+  "per_run": {
+    "1": {
+      "e2e": {
+        "n": 10,
+        "median": 2.92075,
+        "p95": 7.680439999999999,
+        "mean": 3.8816499999999996,
+        "min": 2.2982,
+        "max": 8.0822,
+        "ci95_median": [
+          2.5443,
+          3.9324
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "asr_final": {
+        "n": 10,
+        "median": 0.77885,
+        "p95": 1.29039,
+        "mean": 0.86252,
+        "min": 0.5288,
+        "max": 1.3128,
+        "ci95_median": [
+          0.5412,
+          1.2569
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "llm_ttft": {
+        "n": 9,
+        "median": 1.1203,
+        "p95": 6.7032799999999995,
+        "mean": 2.373044444444444,
+        "min": 0.7903,
+        "max": 7.2054,
+        "ci95_median": [
+          0.9699,
+          1.8846
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "tts_ttfb": {
+        "n": 10,
+        "median": 0.80475,
+        "p95": 1.2628949999999997,
+        "mean": 0.6907300000000001,
+        "min": 0.0065,
+        "max": 1.4199,
+        "ci95_median": [
+          0.216,
+          1.05315
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      }
+    },
+    "2": {
+      "e2e": {
+        "n": 10,
+        "median": 2.5778,
+        "p95": 3.545959999999999,
+        "mean": 2.49589,
+        "min": 1.4794,
+        "max": 3.7634,
+        "ci95_median": [
+          1.6025,
+          3.1416
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "asr_final": {
+        "n": 10,
+        "median": 0.5576,
+        "p95": 1.2398299999999995,
+        "mean": 0.6917,
+        "min": 0.5273,
+        "max": 1.3598,
+        "ci95_median": [
+          0.53285,
+          0.8464499999999999
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "llm_ttft": {
+        "n": 8,
+        "median": 0.8881,
+        "p95": 2.078124999999999,
+        "mean": 1.1669,
+        "min": 0.7675,
+        "max": 2.4269,
+        "ci95_median": [
+          0.8288,
+          1.4304
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "tts_ttfb": {
+        "n": 10,
+        "median": 0.8034,
+        "p95": 1.16976,
+        "mean": 0.66319,
+        "min": 0.0025,
+        "max": 1.2576,
+        "ci95_median": [
+          0.20905,
+          1.04295
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      }
+    },
+    "3": {
+      "e2e": {
+        "n": 10,
+        "median": 2.6031500000000003,
+        "p95": 3.4984849999999996,
+        "mean": 2.6270800000000003,
+        "min": 1.9145,
+        "max": 3.7085,
+        "ci95_median": [
+          2.2435,
+          2.9528
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "asr_final": {
+        "n": 10,
+        "median": 0.5916,
+        "p95": 1.5708099999999996,
+        "mean": 0.8034099999999998,
+        "min": 0.5176,
+        "max": 1.7761,
+        "ci95_median": [
+          0.5257,
+          1.0086
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "llm_ttft": {
+        "n": 8,
+        "median": 0.8287500000000001,
+        "p95": 1.6116749999999997,
+        "mean": 0.9917,
+        "min": 0.7519,
+        "max": 1.8418,
+        "ci95_median": [
+          0.7984,
+          1.1843
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "tts_ttfb": {
+        "n": 10,
+        "median": 0.7914,
+        "p95": 1.191525,
+        "mean": 0.64896,
+        "min": 0.006,
+        "max": 1.248,
+        "ci95_median": [
+          0.11245,
+          1.0828
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      }
+    }
+  }
+}

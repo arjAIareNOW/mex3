@@ -1,0 +1,332 @@
+{
+  "run": "2026-11-06_16-06-46",
+  "date": "2026-11-06",
+  "device": "Raspberry Pi 5 Model B Rev 1.1, 8 GB RAM, Linux 6.18.50+rpt-rpi-2712, Python 3.13.5",
+  "cooling": "case fan",
+  "network": "Wi-Fi (same router as the laptop)",
+  "method": "fd-benchmark clips (same seed) on Elkit; per-stage stamps on the device's monotonic clock; mean and p95 over all spoken turns of the run",
+  "metrics_s": {
+    "E2E latency (VAD end -> first audio)": {
+      "n": 30,
+      "mean": 3.016,
+      "p50": 2.726,
+      "p95": 4.671
+    },
+    "ASR final (VAD end -> transcript)": {
+      "n": 30,
+      "mean": 0.836,
+      "p50": 0.633,
+      "p95": 1.689
+    },
+    "turn end wait (transcript -> turn end)": {
+      "n": 30,
+      "mean": 0.511,
+      "p50": 0.302,
+      "p95": 2.592
+    },
+    "LLM TTFT (turn end -> first token)": {
+      "n": 30,
+      "mean": 1.041,
+      "p50": 0.703,
+      "p95": 2.7
+    },
+    "TTS TTFB (first text -> first audio)": {
+      "n": 30,
+      "mean": 0.628,
+      "p50": 0.544,
+      "p95": 1.059
+    },
+    "Barge-in (speech -> playback stopped)": {
+      "n": 3,
+      "mean": 1.223,
+      "p50": 1.212,
+      "p95": 2.22
+    },
+    "First sound (VAD end -> filler or answer)": {
+      "n": 30,
+      "mean": 2.901,
+      "p50": 2.52,
+      "p95": 4.671
+    },
+    "Filler said (turns with one)": {
+      "n": 8,
+      "mean": 2.569,
+      "p50": 2.315,
+      "p95": 4.256
+    }
+  },
+  "wer": {
+    "wer": 0.0632,
+    "errors": 32,
+    "ref_words": 506,
+    "trials": 38
+  },
+  "wer_per_trial": [
+    {
+      "trial": "r01_v1_pause_synth_v1_pause_synth_42",
+      "ref_words": 26,
+      "errors": 2,
+      "heard": "The main point of the game is to collect as many points as possible. You earn points by Capturing territories. And Each territory has different values.",
+      "said": "the main point of the game is to collect as many points as possible you earn points by capturing territories and each territory is different value"
+    },
+    {
+      "trial": "r01_false_tt_false_side_talk_008",
+      "ref_words": 8,
+      "errors": 0,
+      "heard": "Chris, your laptop's still on the table, man.",
+      "said": "chris your laptop's still on the table man"
+    },
+    {
+      "trial": "r01_v15_background_v15_background_23",
+      "ref_words": 14,
+      "errors": 0,
+      "heard": "Play the latest episode of my favorite podcast. We should water the plants later.",
+      "said": "play the latest episode of my favorite podcast we should water the plants later"
+    },
+    {
+      "trial": "r01_v15_background_v15_background_23_clean",
+      "ref_words": 8,
+      "errors": 0,
+      "heard": "Play the latest episode of my favorite podcast.",
+      "said": "play the latest episode of my favorite podcast"
+    },
+    {
+      "trial": "r01_v15_talking_to_other_v15_talking_to_other_72",
+      "ref_words": 12,
+      "errors": 0,
+      "heard": "What's the population of Toronto? Sarah, you done with your homework yet?",
+      "said": "what's the population of toronto sarah you done with your homework yet"
+    },
+    {
+      "trial": "r01_v15_talking_to_other_v15_talking_to_other_72_clean",
+      "ref_words": 5,
+      "errors": 0,
+      "heard": "What's the population of Toronto?",
+      "said": "what's the population of toronto"
+    },
+    {
+      "trial": "r01_v15_backchannel_v15_backchannel_52",
+      "ref_words": 8,
+      "errors": 0,
+      "heard": "Offer an exhaustive overview of tornadoes. Uh-huh, yeah.",
+      "said": "offer an exhaustive overview of tornadoes huh yeah"
+    },
+    {
+      "trial": "r01_v15_backchannel_v15_backchannel_52_clean",
+      "ref_words": 6,
+      "errors": 0,
+      "heard": "Offer an exhaustive overview of tornadoes.",
+      "said": "offer an exhaustive overview of tornadoes"
+    },
+    {
+      "trial": "r01_v1_pause_candor_v1_pause_candor_30",
+      "ref_words": 28,
+      "errors": 4,
+      "heard": "And so my stepdad had a house upstate. Where we lived with him for a while. But we moved back down when he also passed away. Um,",
+      "said": "and so my step dad had a house of state where we lived with him for a while but we moved back down when he also passed away"
+    },
+    {
+      "trial": "r01_v1_interrupt_v1_interrupt_52",
+      "ref_words": 20,
+      "errors": 2,
+      "heard": "What kind of movies do you think... I would like to share. Oh, before I forget, can we discuss some music instead?",
+      "said": "what kind of movies do you think i would like oh before i forget can we discuss some music instead"
+    },
+    {
+      "trial": "r01_false_tt_false_tv_radio_008",
+      "ref_words": 7,
+      "errors": 1,
+      "heard": "Actually, can you tell me about Sculpt?",
+      "said": "actually can you tell me about sculpting"
+    },
+    {
+      "trial": "r01_v15_interruption_v15_interruption_165",
+      "ref_words": 22,
+      "errors": 2,
+      "heard": "How can I train my dog to follow basic commands? Hey, can I switch my phone to silent mode? Free voice command.",
+      "said": "how can i train my dog to follow basic commands wait can i switch my phone to silent mode through voice command"
+    },
+    {
+      "trial": "r01_v15_interruption_v15_interruption_165_clean",
+      "ref_words": 10,
+      "errors": 0,
+      "heard": "How can I train my dog to follow basic commands?",
+      "said": "how can i train my dog to follow basic commands"
+    },
+    {
+      "trial": "r02_v1_interrupt_v1_interrupt_160",
+      "ref_words": 25,
+      "errors": 0,
+      "heard": "How long does it typically take to become Fluent in a new language. By the way, What's the score in the soccer game right now?",
+      "said": "how long does it typically take to become fluent in a new language by the way what's the score in the soccer game right now"
+    },
+    {
+      "trial": "r02_false_tt_false_background_006",
+      "ref_words": 7,
+      "errors": 0,
+      "heard": "What do you want for dinner tonight?",
+      "said": "what do you want for dinner tonight"
+    },
+    {
+      "trial": "r02_v15_background_v15_background_50",
+      "ref_words": 15,
+      "errors": 0,
+      "heard": "What day of the week is July 4th, 2026? I still haven't finished my book.",
+      "said": "what day of the week is july 4th 2026 i still haven't finished my book"
+    },
+    {
+      "trial": "r02_v15_background_v15_background_50_clean",
+      "ref_words": 9,
+      "errors": 0,
+      "heard": "What day of the week is July 4th, 2026?",
+      "said": "what day of the week is july 4th 2026"
+    },
+    {
+      "trial": "r02_v1_pause_candor_v1_pause_candor_13",
+      "ref_words": 15,
+      "errors": 0,
+      "heard": "Regular house. If you want to not be in like a Shitty neighborhood. Quarter mil?",
+      "said": "regular house if you want to not be in like a shitty neighborhood quarter mil"
+    },
+    {
+      "trial": "r02_v1_pause_synth_v1_pause_synth_62",
+      "ref_words": 25,
+      "errors": 4,
+      "heard": "I've started learning to play the guitar. I practice every day. Yeah, the cores still feel tricky. So maybe I... Mm-hmm. Need more Focus Tractor sessions.",
+      "said": "i've started learning to play the guitar i practice every day yeah the chords still feel tricky so maybe i need more focused practice session"
+    },
+    {
+      "trial": "r02_v15_talking_to_other_v15_talking_to_other_23",
+      "ref_words": 13,
+      "errors": 2,
+      "heard": "What's the traffic like on 85 South? Ralph, pizza's here. Grab plates.",
+      "said": "what's the traffic like on i 5 south ralph pizza's here grab plates"
+    },
+    {
+      "trial": "r02_v15_talking_to_other_v15_talking_to_other_23_clean",
+      "ref_words": 8,
+      "errors": 2,
+      "heard": "What's the traffic like on 85 South?",
+      "said": "what's the traffic like on i 5 south"
+    },
+    {
+      "trial": "r02_v15_interruption_v15_interruption_89",
+      "ref_words": 24,
+      "errors": 2,
+      "heard": "How do I make sure my pasta doesn't stick? Oh, before I forget. Did we decide what time to start dinner tomorrow?",
+      "said": "how do i make sure my pasta doesn't stick while cooking oh before i forget did we decide what time to start dinner tomorrow"
+    },
+    {
+      "trial": "r02_v15_interruption_v15_interruption_89_clean",
+      "ref_words": 11,
+      "errors": 2,
+      "heard": "How do I make sure my pasta doesn't stick?",
+      "said": "how do i make sure my pasta doesn't stick while cooking"
+    },
+    {
+      "trial": "r02_v15_backchannel_v15_backchannel_40",
+      "ref_words": 8,
+      "errors": 0,
+      "heard": "Offer a complete breakdown of machine translation. Mm-hmm, yeah.",
+      "said": "offer a complete breakdown of machine translation yeah"
+    },
+    {
+      "trial": "r02_v15_backchannel_v15_backchannel_40_clean",
+      "ref_words": 7,
+      "errors": 0,
+      "heard": "Offer a complete breakdown of machine translation.",
+      "said": "offer a complete breakdown of machine translation"
+    },
+    {
+      "trial": "r03_v15_backchannel_v15_backchannel_45",
+      "ref_words": 10,
+      "errors": 0,
+      "heard": "Deliver a clear account of ocean currents. I see that.",
+      "said": "deliver a clear account of ocean currents i see that"
+    },
+    {
+      "trial": "r03_v15_backchannel_v15_backchannel_45_clean",
+      "ref_words": 7,
+      "errors": 0,
+      "heard": "Deliver a clear account of ocean currents.",
+      "said": "deliver a clear account of ocean currents"
+    },
+    {
+      "trial": "r03_false_tt_false_tv_radio_000",
+      "ref_words": 12,
+      "errors": 0,
+      "heard": "Actually, can you tell me which apps are good for language learning?",
+      "said": "actually can you tell me which apps are good for language learning"
+    },
+    {
+      "trial": "r03_v15_interruption_v15_interruption_30",
+      "ref_words": 19,
+      "errors": 0,
+      "heard": "My tomatoes are not growing well this season. By the way, what's the weather going to be like? Tomorrow.",
+      "said": "my tomatoes are not growing well this season by the way what's the weather going to be like tomorrow"
+    },
+    {
+      "trial": "r03_v15_interruption_v15_interruption_30_clean",
+      "ref_words": 8,
+      "errors": 0,
+      "heard": "My tomatoes are not growing well this season.",
+      "said": "my tomatoes are not growing well this season"
+    },
+    {
+      "trial": "r03_v1_pause_candor_v1_pause_candor_204",
+      "ref_words": 20,
+      "errors": 4,
+      "heard": "I have an interesting question. Did the price reduce or is the price same as it was before? I know.",
+      "said": "i have an interesting question do did the price reduce her as the price same as it was before i"
+    },
+    {
+      "trial": "r03_v15_background_v15_background_59",
+      "ref_words": 14,
+      "errors": 2,
+      "heard": "How do you say thank you in Italian? Did you turn in your assignment?",
+      "said": "how do you say 'thank you' in italian did you turn in your assignment"
+    },
+    {
+      "trial": "r03_v15_background_v15_background_59_clean",
+      "ref_words": 8,
+      "errors": 2,
+      "heard": "How do you say thank you in Italian?",
+      "said": "how do you say 'thank you' in italian"
+    },
+    {
+      "trial": "r03_v1_interrupt_v1_interrupt_181",
+      "ref_words": 17,
+      "errors": 1,
+      "heard": "I'm thinking of cooking something new tonight. Can we talk about something else? Something about gardening.",
+      "said": "i'm thinking of cooking something new tonight can we talk about something else maybe something about gardening"
+    },
+    {
+      "trial": "r03_v15_talking_to_other_v15_talking_to_other_81",
+      "ref_words": 17,
+      "errors": 0,
+      "heard": "Find me a nearby coffee shop that's open now. Chris, your laptop's still on the table, man.",
+      "said": "find me a nearby coffee shop that's open now chris your laptop's still on the table man"
+    },
+    {
+      "trial": "r03_v15_talking_to_other_v15_talking_to_other_81_clean",
+      "ref_words": 9,
+      "errors": 0,
+      "heard": "Find me a nearby coffee shop that's open now.",
+      "said": "find me a nearby coffee shop that's open now"
+    },
+    {
+      "trial": "r03_v1_pause_synth_v1_pause_synth_17",
+      "ref_words": 18,
+      "errors": 0,
+      "heard": "Will it rain this weekend if it does rain? Could you suggest some indoor activities? Maybe for kids.",
+      "said": "will it rain this weekend if it does rain could you suggest some indoor activities maybe for kids"
+    },
+    {
+      "trial": "r03_false_tt_false_side_talk_009",
+      "ref_words": 6,
+      "errors": 0,
+      "heard": "Gianna, this coffee is legit amazing.",
+      "said": "gianna this coffee is legit amazing"
+    }
+  ]
+}
