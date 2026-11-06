@@ -362,7 +362,8 @@ def split_long(text: str, longer_than: int = 70, min_piece: int = 25) -> list[st
         else:
             out.append(p)
     if len(out) > 1 and len(out[-1]) < min_piece:      # a short tail joins the piece before it
-        out[-2] = f"{out[-2]} {out.pop()}"
+        tail = out.pop()                              # (was out[-2] = ... out.pop(): with 2 pieces the pop ran
+        out[-1] = f"{out[-1]} {tail}"                 # first, out[-2] no longer existed, the sentence was lost)
     return out
 
 

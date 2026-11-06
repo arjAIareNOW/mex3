@@ -1630,6 +1630,26 @@ def t_filler():
     check("... the answer's own audio is", ("total" in c.last, c.last.get("filler", 99999) < c.last.get("total", 0)),
           (True, True))
 
+    c = TurnClock()        # a tool turn: web_search, "Let me check that.", then the answer round
+    for n, fr in [("speech_end", None), ("heard", None), ("sent", None), ("first_word", None), ("filler", None),
+                  ("first_audio", _Aud("tf")), ("sent", None), ("first_word", None), ("first_audio", _Aud("tf")),
+                  ("first_audio", _Aud("ans"))]:
+        c.mark(n, fr)
+        time.sleep(0.005)
+    check("turn clock, tool turn: tool + llm2 steps, turn wait not inflated, one report",
+          (sorted(k for k in c.last if k in ("tool", "llm2", "filler", "total")), c.last.get("turn wait", 0) < 20),
+          (["filler", "llm2", "tool", "total"], True))
+
+    from fda.pc.processors import ToolFiller
+    tf = ToolFiller(slow={"web_search"}, skip=lambda: True)
+    check("no second filler right after the first (ToolFiller skip)", tf.skip(), True)
+
+    from fda.pc.services import split_long
+    t2 = "The traffic on 85 South is moving slowly near the airport exit, but it is clearing."
+    p2 = split_long(t2)
+    check("split_long: two pieces with a short tail no longer crash (sentence was lost)",
+          (" ".join(p2) == t2, len(p2)), (True, 1))
+
     from fda.pc.services import McpTTSService, speakable
 
     class _Conn:

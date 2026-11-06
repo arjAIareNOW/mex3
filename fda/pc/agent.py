@@ -448,6 +448,9 @@ class Agent:
         tts.building = lambda: self._building or time.monotonic() - self._build_t0 < 6.0
         self._heard_tap = HeardTap(self.io, self.ui, name=cfg.name, on_heard=self._heard, on_ignored=self._resume_soon,
                                    intercept=self._intercept, echo_text=lambda: self.nfm.recent_text())
+        # a filler when the answer is slow (cached audio), and none twice in a row (ToolFiller checks t_fill)
+        think = ThinkFiller(after_s=getattr(cfg, "filler_after_s", 0.7), last_user=self._last_user_text,
+                            own_name=cfg.name, slow=SLOW_TOOLS | {"tweak_app"}, on_fill=lambda: self.clock.mark("filler"))
         pipeline = Pipeline([
             self.transport.input(),
             VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(confidence=0.6, start_secs=0.15,
@@ -462,9 +465,9 @@ class Agent:
             llm,
             RefusalGuard(self._retry_refusal),
             Mark(self.clock, {LLMTextFrame: "first_word", FunctionCallsStartedFrame: "first_word"}),
-            ThinkFiller(after_s=getattr(cfg, "filler_after_s", 0.7), last_user=self._last_user_text,
-                        own_name=cfg.name, slow=SLOW_TOOLS | {"tweak_app"}, on_fill=lambda: self.clock.mark("filler")),
-            ToolFiller(slow=SLOW_TOOLS),
+            think,
+            ToolFiller(slow=SLOW_TOOLS, on_fill=lambda: self.clock.mark("filler"),
+                       skip=lambda: time.monotonic() - think.t_fill < 4.0),
             self.nfm,
             tts,
             Mark(self.clock, {TTSAudioRawFrame: "first_audio"}),

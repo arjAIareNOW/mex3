@@ -560,10 +560,12 @@ class ToolFiller(FrameProcessor):
 
     FILLERS = ["Let me check that.", "One moment, let me look.", "Checking that now.", "Let me see."]
 
-    def __init__(self, slow: set[str], **kw):
+    def __init__(self, slow: set[str], on_fill=None, skip=None, **kw):
         super().__init__(**kw)
         self.slow, self.n = slow, 0
         self.t_last = 0.0
+        self.skip = skip              # -> True when a filler was just said already (ThinkFiller): not a second one
+        self.on_fill = on_fill        # TurnClock: "Let me check that." is not the answer's first audio
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -575,9 +577,11 @@ class ToolFiller(FrameProcessor):
             if any(c.function_name == "tweak_app" and re.search(r"photo|picture|image", str(c.arguments), re.I)
                    for c in frame.function_calls):
                 names.add("tweak_app")           # finding a photo takes a few seconds
-            if names & (self.slow | {"tweak_app"}) and time.monotonic() - self.t_last > 5:
+            if names & (self.slow | {"tweak_app"}) and time.monotonic() - self.t_last > 5 and                     not (self.skip and self.skip()):
                 self.t_last = time.monotonic()
                 self.n += 1
+                if self.on_fill:
+                    self.on_fill()
                 await self.push_frame(TTSSpeakFrame(self.FILLERS[self.n % len(self.FILLERS)]))
 
 
@@ -617,6 +621,7 @@ class ThinkFiller(FrameProcessor):
         self.task: asyncio.Task | None = None
         self.n = 0
         self.calls = False
+        self.t_fill = 0.0                 # when the last filler was said (ToolFiller then says none)
 
     @classmethod
     def phrases(cls) -> list[str]:
@@ -639,6 +644,7 @@ class ThinkFiller(FrameProcessor):
                                                        text, re.I) is not None
         pick = (self.ASK if ask else self.DO)[self.n % 3]
         logger.info(f"filler (no answer after {self.after_s:.1f} s): {pick!r}")
+        self.t_fill = time.monotonic()
         if self.on_fill:
             self.on_fill()
         await self.push_frame(TTSSpeakFrame(pick))
@@ -782,7 +788,8 @@ class TurnClock:
         self.t: dict[str, float] = {}
         self.active = False
         self.last: dict[str, int] = {}
-        self.filler_ctx = None
+        self.filler_ctxs: set = set()         # TTS contexts of this turn's fillers
+        self.expect_filler = False
 
     def mark(self, name: str, frame=None):
         now = time.monotonic()
@@ -790,21 +797,31 @@ class TurnClock:
         if name in ("speech_end", "heard"):           # the last one before the turn is sent counts
             if not self.active:
                 self.t[name] = now
+        elif name == "sent" and self.active and "first_word" in self.t and "first_audio" not in self.t:
+            # the tool-result round of the same turn (a tool was called, nothing of the answer heard yet): the
+            # tool's time is its own step, not "turn wait"; the answer's first word / audio come from this round
+            self.t["sent2"] = now
+            self.t.pop("first_word2", None)
+        elif name == "first_word" and self.active and "sent2" in self.t:
+            self.t.setdefault("first_word2", now)
         elif name == "sent":
             # speech that was ignored (side talk, "not for me") leaves its stamps behind: a reply sent long after
             # (a tool result, a resumed answer) is not a spoken turn, so its timing must not start from them
             fresh = now - self.t.get("heard", now) <= self.STALE_S
             self.t = {k: v for k, v in self.t.items() if k in ("speech_end", "heard") and fresh}
             self.t["sent"], self.active = now, True
-        elif name == "filler":
+            self.filler_ctxs, self.expect_filler = set(), False
+        elif name == "filler":                        # ThinkFiller / ToolFiller: the next audio is a filler's
             if self.active and "first_audio" not in self.t:
-                self.t["filler"] = now                # the next audio is the filler's, not the answer's
-        elif self.active and name == "first_audio" and "filler" in self.t and "filler_audio" not in self.t:
-            # the filler goes into the TTS before any word of the answer, so the first audio after it is its own;
+                self.t["filler"], self.expect_filler = now, True
+        elif self.active and name == "first_audio" and self.expect_filler:
+            # a filler goes into the TTS before the answer's next words, so the first audio after it is its own;
             # its later chunks (same TTS context) are not the answer's first audio either
-            self.t["filler_audio"], self.filler_ctx = now, ctx
+            self.expect_filler = False
+            self.filler_ctxs.add(ctx)
+            self.t.setdefault("filler_audio", now)
         elif self.active and name == "first_audio" and "filler_audio" in self.t and \
-                (ctx == self.filler_ctx if ctx is not None else "first_word" not in self.t):
+                (ctx in self.filler_ctxs if ctx is not None else "first_word" not in self.t):
             pass
         elif self.active and name not in self.t:      # first_word, first_audio: once per turn
             self.t[name] = now
@@ -814,7 +831,11 @@ class TurnClock:
     def report(self):
         self.active = False
         parts, ms = [], {}
-        for a, b, label in self.STEPS:
+        steps = self.STEPS
+        if "sent2" in self.t and "first_word2" in self.t:     # tool turn: llm (the call), tool, llm2, tts (answer)
+            steps = [*self.STEPS[:3], ("first_word", "sent2", "tool"), ("sent2", "first_word2", "llm2"),
+                     ("first_word2", "first_audio", "tts")]
+        for a, b, label in steps:
             if a in self.t and b in self.t and self.t[b] >= self.t[a]:
                 ms[label] = round((self.t[b] - self.t[a]) * 1000)
                 parts.append(f"{label} {ms[label]}")
@@ -826,6 +847,7 @@ class TurnClock:
         self.last = ms
         logger.info(f"turn timing (ms): {', '.join(parts)} | total {ms['total']}")
         self.t = {}
+        self.filler_ctxs, self.expect_filler = set(), False
 
 
 class Mark(FrameProcessor):

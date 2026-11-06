@@ -1,5 +1,5 @@
 {
-  "run": "2026-11-06_14-41-35",
+  "run": "2026-11-06_16-06-46",
   "date": "2026-11-06",
   "device": "Raspberry Pi 5 Model B Rev 1.1, 8 GB RAM, Linux 6.18.50+rpt-rpi-2712, Python 3.13.5",
   "cooling": "case fan",
@@ -7,40 +7,52 @@
   "method": "fd-benchmark clips (same seed) on Elkit; per-stage stamps on the device's monotonic clock; mean and p95 over all spoken turns of the run",
   "metrics_s": {
     "E2E latency (VAD end -> first audio)": {
-      "n": 31,
-      "mean": 2.634,
-      "p50": 2.324,
-      "p95": 4.143
+      "n": 30,
+      "mean": 3.016,
+      "p50": 2.726,
+      "p95": 4.671
     },
     "ASR final (VAD end -> transcript)": {
-      "n": 31,
-      "mean": 0.778,
-      "p50": 0.643,
-      "p95": 1.631
+      "n": 30,
+      "mean": 0.836,
+      "p50": 0.633,
+      "p95": 1.689
     },
     "turn end wait (transcript -> turn end)": {
-      "n": 31,
-      "mean": 0.341,
+      "n": 30,
+      "mean": 0.511,
       "p50": 0.302,
-      "p95": 1.393
+      "p95": 2.592
     },
     "LLM TTFT (turn end -> first token)": {
-      "n": 31,
-      "mean": 0.747,
-      "p50": 0.656,
-      "p95": 1.109
+      "n": 30,
+      "mean": 1.041,
+      "p50": 0.703,
+      "p95": 2.7
     },
     "TTS TTFB (first text -> first audio)": {
-      "n": 31,
-      "mean": 0.768,
-      "p50": 0.602,
-      "p95": 1.239
+      "n": 30,
+      "mean": 0.628,
+      "p50": 0.544,
+      "p95": 1.059
     },
     "Barge-in (speech -> playback stopped)": {
-      "n": 2,
-      "mean": 1.452,
-      "p50": 1.452,
-      "p95": 1.726
+      "n": 3,
+      "mean": 1.223,
+      "p50": 1.212,
+      "p95": 2.22
+    },
+    "First sound (VAD end -> filler or answer)": {
+      "n": 30,
+      "mean": 2.901,
+      "p50": 2.52,
+      "p95": 4.671
+    },
+    "Filler said (turns with one)": {
+      "n": 8,
+      "mean": 2.569,
+      "p50": 2.315,
+      "p95": 4.256
     }
   },
   "wer": {
