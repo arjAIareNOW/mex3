@@ -1,0 +1,64 @@
+{
+  "run": "2026-11-07_00-18-59",
+  "date": "2026-11-07",
+  "device": "Raspberry Pi 5 Model B Rev 1.1, 8 GB RAM, Linux 6.18.50+rpt-rpi-2712, Python 3.13.5",
+  "cooling": "case fan",
+  "network": "Wi-Fi (same router as the laptop)",
+  "llm_tools": "on",
+  "source": "fd-benchmark course stage-latency test (10 phrases x 3 runs, the Pi's monotonic clock)",
+  "method": "fd-benchmark 57eaddb: stage marks from Elkit's Pipecat pipeline; mean + p95 per stage",
+  "metrics_s": {
+    "E2E latency (VAD end -> audio out)": {
+      "n": 30,
+      "mean": 3.002,
+      "p50": 2.695,
+      "p95": 5.724
+    },
+    "ASR final (VAD end -> transcript)": {
+      "n": 30,
+      "mean": 0.786,
+      "p50": 0.608,
+      "p95": 1.342
+    },
+    "LLM TTFT (transcript -> first token, incl. tool time)": {
+      "n": 25,
+      "mean": 1.545,
+      "p50": 0.97,
+      "p95": 5.245
+    },
+    "TTS TTFB (text -> first audio chunk)": {
+      "n": 30,
+      "mean": 0.668,
+      "p50": 0.791,
+      "p95": 1.253
+    },
+    "Barge-in (speech -> playback stopped)": {
+      "n": 5,
+      "mean": 0.892,
+      "p50": 0.7,
+      "p95": 1.5
+    },
+    "VAD endpointing (true end of speech -> VAD end)": {
+      "n": 30,
+      "mean": 0.11,
+      "p50": 0.112,
+      "p95": 0.133
+    },
+    "MCP / tool call duration": {
+      "n": 28,
+      "mean": 1.264,
+      "p50": 0.711,
+      "p95": 4.437
+    }
+  },
+  "wer": {
+    "wer": 0.0,
+    "trials": 30
+  },
+  "resources": {
+    "peak_temp_c": 62.8,
+    "throttled_rate": 0.0,
+    "cpu_p95_pct": 80.8,
+    "free_ram_min_mb": 5908.4
+  }
+}

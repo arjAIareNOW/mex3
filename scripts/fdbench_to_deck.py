@@ -1,7 +1,7 @@
 """fd-benchmark's own course results (stage-latency test, 10 phrases x 3 runs, on the Pi's clock) -> report/latency.json
 for the deck (scripts/me_slides.py). The official numbers of the class harness, the same definitions for everyone.
 
-    python scripts/fdbench_to_deck.py fd-benchmark/runs/fda-pc/2026-11-07_00-18-59 --cooling "case fan"
+    python scripts/fdbench_to_deck.py fd-benchmark/runs/fda-pc/2026-11-07_01-12-53 --cooling "case fan"
 
 The report it replaces is kept as report/latency_<its run>.json.
 """

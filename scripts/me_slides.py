@@ -335,9 +335,9 @@ def page2(prs):
             "- pretend phone: \"call my wife\" rings; \"text Mommy\"; a joke waits for \"why?\""]),
         (4.72, "RESULTS (RPi run)" if rep else "RESULTS (after the RPi run)", results),
         (8.84, "CHALLENGES & REFERENCES", [
-            "- barge-in 1.45 -> 0.89 s: quick offline peeks (0.1 s)",
-            "- LLM 1.55 s incl. web tools (MCP 1.26 s mean)",
-            "- no VPN: Piper on the RPi, TTS 0.77 -> 0.67 s",
+            "- barge-in 1.45 -> 0.91 s: quick offline peeks (0.1 s)",
+            "- TTS 0.77 -> 0.48 s: Piper on the RPi, one piece at a time",
+            "- ASR 0.85 s, LLM 1.68 s: Groq round trips over Wi-Fi",
             "- turn wait by text: turn-taking 4.30 -> 1.44 s (laptop)",
             [("refs: modelcontextprotocol.io · docs.pipecat.ai · fd-benchmark · repo",
               {"size": 7.5, "color": GRAY, "italic": True})]]),
