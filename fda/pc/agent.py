@@ -1084,6 +1084,7 @@ class Agent:
             v = self._open_view("video", {"video_id": d["video_id"], "title": d.get("title", ""), "state": "playing"},
                                 [self._heard_text(), d.get("title", "")], match=("video_id", d["video_id"]))
             self.io.media_playing = True          # until the display says otherwise
+            self.io.t_media = time.monotonic()    # the first seconds: "not that one" / "louder" still heard
             logger.info(f"video -> tab {v['label']!r}: {d.get('title')!r} ({d['video_id']})")
             self._event("video", title=d.get("title", ""))
             return json.dumps({"ok": True, "tab": v["label"], "playing": d.get("title", ""),

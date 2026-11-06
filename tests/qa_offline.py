@@ -607,6 +607,46 @@ def t_video():
                                     D.DOWNSTREAM)
             check(f"video flag with {'a display' if clients else 'no display'}: "
                   f"{'ignored unless called by name' if clients else 'still answers'}", len(out), want)
+
+        # Pi log 2026-11-06 23:41: during a video, real replies were ignored ("Not that one.", "Remove that.",
+        # "Yes." after Elkit asked, "Pos..." after "Elkit." alone, "Stop the music.")
+        import time as _t
+        from fda.pc.processors import MEDIA_CMD
+
+        async def passes(text, echo="", setup=None):
+            io2 = FakeIO()
+            io2.media_playing, io2.t_media, io2.t_bot_stopped = True, -1e9, _t.monotonic() - 30
+            ui3 = FakeUI()
+            ui3.clients = [1]
+            tap = HeardTap(io2, ui3, name="Elkit", intercept=None, echo_text=lambda: echo)
+            got = []
+
+            async def push(f, d=None):
+                got.append(f)
+            tap.push_frame = push
+            if setup:
+                setup(io2, tap)
+            await tap.process_frame(TranscriptionFrame(text, "u", "t"), D.DOWNSTREAM)
+            return bool(got)
+        check("video: commands without the name pass", [bool(MEDIA_CMD.search(t)) for t in
+              ["Stop the music.", "Not that one.", "Remove that.", "change the song", "wrong video"]], [True] * 5)
+        check("video: other talk without the name is still ignored", await passes("I'm hungry, what's for dinner"),
+              False)
+        check("video: the first seconds of a video -> heard", await passes(
+            "Yes.", setup=lambda io2, tap: setattr(io2, "t_media", _t.monotonic() - 3)), True)
+        check("video: Elkit just asked a question -> the answer is heard", await passes(
+            "The newest one", echo="Which Worlds video do you want?",
+            setup=lambda io2, tap: setattr(io2, "t_bot_stopped", _t.monotonic() - 2)), True)
+
+        def named(io2, tap):
+            tap.t_named = _t.monotonic() - 5
+            io2.t_bot_stopped = _t.monotonic() - 2           # its "Yes?" ended 2 s ago
+        check("video: 'Elkit.' alone, then the request -> heard", await passes("Play the anthem", setup=named), True)
+
+        def named_long_ago(io2, tap):
+            tap.t_named = _t.monotonic() - 40
+            io2.t_bot_stopped = _t.monotonic() - 35
+        check("video: the name 40 s ago -> ignored again", await passes("Play the anthem", setup=named_long_ago), False)
     asyncio.run(go())
 
 

@@ -61,9 +61,11 @@ SILENT = re.compile(r"^\W*[(\[]\s*silen|^\W*silent\W*$", re.I)
 
 # while a video plays, the mic hears the video too: only these (or the agent's name) count as said to the agent
 MEDIA_CMD = re.compile(r"\b(pause|resume|unpause|continue|play|stop|close|exit|quit|hide|turn|make|set|mute|unmute|louder|"
-                       r"quieter|softer|volume|skip|rewind|restart|start|go|fast|next|show|previous)\b.{0,24}"
+                       r"quieter|softer|volume|skip|rewind|restart|start|go|fast|next|show|previous|remove|change|"
+                       r"switch|cancel|end)\b.{0,24}"
                        r"\b(video|youtube|it|this|that|sound|volume|up|down|ahead|forward|back|over|beginning|seconds|"
-                       r"percent|photo|picture|image|pic|one|\d+)\b"
+                       r"percent|photo|picture|image|pic|one|music|song|audio|\d+)\b"
+                       r"|\b(not|wrong|different) (that|this|the right)? ?(one|video|song)\b"
                        r"|^\W*(pause|resume|play|stop|close|mute|unmute|louder|quieter|softer|next|previous|another one|"
                        r"next one|next photo|next picture)\W*$", re.I)
 
@@ -846,10 +848,28 @@ class HeardTap(FrameProcessor):
         super().__init__(**kw)
         self.echo_text = echo_text or (lambda: "")       # what the bot said in the last seconds
         self.echoes = 0
+        self.t_named = -1e9              # the last time the person said the name ("Elkit." alone, or with a request)
         self.io, self.ui, self.own_name, self.on_heard, self.on_ignored = io, ui, name, on_heard, on_ignored
         self.intercept = intercept       # async (text) -> True when it handled the request itself
         self.backchannels = 0
         self.not_for_me = 0
+
+    ATTENTION_S = 8.0         # after "Elkit." (and its "Yes?"), the next words are for it, video or not
+    VIDEO_START_S = 12.0       # the first seconds of a video: "not that one", "remove that", "yes"
+    QUESTION_S = 8.0           # Elkit just asked something: the answer is for it
+
+    def attention(self) -> bool:
+        """While a video plays, words without the name still count when the person is clearly talking to Elkit:
+        they said its name a moment ago, the video just started (they react to it), or Elkit just asked them
+        something (Pi log 2026-11-06 23:41: "Not that one.", "Remove that.", "Yes." were all ignored)."""
+        now = time.monotonic()
+        stopped = getattr(self.io, "t_bot_stopped", -1e9)
+        if now - self.t_named < 20 and now - max(self.t_named, stopped) < self.ATTENTION_S:
+            return True
+        if now - getattr(self.io, "t_media", -1e9) < self.VIDEO_START_S:
+            return True
+        asked = self.echo_text().strip().endswith("?")
+        return asked and (self.io.bot_speaking or now - stopped < self.QUESTION_S)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -875,8 +895,10 @@ class HeardTap(FrameProcessor):
             # must not go deaf (fd-benchmark 2026-11-06: a clip asked for a music video, then 12 turns were ignored)
             clients = getattr(self.ui, "clients", None)
             screen = self.ui is not None and (clients is None or bool(clients))
+            if called_by_name(frame.text, self.own_name):
+                self.t_named = time.monotonic()
             if getattr(self.io, "media_playing", False) and screen and not called_by_name(frame.text, self.own_name) \
-                    and not MEDIA_CMD.search(frame.text):
+                    and not MEDIA_CMD.search(frame.text) and not self.attention():
                 self.not_for_me += 1
                 logger.info(f"video playing, not called by name, ignored: {frame.text!r}")
                 if self.ui:
