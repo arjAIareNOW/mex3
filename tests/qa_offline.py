@@ -1685,6 +1685,54 @@ def t_realservice():
     check("prompt: 'Open YouTube' means the real YouTube", "\"Open YouTube\" means the real YouTube" in SYSTEM, True)
 
 
+def t_photos():
+    """Website photos: at most 3 per request (one search = 3 photos), credits, fallbacks; no other photo site."""
+    import tempfile
+    from pathlib import Path
+    from fda.mcp_servers import photos as P
+    from fda.mcp_servers import tools_server as T
+    calls = []
+    real_search, real_key, real_cache, real_track = P.search, P.key, P.CACHE, P._track
+    P.CACHE = Path(tempfile.mkdtemp()) / "cache.json"
+    P._track = lambda used: None
+    try:
+        P.key = lambda: ""
+        page = ('<html><body><img data-photo="clownfish" alt="a"><img data-photo="summer dress" alt="b">'
+                '<img data-photo="zzqx thing" alt="c"></body></html>')
+        out, info = P.fill(page)
+        srcs = re.findall(r'src="([^"]*)"', out)
+        check("no key: library art / emoji picture / gradient, no credits",
+              (srcs[0], srcs[1].startswith("data:image/svg+xml"), srcs[2].startswith("data:image/svg+xml"),
+               "fda-photo-credits" in out, info["photos"]),
+              ("/assets/sprites/clownfish.svg", True, True, False, 0))
+
+        def fake(q, page=1, shape="", client=None):
+            calls.append((q, page))
+            return [{"id": f"{q}-{page}-{i}", "raw": f"https://images.unsplash.com/photo-{q.replace(' ', '')}{page}{i}?ixid=x",
+                     "alt": q, "name": f"Ann {q} {page}{i}", "profile": "https://unsplash.com/@ann", "dl": ""} for i in range(3)]
+        P.search, P.key = fake, (lambda: "k")
+        page = ("<html><body>" + "".join(f'<img data-photo="summer dress" alt="d{i}" width="300">' for i in range(3)) +
+                '<img data-photo="denim shorts" alt="s1"><img data-photo="denim shorts" alt="s2"></body></html>')
+        out, info = P.fill(page)
+        check("5 photo images: 3 photos (1 search), the other 2 library/emoji, credits added",
+              (info["photos"], info["fallback"], calls, out.count("images.unsplash.com"), "fda-photo-credits" in out),
+              (3, 2, [("summer dress", 1)], 3, True))
+        check("photo url sized by the image width", "w=600" in out, True)
+        calls.clear()
+        more = out.replace("</body>", '<img data-photo="summer dress" alt="d4"><img data-photo="summer dress" alt="d5"></body>')
+        out2, info2 = P.fill(more)
+        check("'add more photos': the new ones first (next page), the 3rd fills an old stand-in; old credits kept",
+              (calls, info2["photos"], out2.count("images.unsplash.com"), out2.count('id="fda-photo-credits"'),
+               "Ann summer dress 10" in out2 and "Ann summer dress 20" in out2),
+              ([("summer dress", 2), ("denim shorts", 1)], 3, 6, 1, True))
+    finally:
+        P.search, P.key, P.CACHE, P._track = real_search, real_key, real_cache, real_track
+    check("builder: at most 3 photos, data-photo, no loremflickr",
+          ("AT MOST 3 photos" in T.APP_SYSTEM, 'data-photo="' in T.APP_SYSTEM, "loremflickr" in T.APP_SYSTEM),
+          (True, True, False))
+    check("builder: 'real photos as placeholders for our products' rule", "placeholders for our products" in T.APP_SYSTEM, True)
+
+
 def t_materials():
     """'Change the pipes' -> 4 material pictures to pick from; named materials find their tile."""
     from fda.mcp_servers import live
@@ -2216,7 +2264,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "materials": t_materials}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "materials": t_materials, "photos": t_photos}
 
 
 def main():

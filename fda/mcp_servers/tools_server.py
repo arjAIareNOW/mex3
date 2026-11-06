@@ -45,6 +45,7 @@ from mcp.server.mcpserver import MCPServer
 
 from ..config import ROOT, Config
 from . import live
+from . import photos
 from . import llm as llmlib
 
 log = logging.getLogger("fda.mcp.tools")
@@ -173,10 +174,15 @@ Rules:
   one at a time, and make EVERY menu link and button work (switch page with location.hash / hashchange, highlight
   the active link). Write real content: headings, short paragraphs, prices or services, a contact form that shows
   a thank-you message.
-  Photos: real photos from https://loremflickr.com/WIDTH/HEIGHT/KEYWORD,KEYWORD?lock=N (N = 1, 2, 3... so each
-  image differs; keywords about the subject, e.g. 3dprinting,printer). Every <img> gets alt text, object-fit:cover,
-  loading="lazy" and onerror="this.style.background='linear-gradient(135deg,#ccd,#99a)';this.removeAttribute('src')"
-  so the layout still works offline. A gallery = a grid of 6+ such photos.
+  Photos: AT MOST 3 photos per page or change (more come later when they ask for more photos). A photo is
+  <img data-photo="2-4 plain English words of what it shows, e.g. white summer dress" alt="..."> with NO src:
+  real photos are filled in for you. The same words on several images give different photos of that thing.
+  Optional data-shape="portrait" (products, people) or "landscape" (banners). Every <img> gets object-fit:cover
+  and a fixed height. Never use any other photo website. Other pictures (more products, icons, decorations):
+  the art library or emoji. Do not write photo credits; they are added for you. Keep existing photos as they are.
+  "Add photos" / "real photos as placeholders for our products": give up to 3 of the page's product (or main)
+  pictures a data-photo with that product's own words (the product name, e.g. "linen summer dress"), no src,
+  keeping the layout; the rest stay as they are.
   Scrolling inside the page is fine for websites.
 - Tools: a clean, modern single page (cards, rounded corners, soft shadows), working buttons/forms (save data in
   localStorage if useful).
@@ -543,6 +549,9 @@ class Apps:
             html, n = centre_draw_fix(html)
             if n:
                 log.info("%d thing(s) drawn from their centre point as if it were the corner: drawn around it", n)
+            if not game and "data-photo" in html:
+                # websites: real photos (Unsplash), 3 per request at most; games never (photos.py)
+                html, job["photos"] = photos.fill(html)
             res = live.run_check(html) or {}
             settings = res.get("settings") or {}
             still = js_syntax_error(html) or live.runtime_problem(res, game)
