@@ -346,6 +346,10 @@ GROUPS = {
     "sky": ["sky-day", "sky-night", "sunset", "space"],
     "scene": ["forest", "desert", "snow", "city", "sea", "underwater", "room"],
     "ground": ["grass", "dirt", "sand", "stone", "brick", "ice", "wood", "water", "lava", "checker"],
+    # what pipes, walls, columns and other long things can be made of ("change the pipes": 4 at a time)
+    "material": ["ice", "metal", "candy", "crystal", "gold", "glass", "rainbow", "bamboo", "brick", "wood", "stone",
+                 "marble", "chocolate", "snow", "lava", "neon", "circuit", "starry", "hedge", "cheese", "concrete",
+                 "silver", "water", "sand"],
 }
 
 # How to say a name aloud (default: the name with "-" as a space)
@@ -393,6 +397,80 @@ TILES = {
              '<circle cx="18" cy="44" r="5" fill="#ffb02e"/><circle cx="46" cy="50" r="3.5" fill="#ffd23f"/>', ["danger", "fire"]),
     "checker": ('<rect width="64" height="64" fill="#f4f6fb"/><path d="M0 0h32v32H0zM32 32h32v32H32z" fill="#1f2937"/>', ["finish", "racing", "floor"]),
 }
+
+
+def _sparkle(x, y, r, color="#ffffff"):
+    return f'<polygon points="{star_points(x, y, r, r * 0.3, 4, -90)}" fill="{color}"/>'
+
+
+# 2026-11-06: materials for "change the pipes" (the pick pop-up offers these for pipes, walls, columns ...).
+# Every tile repeats seamlessly: lines that leave one edge come back in at the same place on the other.
+TILES.update({
+    "metal": ('<rect width="64" height="64" fill="#9aa5b1"/><path d="M8 46 46 8" stroke="#bcc6d0" stroke-width="9" opacity=".55"/>'
+              '<rect x="1.5" y="1.5" width="61" height="61" fill="none" stroke="#66717d" stroke-width="3"/>'
+              '<path d="M4 4.5h56" stroke="#cfd6dd" stroke-width="2"/>'
+              + "".join(f'<circle cx="{x}" cy="{y}" r="3" fill="#cfd6dd" stroke="#59636e" stroke-width="1.5"/>'
+                        for x in (10, 54) for y in (10, 54)), ["wall", "machine", "steel", "iron"]),
+    "gold": ('<rect width="64" height="64" fill="#e9b10c"/><path d="M4 4h56l-7 7H11v42l-7 7z" fill="#ffd95a"/>'
+             '<path d="M60 4v56H4l7-7h42V11z" fill="#bf8a00"/><rect x="11" y="11" width="42" height="42" fill="#f5c518"/>'
+             + _sparkle(22, 22, 7) + _sparkle(44, 40, 4), ["treasure", "shiny", "golden"]),
+    "silver": ('<rect width="64" height="64" fill="#b8c1ca"/><path d="M4 4h56l-7 7H11v42l-7 7z" fill="#e6ebf0"/>'
+               '<path d="M60 4v56H4l7-7h42V11z" fill="#8a949e"/><rect x="11" y="11" width="42" height="42" fill="#cdd5dc"/>'
+               + _sparkle(22, 22, 7) + _sparkle(44, 40, 4), ["shiny", "metal"]),
+    "glass": ('<rect width="64" height="64" fill="#d2eefa" fill-opacity=".8"/>'
+              '<rect x="2" y="2" width="60" height="60" fill="none" stroke="#94c4d8" stroke-width="3"/>'
+              '<path d="M14 48 30 16M26 52 38 28" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity=".95"/>',
+              ["window", "clear", "see-through"]),
+    "crystal": ('<rect width="64" height="64" fill="#6d4fd1"/><path d="M0 32 32 0 64 32 32 64z" fill="#a78bfa" stroke="#4c32a8" stroke-width="2"/>'
+                '<path d="M32 0 41 32 32 64 23 32z" fill="#c9bbff" opacity=".75"/>'
+                '<path d="M0 32h64" stroke="#4c32a8" stroke-width="1.5"/>' + _sparkle(46, 18, 6) + _sparkle(16, 48, 4),
+                ["gem", "diamond", "magic", "jewel"]),
+    "candy": ('<rect width="64" height="64" fill="#ffffff"/>'
+              + "".join(f'<polygon points="{x},64 {x + 14},64 {x + 78},0 {x + 64},0" fill="#e63946"/>' for x in range(-64, 64, 32))
+              , ["sweet", "candy cane", "peppermint", "striped"]),
+    "rainbow": ("".join(f'<rect x="{i * 64 / 6:.2f}" width="{64 / 6 + 0.3:.2f}" height="64" fill="{c}"/>' for i, c in
+                        enumerate(["#ff4d4d", "#ff9f1a", "#ffe14d", "#4cd964", "#3fa9f5", "#9b59ff"])), ["colourful", "colors", "pride"]),
+    "snow": ('<rect width="64" height="64" fill="#f2f8ff"/><path d="M0 50q16-8 32 0t32 0v14H0z" fill="#dfeefc"/>'
+             + "".join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#ffffff" stroke="#cfe2f5" stroke-width="1"/>'
+                       for x, y, r in ((12, 14, 4), (40, 10, 3), (54, 30, 4.5), (24, 34, 3.5), (44, 52, 3)))
+             + _sparkle(30, 18, 4, "#bcd8f2"), ["winter", "cold", "snowy"]),
+    "marble": ('<rect width="64" height="64" fill="#eef0f3"/>'
+               '<path d="M0 18C14 8 30 32 46 20S60 14 64 18M0 46c16 10 26-8 40 2s18 0 24-2M26 24c4 8 2 14 8 20" '
+               'fill="none" stroke="#b6bec8" stroke-width="2"/><path d="M0 18C14 8 30 32 46 20" fill="none" stroke="#d3d9e0" '
+               'stroke-width="5" opacity=".6"/>', ["stone", "fancy", "palace"]),
+    "bamboo": ('<rect width="64" height="64" fill="#8bc34a"/><rect x="10" width="9" height="64" fill="#b5dc80"/>'
+               '<rect x="48" width="8" height="64" fill="#5f9a2c"/><rect y="0" width="64" height="3" fill="#4f8a22"/>'
+               '<rect y="61" width="64" height="3" fill="#4f8a22"/><path d="M40 30c10-10 18-10 22-8-6 6-14 9-22 8z" fill="#5f9a2c"/>',
+               ["plant", "nature", "jungle", "panda"]),
+    "chocolate": ('<rect width="64" height="64" fill="#5b2f17"/>'
+                  + "".join(f'<rect x="{x + 3}" y="{y + 3}" width="26" height="26" rx="2" fill="#7a4224"/>'
+                            f'<path d="M{x + 3} {y + 29}V{y + 5}a2 2 0 0 1 2-2h24" fill="none" stroke="#95542f" stroke-width="3"/>'
+                            for x in (0, 32) for y in (0, 32)), ["sweet", "food", "candy"]),
+    "hedge": ('<rect width="64" height="64" fill="#2f7d32"/>'
+              + "".join(f'<ellipse cx="{x}" cy="{y}" rx="9" ry="6" transform="rotate({a} {x} {y})" fill="{c}"/>'
+                        for x, y, a, c in ((14, 12, -20, "#43a047"), (42, 14, 25, "#4caf50"), (28, 32, 10, "#388e3c"),
+                                           (52, 40, -30, "#43a047"), (14, 48, 30, "#4caf50"), (38, 54, -10, "#388e3c"))),
+              ["plant", "leaves", "garden", "bush"]),
+    "neon": ('<rect width="64" height="64" fill="#140b2e"/>'
+             '<path d="M0 10h64M0 54h64" stroke="#ff2d75" stroke-width="9" opacity=".25"/><path d="M0 10h64M0 54h64" stroke="#ff7aa8" stroke-width="3"/>'
+             '<path d="M32 10v44" stroke="#22e3ff" stroke-width="9" opacity=".25"/><path d="M32 10v44" stroke="#9ff3ff" stroke-width="3"/>',
+             ["glow", "night", "city", "glowing", "cyber"]),
+    "circuit": ('<rect width="64" height="64" fill="#145a32"/>'
+                '<path d="M0 16h24l8 8h32M40 0v24M40 40v24M0 44h18l6 6h16M52 24v20h12" fill="none" stroke="#d4af37" stroke-width="3"/>'
+                '<circle cx="40" cy="32" r="5" fill="#d4af37"/><circle cx="18" cy="44" r="3" fill="#d4af37"/><circle cx="24" cy="16" r="3" fill="#d4af37"/>'
+                '<rect x="8" y="26" width="12" height="8" rx="1" fill="#1f2937"/>', ["tech", "computer", "electric", "robot"]),
+    "starry": ('<rect width="64" height="64" fill="#1b1f45"/>'
+               + "".join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#ffffff"/>' for x, y, r in
+                         ((8, 10, 1.2), (30, 6, 0.9), (50, 16, 1.5), (18, 30, 0.8), (40, 36, 1.1), (58, 50, 0.9), (10, 54, 1.4), (30, 58, 0.8)))
+               + _sparkle(44, 52, 4, "#fff3b0") + _sparkle(20, 18, 3, "#cfe8ff"), ["space", "night", "stars", "galaxy"]),
+    "cheese": ('<rect width="64" height="64" fill="#ffd54f"/>'
+               + "".join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#f2b632"/>' for x, y, r in
+                         ((14, 16, 6), (44, 12, 4), (32, 36, 8), (54, 44, 5), (12, 50, 4))), ["food", "yellow", "mouse"]),
+    "concrete": ('<rect width="64" height="64" fill="#a7a9ac"/><rect x="1" y="1" width="62" height="62" fill="none" stroke="#8c8f93" stroke-width="2"/>'
+                 + "".join(f'<circle cx="{x}" cy="{y}" r="1.2" fill="#8c8f93"/>' for x, y in
+                           ((10, 12), (26, 8), (48, 18), (16, 36), (38, 30), (54, 44), (22, 52), (44, 56), (8, 46))),
+                 ["city", "grey", "cement", "building"]),
+})
 
 # ------------------------------------------------------------------ backgrounds (800 x 480)
 def grad(id_, top, bottom):

@@ -44,7 +44,10 @@ def group_of(word: str, current: str | None = None) -> tuple[str, list[str]] | N
            "player": "hero", "character": "hero", "person": "hero", "people": "hero", "animal": "pet", "monster": "enemy",
            "baddie": "enemy", "vehicle": "car", "plane": "flyer", "ship": "flyer", "spaceship": "flyer",
            "item": "treasure", "coin": "treasure", "floor": "ground", "platform": "ground", "tile": "ground",
-           "tree": "plant", "fruit": "food", "obstacle": "obstacle", "wall": "ground"}
+           "tree": "plant", "fruit": "food", "obstacle": "obstacle", "wall": "material",
+           # long things a game tiles: offered as materials (ice, metal, candy ...), not as other sprites
+           "pipe": "material", "column": "material", "pillar": "material", "tower": "material", "material": "material",
+           "texture": "material", "block": "material", "brick": "material", "beam": "material", "pole": "material"}
     for cand in (w, w.split()[-1] if w else "", syn.get(w), syn.get(w.split()[-1]) if w else None):
         if cand and cand in groups:
             return cand, groups[cand]

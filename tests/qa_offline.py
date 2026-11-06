@@ -1685,6 +1685,36 @@ def t_realservice():
     check("prompt: 'Open YouTube' means the real YouTube", "\"Open YouTube\" means the real YouTube" in SYSTEM, True)
 
 
+def t_materials():
+    """'Change the pipes' -> 4 material pictures to pick from; named materials find their tile."""
+    from fda.mcp_servers import live
+    from fda.pc import choices as C
+    from fda.pc.agent import _OPTIONS_ASK
+    live.manifest(True)
+    live.asset_index(True)
+    asks = {"change the pipes": "pipes", "Change the pipes please": "pipes", "something else for the bird": "bird",
+            "give me options for the pipes": "pipes", "what can the pipes be": "pipes", "a different background":
+            "background", "I want a different bird": "bird", "options for the walls": "walls"}
+    got = {s: (lambda m: next((g for g in m.groups() if g), None) if m else None)(_OPTIONS_ASK.match(s)) for s in asks}
+    check("vague change -> options for that thing", got, asks)
+    check("a named change is not an options ask", [bool(_OPTIONS_ASK.match(s)) for s in
+                                                   ("change the pipes to ice", "make the bird red", "change the bird into a parrot")],
+          [False] * 3)
+    g = C.group_of("pipes", "#3cb043")
+    check("pipes -> the material group, 4 at a time",
+          (g[0], [o["name"] for o in C.art_choice(g[1], None)]), ("material", ["ice", "metal", "candy", "crystal"]))
+    check("bird stays in the bird group", C.group_of("bird", None)[0], "bird")
+    named = {"metal pipes": "metal", "steel": "metal", "golden pipes": "gold", "candy cane pipes": "candy",
+             "crystal": "crystal", "rainbow": "rainbow", "snow": "snow", "bamboo": "bamboo", "chocolate": "chocolate",
+             "galaxy": "starry", "glass": "glass", "neon": "neon"}
+    check("named materials on pipes -> their tile",
+          {s: live.resolve_value_plain(s, "#3cb043", None)[0] for s in named},
+          {s: f"/assets/tiles/{t}.svg" for s, t in named.items()})
+    check("gold on a sprite still tints it", live.resolve_value_plain("gold", "/assets/sprites/bird.svg", None)[0],
+          "/assets/sprites/bird.svg@gold")
+    check("cactus (no tile) stays the emoji", live.resolve_value_plain("cactus", "#3cb043", None)[0], "🌵")
+
+
 def t_quickbarge():
     """Quick (offline) overlap checks stop the bot only when sure; everything else waits for the cloud peeks."""
     import numpy as np
@@ -2186,7 +2216,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "materials": t_materials}
 
 
 def main():

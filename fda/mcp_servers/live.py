@@ -444,10 +444,22 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
     v2 = re.sub(r"\s+(?:pipes?|walls?|obstacles?|columns?|towers?|blocks?|platforms?|ones?|style|looking)$", "",
                 v2, flags=re.I).strip()
     v2 = {"icy": "ice", "frozen": "ice", "icicle": "ice", "icicles": "ice", "wooden": "wood", "stony": "stone",
-          "fiery": "fire", "watery": "water", "bricks": "brick"}.get(v2.lower(), v2)
+          "fiery": "fire", "watery": "water", "bricks": "brick", "steel": "metal", "iron": "metal", "metallic": "metal",
+          "golden": "gold", "silvery": "silver", "glassy": "glass", "crystals": "crystal", "crystal clear": "glass",
+          "candy cane": "candy", "candy canes": "candy", "peppermint": "candy", "striped": "candy", "stripes": "candy",
+          "rainbows": "rainbow", "snowy": "snow", "chocolate bar": "chocolate", "leaves": "hedge", "leafy": "hedge",
+          "bushes": "hedge", "glowing": "neon", "neon lights": "neon", "electric": "circuit", "computer": "circuit",
+          "tech": "circuit", "stars": "starry", "galaxy": "starry", "outer space": "starry", "cement": "concrete",
+          "marble stone": "marble"}.get(v2.lower(), v2)
     if v2 and v2.lower() != v.lower() and re.search(r"[a-z]", v2, re.I):
         v = v2
     low = v.lower().replace(" ", "")
+    # a material that is also a CSS colour name ("snow" = #fffafa, "gold", "silver"): the picture, unless the thing
+    # is a sprite (a gold bird = the bird tinted gold)
+    if low in ("snow", "gold", "silver", "chocolate") and not _is_sprite(current):
+        art = asset_for(low)
+        if art:
+            return art, f"the {_label(art)} picture"
     if re.match(r"^#[0-9a-f]{3,8}$", low) or low in CSS_COLORS or re.match(r"^(rgb|hsl)a?\(", low):
         if _is_sprite(current):                    # "make the bird red": keep the bird, tint it
             return f"{current.split('@')[0]}@{low}", f"{v} {_label(current)}"
@@ -456,7 +468,9 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
         return v, v
     word = re.sub(r"^(an?|the)\s+", "", v.lower()).rstrip("s")
     art = asset_for(v)
-    if art and is_asset(current):                  # the app draws library art: stay in that style
+    if art and (is_asset(current) or (art.startswith("/assets/tiles/") and not _is_sprite(current))):
+        # the app draws library art: stay in that style; a colour or tile (pipes, walls) gets the material tile
+        # rather than a tiled emoji ("bamboo" pipes: the bamboo tile, not rows of 🎋)
         return art, f"the {_label(art)} picture"
     if word in EMOJI or v.lower() in EMOJI:
         e = EMOJI.get(word) or EMOJI[v.lower()]

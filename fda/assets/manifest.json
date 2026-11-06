@@ -99,6 +99,32 @@
    "water",
    "lava",
    "checker"
+  ],
+  "material": [
+   "ice",
+   "metal",
+   "candy",
+   "crystal",
+   "gold",
+   "glass",
+   "rainbow",
+   "bamboo",
+   "brick",
+   "wood",
+   "stone",
+   "marble",
+   "chocolate",
+   "snow",
+   "lava",
+   "neon",
+   "circuit",
+   "starry",
+   "hedge",
+   "cheese",
+   "concrete",
+   "silver",
+   "water",
+   "sand"
   ]
  },
  "palettes": {
@@ -1687,6 +1713,236 @@
     "floor"
    ],
    "say": "checker"
+  },
+  {
+   "name": "metal",
+   "kind": "tile",
+   "path": "/assets/tiles/metal.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "wall",
+    "machine",
+    "steel",
+    "iron"
+   ],
+   "say": "metal"
+  },
+  {
+   "name": "gold",
+   "kind": "tile",
+   "path": "/assets/tiles/gold.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "treasure",
+    "shiny",
+    "golden"
+   ],
+   "say": "gold"
+  },
+  {
+   "name": "silver",
+   "kind": "tile",
+   "path": "/assets/tiles/silver.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "shiny",
+    "metal"
+   ],
+   "say": "silver"
+  },
+  {
+   "name": "glass",
+   "kind": "tile",
+   "path": "/assets/tiles/glass.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "window",
+    "clear",
+    "see-through"
+   ],
+   "say": "glass"
+  },
+  {
+   "name": "crystal",
+   "kind": "tile",
+   "path": "/assets/tiles/crystal.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "gem",
+    "diamond",
+    "magic",
+    "jewel"
+   ],
+   "say": "crystal"
+  },
+  {
+   "name": "candy",
+   "kind": "tile",
+   "path": "/assets/tiles/candy.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "sweet",
+    "candy cane",
+    "peppermint",
+    "striped"
+   ],
+   "say": "candy"
+  },
+  {
+   "name": "rainbow",
+   "kind": "tile",
+   "path": "/assets/tiles/rainbow.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "colourful",
+    "colors",
+    "pride"
+   ],
+   "say": "rainbow"
+  },
+  {
+   "name": "snow",
+   "kind": "tile",
+   "path": "/assets/tiles/snow.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "winter",
+    "cold",
+    "snowy"
+   ],
+   "say": "snow"
+  },
+  {
+   "name": "marble",
+   "kind": "tile",
+   "path": "/assets/tiles/marble.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "stone",
+    "fancy",
+    "palace"
+   ],
+   "say": "marble"
+  },
+  {
+   "name": "bamboo",
+   "kind": "tile",
+   "path": "/assets/tiles/bamboo.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "plant",
+    "nature",
+    "jungle",
+    "panda"
+   ],
+   "say": "bamboo"
+  },
+  {
+   "name": "chocolate",
+   "kind": "tile",
+   "path": "/assets/tiles/chocolate.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "sweet",
+    "food",
+    "candy"
+   ],
+   "say": "chocolate"
+  },
+  {
+   "name": "hedge",
+   "kind": "tile",
+   "path": "/assets/tiles/hedge.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "plant",
+    "leaves",
+    "garden",
+    "bush"
+   ],
+   "say": "hedge"
+  },
+  {
+   "name": "neon",
+   "kind": "tile",
+   "path": "/assets/tiles/neon.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "glow",
+    "night",
+    "city",
+    "glowing",
+    "cyber"
+   ],
+   "say": "neon"
+  },
+  {
+   "name": "circuit",
+   "kind": "tile",
+   "path": "/assets/tiles/circuit.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "tech",
+    "computer",
+    "electric",
+    "robot"
+   ],
+   "say": "circuit"
+  },
+  {
+   "name": "starry",
+   "kind": "tile",
+   "path": "/assets/tiles/starry.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "space",
+    "night",
+    "stars",
+    "galaxy"
+   ],
+   "say": "starry"
+  },
+  {
+   "name": "cheese",
+   "kind": "tile",
+   "path": "/assets/tiles/cheese.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "food",
+    "yellow",
+    "mouse"
+   ],
+   "say": "cheese"
+  },
+  {
+   "name": "concrete",
+   "kind": "tile",
+   "path": "/assets/tiles/concrete.svg",
+   "w": 64,
+   "h": 64,
+   "tags": [
+    "city",
+    "grey",
+    "cement",
+    "building"
+   ],
+   "say": "concrete"
   },
   {
    "name": "sky-day",

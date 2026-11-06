@@ -60,7 +60,8 @@ SYSTEM = """You are {name}, a voice assistant on a small screen. You speak out l
 natural, usually one or two short sentences. Everything you write is spoken: no lists, no markdown, no emoji,
 numbers as words people say.
 How you work:
-- Questions get spoken answers. "What options are there for the bird", "show me other birds", "what could I use":
+- Questions get spoken answers. "What options are there for the bird", "show me other birds", "what could I use",
+  and a change with no new look named ("change the pipes", "make the bird different"; never choose for them):
   show_choices puts four numbered pictures on the screen (birds, cars, fish, heroes, pets, enemies, backgrounds,
   ground); for anything else say two or three choices out loud in one sentence. Then wait for them to pick (by number
   or name: pick_choice). Do not build, change or open anything until they choose. create_app only when they ask you
@@ -145,6 +146,19 @@ _TWEAK = re.compile(r"^\W*(?:(?:can|could) you\s+|please\s+|now\s+|and\s+|okay,?
 
 _TWEAK_SHORT = re.compile(r"^\W*(?:(?:can|could) you\s+|please\s+|now\s+|okay,?\s+)*(?:make|turn|paint|colou?r)\s+"
                           r"(?:the\s+|my\s+|(?=it\s|him\s|her\s))([a-z]+)\s+((?:a (?:lot|bit|little) )?[a-z]+(?:\s[a-z]+)?)\W*$", re.I)
+
+# a change with no new look named: "change the pipes", "something else for the bird", "options for the background",
+# "what can the pipes be", "a different background" -> the pick pop-up (the person chooses, not Elkit)
+_X = r"(?:the\s+|my\s+)?([a-z]+(?:\s[a-z]+)??)"
+_OPTIONS_ASK = re.compile(
+    r"^\W*(?:(?:can|could) you\s+|please\s+|now\s+|okay,?\s+|let'?s\s+|i want to\s+|i'?d like to\s+)*"
+    r"(?:change|switch|swap|replace|redo|update|restyle)\s+(?:up\s+)?" + _X +
+    r"(?:\s+(?:please|for me|up|to something (?:else|different)|(?:a )?(?:bit|little)))?\W*$"
+    r"|^\W*(?:give me |show me |i want |let'?s (?:try|see) )?(?:something|anything) (?:else|different) for " + _X + r"\W*$"
+    r"|^\W*(?:(?:can you |please )?(?:give|show) me |what are (?:the |my |some )?|any )?(?:some |more )?"
+    r"(?:options|choices|ideas) for " + _X + r"\W*$"
+    r"|^\W*what (?:else )?(?:can|could) " + _X + r" (?:be|look like)\W*$"
+    r"|^\W*(?:i want |give me |let'?s (?:try|have) )?(?:a )?(?:different|new) " + _X + r"(?: please)?\W*$", re.I)
 
 # "make the bird green. wait, no. black instead" / "the pipes red, actually blue" / "make it green, sorry, black":
 # a correction needs a cue (wait / actually / sorry / instead), so "make the sky blue, no clouds" is not one
@@ -1628,6 +1642,8 @@ class Agent:
         said = strip_name(text, self.cfg.name)
         if await self._difficulty_direct(said) or await self._correction_direct(said, text):
             return True
+        if await self._options_direct(said):
+            return True
         mf = re.match(r"^(?:please |can you |could you )?(?:flip|mirror|reverse|turn)(?: around)? (?:the )?(\w+)"
                       r"(?: around| over)?\W*$|^(?:make|have|let) (?:the )?(\w+) (?:face|look|point|go)(?: to)?(?: the)? "
                       r"(?:right|left|other way|forward|backward)s?\W*$|^(?:the )?(\w+) (?:is|are) facing the wrong way\W*$",
@@ -1643,6 +1659,29 @@ class Agent:
         else:
             what, value = m.group(1), m.group(2).strip(" .!?")
         return await self._apply_tweak(what, value, text)
+
+    async def _options_direct(self, said: str) -> bool:
+        """'Change the pipes' / 'something else for the bird' / 'options for the background' (no new look named):
+        the person picks from pictures, Elkit does not choose (user, 2026-11-06: "give me options rather than I give
+        you specific"). Shows 4 choices for that setting at once, without the LLM."""
+        m = _OPTIONS_ASK.match(said.strip())
+        if not m:
+            return False
+        from ..mcp_servers import live
+        what = next(g for g in m.groups() if g)
+        key = live.match_key(what, list(self.app_keys))
+        if not key:
+            return False
+        r = await self._offer(what, key)
+        if not r.get("ok"):
+            return False                                  # no pictures for it: the LLM says a few ideas instead
+        what = re.sub(r"^(?:the|my)\s+", "", what.strip(), flags=re.I)
+        msg = f"Here are some options for the {what}. Which one do you like?"
+        logger.info(f"options (direct): {said!r} -> {[o['name'] for o in self.choice['options']]}")
+        self.context.add_message({"role": "user", "content": said})
+        self.context.add_message({"role": "assistant", "content": f"{msg} [{r['result']}]"})
+        await self._announce(msg)
+        return True
 
     async def _correction_direct(self, said: str, text: str) -> bool:
         """'Make the bird green. Wait, no. I want it to be black instead.': only the last one is done (green never
