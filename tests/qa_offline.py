@@ -1968,6 +1968,13 @@ def t_jokes():
                                                                  "Because he was outstanding in his field!")]))
     said, got = run(False, ["What time is it? It is ten."])
     check("processor: not a joke request -> untouched", (said, got), ("What time is it? It is ten.", []))
+    # Pi 2026-11-07 00:09: "It's not funny." -> Elkit told another joke unasked, with no pause
+    said, got = run(1, ["Okay, try this one: Why don't scientists trust atoms? Because they make up everything!"])
+    check("processor: a joke told unasked, just after one -> paused too",
+          (said, len(got)), ("Okay, try this one: Why don't scientists trust atoms?", 1))
+    said, got = run(1, ["Want another one? I have plenty more."])
+    check("processor: just after a joke, a normal question is not split", (said, got),
+          ("Want another one? I have plenty more.", []))
 
     def agent(user_text):
         a = Agent.__new__(Agent)
@@ -1982,8 +1989,11 @@ def t_jokes():
         a._announce = announce
         a.JOKE_NUDGE_S, a.JOKE_TELL_S, a.JOKE_START_S = 0.3, 0.3, 0.05
         return a
-    check("asked: 'tell me a joke'", Agent._joke_asked(agent("Elkit, tell me a joke")), True)
-    check("asked: weather is not a joke", Agent._joke_asked(agent("what's the weather")), False)
+    check("asked: 'tell me a joke'", Agent._joke_asked(agent("Elkit, tell me a joke")), 2)
+    check("asked: weather is not a joke", Agent._joke_asked(agent("what's the weather")), 0)
+    after = agent("It's not funny.")
+    after._t_joke = time.monotonic() - 10
+    check("asked: just after a joke -> maybe (a joke-like reply gets the pause)", Agent._joke_asked(after), 1)
 
     async def flow(reply):
         a = agent("tell me a joke")

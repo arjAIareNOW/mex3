@@ -630,6 +630,11 @@ class RefusalGuard(FrameProcessor):
 
 _JOKE_ASK = re.compile(r"\b(?:jokes?|pun|puns|riddles?|make me laugh|something funny|knock knock)\b", re.I)
 _Q_WORD = re.compile(r"\b(why|what|how|who|where|when|which)\b", re.I)
+# what a joke's setup sounds like (for a joke Elkit offers on its own, just after another one)
+_JOKE_SETUP = re.compile(r"\b(?:why (?:did|do|does|don't|doesn't|was|were|is|are|can't|couldn't|did not)|what do you call|"
+                         r"what did|what does|what has|what's (?:the difference|black|brown|green|orange|red)|"
+                         r"how (?:do|does|did) you|did you hear|what kind of|where do|where does|who (?:is|was) |"
+                         r"what (?:is|was) .{0,30}favou?rite|knock knock)\b", re.I)
 
 
 def split_joke(text: str) -> tuple[str, str] | None:
@@ -657,7 +662,10 @@ class JokePause(FrameProcessor):
 
     def __init__(self, is_joke, on_setup, **kw):
         super().__init__(**kw)
-        self.is_joke, self.on_setup = is_joke, on_setup      # () -> bool: they asked for a joke just now
+        # is_joke() -> 2: they asked for a joke just now; 1: a joke was told a moment ago (Elkit may tell another
+        # unasked: "It's not funny." -> a new joke, Pi 2026-11-07 00:09, said with no pause); 0: no joke
+        self.is_joke, self.on_setup = is_joke, on_setup
+        self.level = 0
         self.held: list[Frame] | None = None
         self.text = ""
 
@@ -672,7 +680,8 @@ class JokePause(FrameProcessor):
             await self.push_frame(frame, direction)
             return
         if isinstance(frame, LLMFullResponseStartFrame):
-            self.held, self.text = ([], "") if self.is_joke() else (None, "")
+            self.level = int(self.is_joke() or 0)
+            self.held, self.text = ([], "") if self.level else (None, "")
             await self.push_frame(frame, direction)
         elif isinstance(frame, LLMTextFrame) and self.held is not None:
             self.held.append(frame)
@@ -682,6 +691,8 @@ class JokePause(FrameProcessor):
             await self.push_frame(frame, direction)
         elif isinstance(frame, LLMFullResponseEndFrame) and self.held is not None:
             parts = split_joke(self.text)
+            if parts is not None and self.level < 2 and not _JOKE_SETUP.search(parts[0]):
+                parts = None                              # not asked, and it does not sound like a joke: as it is
             if parts is None:
                 await self._flush()
             else:

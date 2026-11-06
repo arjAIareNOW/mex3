@@ -1442,15 +1442,18 @@ class Agent:
     JOKE_NUDGE_S, JOKE_TELL_S = 4.0, 6.0          # quiet after the setup -> the nudge; quiet after that -> punchline
     JOKE_START_S = 2.0                            # the setup (or nudge) starts playing within this
 
-    def _joke_asked(self) -> bool:
-        """The person's latest words ask for a joke ("tell me a joke", or "another one" just after a joke)."""
+    def _joke_asked(self) -> int:
+        """2: the person's latest words ask for a joke ("tell me a joke", or "another one" just after a joke);
+        1: a joke was told in the last 3 minutes (a reply that sounds like a joke gets the pause too); 0: no."""
+        recent = time.monotonic() - getattr(self, "_t_joke", -1e9) < 180
         for m in reversed(getattr(self.context, "messages", None) or []):
             if isinstance(m, dict) and m.get("role") == "user":
                 c = m.get("content")
                 text = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c or [] if isinstance(p, dict))
-                recent = time.monotonic() - getattr(self, "_t_joke", -1e9) < 180
-                return bool(_JOKE_ASK.search(text) or (recent and self._JOKE_AGAIN.search(text)))
-        return False
+                if _JOKE_ASK.search(text) or (recent and self._JOKE_AGAIN.search(text)):
+                    return 2
+                break
+        return 1 if recent else 0
 
     def _joke_setup(self, setup: str, punch: str):
         """JokePause said the setup: keep the punchline, and wait for their reply (or nudge them)."""
