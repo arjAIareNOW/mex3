@@ -312,19 +312,27 @@ class McpTTSService(TTSService):
             self._not_said(raw, context_id)
             return
         self._said_in_reply += 1
-        # a long sentence is synthesized in comma-sized pieces, all started at once: the first (short) piece is
-        # ready sooner, so the voice starts sooner (synthesis time grows with length: ~0.7 s short, ~2 s long)
-        pieces = split_long(text)
+        # a long sentence is synthesized in comma-sized pieces: the first (short) piece is ready sooner, so the
+        # voice starts sooner (synthesis time grows with length). The reply's first sentence splits sooner (> 40
+        # characters). One piece at a time: on the Pi's 4 cores pieces started all at once slowed each other down
+        # (first piece 0.65 s instead of 0.25 s); the next piece is made while the one before it plays.
+        pieces = split_long(text, 40, 15) if self._said_in_reply == 1 else split_long(text)
         cached = getattr(self, "cache", {}).get(text)
 
         async def from_cache():
             return {"audio_b64": base64.b64encode(cached[0]).decode(), "sample_rate": cached[1]}
-        jobs = [asyncio.create_task(from_cache())] if cached else \
-            [asyncio.create_task(self.conn.call("synthesize", {"text": p}, timeout=60)) for p in pieces]
+
+        def start(i):
+            return asyncio.create_task(self.conn.call("synthesize", {"text": pieces[i]}, timeout=60))
+        jobs = [asyncio.create_task(from_cache())] if cached else [start(0)]
         try:
             await self.start_tts_usage_metrics(text)
-            for job in jobs:
-                r = await job
+            i = 0
+            while i < len(jobs):
+                r = await jobs[i]
+                if not cached and len(jobs) < len(pieces):
+                    jobs.append(start(len(jobs)))       # the next piece, while this one is played
+                i += 1
                 pcm = base64.b64decode(r["audio_b64"])
                 rate = int(r["sample_rate"])
                 self._fit_resampler(rate)

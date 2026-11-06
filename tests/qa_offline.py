@@ -2200,7 +2200,18 @@ def t_ready():
           pushed, ["Building it now.", "Okay."])
     busy[0] = False
     asyncio.run(say("Flappy Bird is ready, it's on the Flappy game tab.", "c"))
-    check("after the build: 'is ready' is said", tts.conn.said[-1], "Flappy Bird is ready, it's on the Flappy game tab.")
+    # the reply's first sentence is said in pieces (split at the comma: first audio sooner)
+    check("after the build: 'is ready' is said", " ".join(tts.conn.said[-2:]),
+          "Flappy Bird is ready, it's on the Flappy game tab.")
+    tts.conn.said.clear()
+    asyncio.run(say("Right now in Davao it is 31 degrees and sunny, with light winds.", "k"))
+    asyncio.run(say("Moment magnitude is the modern standard, derived from the seismic moment, "
+                    "which measures the fault area times the slip, and it works for every size of quake.", "k"))
+    check("first sentence split at its comma, later ones only when long; pieces in order",
+          tts.conn.said, ["Right now in Davao it is 31 degrees and sunny,", "with light winds.",
+                          "Moment magnitude is the modern standard,",
+                          "derived from the seismic moment,", "which measures the fault area times the slip,",
+                          "and it works for every size of quake."])
     from fda.mcp_servers import tools_server as T
     import inspect
     check("create_app's reply says it is NOT ready yet", "It is NOT ready yet" in inspect.getsource(T), True)
