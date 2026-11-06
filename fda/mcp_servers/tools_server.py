@@ -679,9 +679,10 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
     @mcp.tool()
     def tweak_app(changes: dict, name: str = "") -> dict:
         """Change how a built app or game looks while it runs - instant, no rebuild. changes: setting -> new value,
-        e.g. {"bird": "butterfly"}, {"bird": "red"}, {"pipe": "photo of bamboo"}, {"sky": "#000033"},
+        e.g. {"bird": "butterfly"}, {"bird": "red"}, {"pipe": "ice"}, {"sky": "#000033"},
         {"speed": "faster"}, {"pipe": "cactus"}, {"difficulty": "easier"} / "harder" / "easy" / "hard".
-        Values: a colour, a thing (becomes an emoji or picture), "photo of ...", or a number.
+        Values: a colour, a thing (becomes an emoji or a picture from the art library), or a number.
+        "Make the pipes look like ice" -> {"pipe": "ice"} (just the thing, no "photo of").
         name: which app (default: the one shown last). For new features or rules use edit_app instead."""
         return apps.tweak(changes, name, web)
 

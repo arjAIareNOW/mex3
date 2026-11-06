@@ -218,6 +218,11 @@ def match_key(key: str, keys: list[str]) -> str | None:
     return low[close[0]] if close else None
 
 
+# Web photos (Openverse) for live changes: OFF. Not an approved service (2026-11-06: "make the pipes look like
+# ice" fetched a photo of a person and tiled it into the pipes). Pictures come from the art library or emoji.
+PHOTOS = False
+
+
 def photo(query: str, web) -> str | None:
     """A free photo for `query` (Openverse, no key), shrunk to a small JPEG data URL."""
     try:
@@ -426,9 +431,11 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
     if is_asset(base) and (ASSETS.parent / base.lstrip("/")).is_file():
         return v, f"the {_label(v)} picture"            # a library picture by its path (the pick pop-up)
     m = re.match(r"^(?:an?\s+)?(?:photo|picture|image|pic)\s+(?:of\s+)?(?:an?\s+)?(.+)$", v, re.I)
-    if m:
+    if m and PHOTOS:
         url = photo(m.group(1), web)
         return (url, f"a photo of {m.group(1)}") if url else (None, f"no photo of {m.group(1)} found")
+    if m:                                          # "photo of ice" -> the library's ice, or an ice emoji
+        v = m.group(1).strip()
     low = v.lower().replace(" ", "")
     if re.match(r"^#[0-9a-f]{3,8}$", low) or low in CSS_COLORS or re.match(r"^(rgb|hsl)a?\(", low):
         if _is_sprite(current):                    # "make the bird red": keep the bird, tint it
@@ -445,5 +452,8 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
         return e, f"{v} {e}"
     if art:                                        # no emoji for it, but the library has it (works offline)
         return art, f"the {_label(art)} picture"
-    url = photo(v, web)                            # some other thing: find a picture of it
-    return (url, f"a picture of {v}") if url else (v, v)
+    if PHOTOS:
+        url = photo(v, web)                        # some other thing: find a picture of it
+        return (url, f"a picture of {v}") if url else (v, v)
+    return None, (f"there is no picture or emoji for '{v}': offer something close (show_choices shows the "
+                  "library), or a colour")

@@ -1669,6 +1669,26 @@ def t_filler():
     check("fillers are synthesized ahead (TTS cache)", asyncio.run(tts_go()), (1, True))
 
 
+def t_nophotos():
+    """Live changes never fetch web photos (Openverse is not an approved service): library art or emoji."""
+    from fda.mcp_servers import live
+
+    class NoWeb:
+        def get(self, *a, **k):
+            raise AssertionError("web called")
+    got = {}
+    for val in ["photo of ice", "ice", "photo of cactus", "a picture of bamboo", "zorblax machine"]:
+        try:
+            got[val] = live.resolve_value_plain(val, "x", NoWeb())[0]
+        except AssertionError:
+            got[val] = "WEB"
+    check("web photos are off", live.PHOTOS, False)
+    check("'photo of ice' -> the library's ice tile, no web", got["photo of ice"], "/assets/tiles/ice.svg")
+    check("'photo of cactus' / 'picture of bamboo' -> emoji, no web",
+          (got["photo of cactus"], got["a picture of bamboo"]), ("\U0001F335", "\U0001F38B"))
+    check("unknown thing -> no picture (the LLM offers something close), no web", got["zorblax machine"], None)
+
+
 def t_roomhub():
     """Room tools over MCP: the tools server's room tools post to the agent's room hub, which runs the room."""
     import socket
@@ -2112,7 +2132,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos}
 
 
 def main():
