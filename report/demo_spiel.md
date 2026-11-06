@@ -1,4 +1,4 @@
-# Elkit live demo: script (about 6 minutes)
+# Elkit live demo: script (about 8 minutes)
 
 **Before you start:** Elkit is running (`systemctl --user start fda.service`), volume 70 %, Wi-Fi is up, and `docs/project-budget.csv` is on the Pi.
 Speak normally, about an arm's length from the mic. Elkit's lines are approximate: the LLM words them a little differently each time.
@@ -23,7 +23,16 @@ Speak normally, about an arm's length from the mic. Elkit's lines are approximat
 | **7. YouTube** | "Please open a YouTube video for me." | Ask what you'd like to watch. It never picks a video for you. | — |
 | | "The latest Worlds 2026 video." | Switch to the Virtual Studio tab ("Over to the Virtual Studio tab.") and play it. | "Play the Worlds 2026 highlights on YouTube." |
 | | "Elkit, pause." · "Elkit, resume." · "Elkit, louder." | Control the video. During a video, say **"Elkit"** first. | — |
-| | "Elkit, close the video." | Close the video's tab. | — |
+| | "Elkit, skip 30 seconds." | Jump ahead 30 s. | "Elkit, forward 30 seconds." |
+| | "Elkit, volume down." | The video gets quieter. | "Elkit, quieter." |
+| | "Elkit, stop." | **Pause** the video. It stays in its tab. | "Elkit, pause the video." |
+| **8. Game** | "Let's create a game instead. Create a Flappy Bird game." | Build an original flappy-style game live, in about 10–20 s, and describe it while it builds. No colour question for games. A new tab opens in the Virtual Studio. | — |
+| | "Change the bird to a butterfly." | The bird becomes a butterfly right away. | — |
+| | "Change the pipes." | Show a pop-up of 4 numbered options. It doesn't choose for you. | — |
+| | "Number 2." *(or say its name)* | The pipes change. | — |
+| | "Make the butterfly bigger." · "Make it faster." · "Make it easier." · "Give me 3 lives." | Each change appears instantly, with no rebuild. | — |
+| | "Make the butterfly green… wait, no, black." | "Okay, not green: black instead." Green never shows. | — |
+| | *(optional)* "Close the video." | Close the paused video's tab. | — |
 | **Close** *(optional)* | "Call my wife." | The phone on the side table rings; Mommy doesn't pick up. Elkit offers a text. | — |
 | | "Yes, text her: I'll be home late." | A text is "sent" (simulated, no SIM). | — |
 
