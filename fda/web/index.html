@@ -25,6 +25,10 @@
   /* quiet tells: present (slow idle breath), hearing you (halo follows your voice), got it (a ring pulled in),
      heard but not for me (a faint grey one), thinking (a small dot circling) */
   #pulse { --hear: 0; }
+  /* your voice, small, under the name: flat and faint at rest, bars while you talk, a green glow when your words
+     were understood (grey: heard, but not for Elkit) */
+  #wave { width: 150px; height: 26px; margin-top: -18px; opacity: .35; transition: opacity .4s; display: block; }
+  body.hear #wave, #wave.got, #wave.skip { opacity: .85; }
   body[data-s="listening"] #pulse .core { animation: idle 7s ease-in-out infinite; }
   #pulse .core { box-shadow: 0 0 calc(var(--hear) * 46px) calc(var(--hear) * 6px) rgba(122,162,255, calc(var(--hear) * .55)); }
   body.hear #pulse .core { opacity: calc(.6 + var(--hear) * .35); }
@@ -231,13 +235,14 @@
   #ring button { font-size: 22px; padding: 14px 44px; background: #d9534f; color: #fff; border: none; border-radius: 10px; }
   @keyframes flash { 50% { background: rgba(120,20,20,.92); } }
   @media (max-width: 640px) { body { grid-template-columns: 1fr; grid-template-rows: 150px 1fr; }
-    #pulse { width: 120px; height: 120px; } #pulse .core, #pulse .ring { inset: 34px; } #name { display: none; } }
+    #pulse { width: 120px; height: 120px; } #pulse .core, #pulse .ring { inset: 34px; } #name, #wave { display: none; } }
 </style>
 </head>
 <body data-s="listening">
 <section id="voice">
   <div id="pulse"><div class="core"></div><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="catch"></div><div class="orbit"><i></i></div></div>
   <div id="name">Elkit</div>
+  <canvas id="wave" width="300" height="52" aria-hidden="true"></canvas>
   <span id="conn" class="off"></span>
   <div id="demo" hidden><div class="scene" id="dmScene"></div>
     <div class="line you none" id="dmYou"><b>You</b><span></span></div>
@@ -371,6 +376,41 @@ function mic(db){                                      // ...and follows your vo
   hearK = hearK * 0.55 + k * 0.45;
   $("pulse").style.setProperty("--hear", hearK.toFixed(3));
 }
+// ---- your voice as a small waveform under the name (mic levels come ~16 a second while you talk) ----
+const WV = {bars: new Array(37).fill(0), tint: null, tintT: 0, raf: 0, last: 0};
+function waveMic(db){ WV.bars.push(Math.max(0, Math.min(1, (db + 55) / 35))); WV.bars.shift(); waveRun(); }
+function waveTint(ok){ WV.tint = ok ? "126,226,168" : "124,134,150"; WV.tintT = performance.now();
+  const w = $("wave"); w.classList.remove("got", "skip"); void w.offsetWidth; w.classList.add(ok ? "got" : "skip");
+  setTimeout(() => w.classList.remove("got", "skip"), 1100); waveRun(); }
+const waveRaf = window.requestAnimationFrame ? f => window.requestAnimationFrame(f) : f => setTimeout(() => f(performance.now()), 33);
+function waveRun(){ if (!WV.raf) WV.raf = waveRaf(waveDraw); }
+function waveDraw(now){
+  WV.raf = 0;
+  const c = $("wave"), g = c && c.getContext && c.getContext("2d");
+  if (!g) return;                                      // no canvas (test page): nothing to draw
+  const W = c.width, H = c.height, mid = H / 2;
+  const talking = document.body.classList.contains("hear");
+  if (!talking){                                       // you stopped: the bars sink back to the line
+    const dt = Math.min(0.1, (now - (WV.last || now)) / 1000);
+    for (let i = 0; i < WV.bars.length; i++) WV.bars[i] *= Math.pow(0.02, dt);
+  }
+  WV.last = now;
+  const tk = WV.tint ? Math.max(0, 1 - (now - WV.tintT) / 1100) : 0;
+  const rgb = tk > 0 ? WV.tint : "122,162,255";
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = `rgba(${rgb},${0.25 + 0.15 * tk})`; g.fillRect(0, mid - 1, W, 2);      // the resting line
+  const bw = 5, gap = 3, n = WV.bars.length, x0 = (W - n * (bw + gap) + gap) / 2;
+  g.fillStyle = `rgba(${rgb},${0.9})`;
+  let live = tk > 0;
+  for (let i = 0; i < n; i++){
+    const k = WV.bars[i], h = Math.max(2, k * (H - 6) * (0.45 + 0.55 * i / n));     // older bars a little smaller
+    if (k > 0.01) live = true;
+    const x = x0 + i * (bw + gap);
+    g.beginPath(); g.roundRect ? g.roundRect(x, mid - h / 2, bw, h, 2.5) : g.rect(x, mid - h / 2, bw, h); g.fill();
+  }
+  if (live || talking) waveRun(); else { WV.tint = null; }
+}
+waveRun();
 function caught(ignored){                              // your words arrived: a ring pulled into the core
   const c = $("pulse").querySelector(".catch");
   c.classList.remove("got", "skip"); void c.offsetWidth; c.classList.add(ignored ? "skip" : "got");
@@ -903,9 +943,9 @@ function onMsg(m){
     case "hello": if (pageV === null) pageV = m.v; else if (m.v !== pageV) location.reload(); break;
     case "status": setStatus(m.status); break;
     case "level": level(m.db); break;
-    case "voice": hear(m.on); break;
-    case "mic": mic(m.db); break;
-    case "user": caught(!!m.ignored); break;
+    case "voice": hear(m.on); waveRun(); break;
+    case "mic": mic(m.db); waveMic(m.db); break;
+    case "user": caught(!!m.ignored); waveTint(!m.ignored); break;
     case "views": renderViews(m); break;
     case "video_cmd": videoCmd(m); break;
     case "app_nav": { let r; try { r = appNav(m); } catch (e) { r = {ok:false, did:"error: " + e.message}; }
