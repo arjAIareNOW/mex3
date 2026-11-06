@@ -280,6 +280,16 @@ class McpTTSService(TTSService):
     def _not_said(self, raw: str, context_id: str):
         self._unsaid = context_id
 
+    def _fit_resampler(self, rate: int):
+        """Pipecat's stream resampler is fixed to the first input rate it sees. The voice can change rate
+        (DGX3 24 kHz, Piper 22.05 kHz when it takes over, a filler cached from the other one): a new
+        resampler then, or every later sentence fails ('cannot be reused with different sample rates')."""
+        rs = getattr(self, "_resampler", None)
+        if rs is not None and getattr(rs, "_in_rate", None) not in (None, rate):
+            from pipecat.audio.utils import create_stream_resampler
+            logger.info(f"TTS audio now {rate} Hz (was {rs._in_rate:.0f}): new resampler")
+            self._resampler = create_stream_resampler()
+
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         raw = text
         text = speakable(text)
@@ -317,6 +327,7 @@ class McpTTSService(TTSService):
                 r = await job
                 pcm = base64.b64decode(r["audio_b64"])
                 rate = int(r["sample_rate"])
+                self._fit_resampler(rate)
 
                 async def chunks(pcm=pcm, rate=rate):
                     step = rate // 5 * 2                  # 200 ms per frame
