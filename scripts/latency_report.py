@@ -196,8 +196,10 @@ def main():
     st = turn_stages(lines)
     dev = a.device or next((m.group(1) for ln in reversed(every) if (m := DEVICE.search(ln))), "")
     w = wer(a.run, lines)
+    tools_off = any("LLM tools: off" in ln for ln in lines)
     rep = {
         "run": a.run.name, "date": str(date.today()), "device": dev, "cooling": a.cooling, "network": a.network,
+        "llm_tools": "off (conversation only)" if tools_off else "on",
         "method": "fd-benchmark clips (same seed) on Elkit; per-stage stamps on the device's monotonic clock; "
                   "mean and p95 over all spoken turns of the run",
         "metrics_s": {
@@ -215,8 +217,10 @@ def main():
     }
     (a.run / "latency_report.json").write_text(json.dumps(rep, indent=2), encoding="utf-8")
     (ROOT / "report").mkdir(exist_ok=True)
-    (ROOT / "report" / "latency.json").write_text(json.dumps(rep, indent=2), encoding="utf-8")
-    print(f"run {a.run.name}   device: {dev or '(not in the log: --device)'}")
+    # the deck reads latency.json (Elkit as it is, tools on); a tools-off run goes next to it, never over it
+    out = ROOT / "report" / ("latency_tools_off.json" if tools_off else "latency.json")
+    out.write_text(json.dumps(rep, indent=2), encoding="utf-8")
+    print(f"run {a.run.name}   device: {dev or '(not in the log: --device)'}   LLM tools: {rep['llm_tools']}")
     print(f"{'metric':44} {'n':>4} {'mean':>7} {'p50':>7} {'p95':>7}")
     for k, s in rep["metrics_s"].items():
         if s:
@@ -225,7 +229,7 @@ def main():
     ww = rep["wer"]
     print(f"WER {ww.get('wer')}  ({ww.get('errors')} errors / {ww.get('ref_words')} words, {ww.get('trials')} trials)"
           if "wer" in ww else f"WER: {ww.get('error')}")
-    print(f"-> {a.run / 'latency_report.json'}  and  report/latency.json")
+    print(f"-> {a.run / 'latency_report.json'}  and  report/{out.name}")
 
 
 if __name__ == "__main__":

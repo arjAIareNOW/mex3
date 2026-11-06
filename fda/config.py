@@ -60,6 +60,7 @@ class Config:
     tts_mcp_port: int = 8102
     tools_mcp_port: int = 8103
     room_hub_port: int = 8104             # the agent's room, for the room tools of the tools MCP server (local only)
+    llm_tools: bool = True                # False: the LLM gets no tools (fd-benchmark "conversation only" runs)
     far_speech_db: float = 10.0           # speech this much quieter than the user's level = TV/across the room (0 = off)
     docs_dir: str = "docs"                # documents FDA can answer questions about (PDF, DOCX, XLSX, CSV, MD, TXT)
     reports_dir: str = "reports"          # device check reports (audit-<time>.md)

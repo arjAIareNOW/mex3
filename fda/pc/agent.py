@@ -340,6 +340,11 @@ class Agent:
             self.local_llm = ep
         logger.info(f"LLM: {ep.engine} / {ep.model} at {ep.base_url}")
         self.system = SYSTEM.format(name=cfg.name, location=cfg.location)
+        if not getattr(cfg, "llm_tools", True):       # fd-benchmark "conversation only" run
+            self.system += ("\nIn this session you have NO tools: never call one. Answer from what you know in one "
+                            "or two sentences; for live facts (traffic, prices, today's weather) say briefly that you "
+                            "cannot check that right now.")
+            logger.info("LLM tools: off (conversation-only benchmark)")
         entries = fallback_llm.chain(ep.model) if ep.engine != "local" else []
         if entries:
             logger.info("LLM fallback chain: " + " -> ".join(f"{e['engine']}/{e['model']}" for e in entries))
@@ -437,7 +442,8 @@ class Agent:
         tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
-        self.context = LLMContext(messages=[*FEW_SHOT], tools=tools)
+        self.context = LLMContext(messages=[*FEW_SHOT], tools=tools) if getattr(cfg, "llm_tools", True) else \
+            LLMContext(messages=[*FEW_SHOT])
         agg = LLMContextAggregatorPair(self.context, user_params=LLMUserAggregatorParams(
             user_turn_strategies=UserTurnStrategies(
                 start=[MinWordsUserTurnStartStrategy(min_words=3)],

@@ -59,6 +59,8 @@ async def build(transport, log_dir: Path):
     cfg.open_browser = False
     cfg.say_ready = False
     cfg.state_file = ""          # test clips ("set an alarm for 6:30") must never reach the real saved alarms / lists
+    # FDA_BENCH_TOOLS=off: a "conversation only" run, the LLM gets no tools (labelled in the log and the report)
+    cfg.llm_tools = os.environ.get("FDA_BENCH_TOOLS", "on").strip().lower() not in ("off", "0", "no", "false")
     setup_logging(cfg.log_level.upper())
     from loguru import logger
     logger.info(f"device: {device_info()}")

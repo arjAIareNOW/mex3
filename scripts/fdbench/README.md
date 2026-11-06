@@ -26,10 +26,16 @@ With the Pi (`--where remote`): Elkit runs on the Pi, fdbench on the laptop, and
     ~/ME3/.venv/bin/python launch_assistant.py --url ws://LAPTOP-IP:8791
 
     # laptop
-    .venv\Scripts\python.exe -m fdbench run --student fda-pc --rounds 3 --connect direct --where remote `
+    .venv\Scripts\python.exe -m fdbench run --student fda-pc --rounds 3 --seed 11273 --connect direct --where remote `
       --judge-provider custom --judge-url http://127.0.0.1:8092/v1 --judge-model qwen2.5-3b --no-utmos --yes `
       --recordings k --reset-cmd ".venv\Scripts\python.exe tools\fda_reset.py http://PI-IP:8792/reset"
 
 Then copy Elkit's log of that run from the Pi to the laptop and run
 `python scripts/latency_report.py fd-benchmark/runs/fda-pc/<run> --log pi-assistant.log --cooling "..." --network "..."`,
 then `python scripts/me_slides.py` (the deck fills Mean / p95 only from a Raspberry Pi report).
+
+Conversation-only run (the LLM gets no tools; labelled "LLM tools: off" in the log): start Elkit with
+`FDA_BENCH_TOOLS=off` and give the run its own student name, e.g. on the Pi
+`FDA_BENCH_TOOLS=off ~/fda/.venv/bin/python launch_assistant.py --url ws://LAPTOP-IP:8791` and on the laptop
+`--student fda-pc-notools`. latency_report.py then writes report/latency_tools_off.json (the deck keeps
+report/latency.json, the run with tools).
