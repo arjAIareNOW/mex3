@@ -1,4 +1,4 @@
-# Elkit live demo: script (about 5 minutes)
+# Elkit live demo: script (about 6 minutes)
 
 **Before you start:** Elkit is running (`systemctl --user start fda.service`), volume 70 %, Wi-Fi is up, and `docs/project-budget.csv` is on the Pi.
 Speak normally, about an arm's length from the mic. Elkit's lines are approximate: the LLM words them a little differently each time.
@@ -20,6 +20,10 @@ Speak normally, about an arm's length from the mic. Elkit's lines are approximat
 | **5. Flight** | "While you're on it, check the cheapest flight from Manila to Davao." | Search the web, then say the **price, airline and link**. The links appear on screen. | "Search for cheap flights Manila to Davao." |
 | | *(optional)* Talk over it: "Okay, stop." | Stop mid-sentence (barge-in). | — |
 | **6. Reminder** | "Remind me at 5 PM to book the Davao flight." | "Over to the Virtual Home tab." A reminder note is pinned for 5 PM. | "Add a reminder: book the Davao flight, 5 PM." |
+| **7. YouTube** | "Please open a YouTube video for me." | Ask what you'd like to watch. It never picks a video for you. | — |
+| | "The latest Worlds 2026 video." | Switch to the Virtual Studio tab ("Over to the Virtual Studio tab.") and play it. | "Play the Worlds 2026 highlights on YouTube." |
+| | "Elkit, pause." · "Elkit, resume." · "Elkit, louder." | Control the video. During a video, say **"Elkit"** first. | — |
+| | "Elkit, close the video." | Close the video's tab. | — |
 | **Close** *(optional)* | "Call my wife." | The phone on the side table rings; Mommy doesn't pick up. Elkit offers a text. | — |
 | | "Yes, text her: I'll be home late." | A text is "sent" (simulated, no SIM). | — |
 
