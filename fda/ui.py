@@ -90,6 +90,10 @@ class UI:
                         log.exception("bad message from display")
         finally:
             self.clients.discard(ws)
+            io = getattr(self.agent, "io", None)
+            if not self.clients and io is not None and getattr(io, "media_playing", False):
+                io.media_playing = False           # the last display closed: no video plays any more
+                log.info("display closed: no video playing")
         return ws
 
 

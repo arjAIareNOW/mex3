@@ -162,7 +162,9 @@ class McpSTTService(SegmentedSTTService):
                 return
             if not busy:                                   # a level under the alarm is not their usual level
                 self.user_db = lvl if self.user_db is None else 0.7 * self.user_db + 0.3 * lvl
-            yield TranscriptionFrame(text, self._user_id, time_now_iso8601(), Language.EN)
+            # the whole utterance at once: this IS the final transcript. Not marked, pipecat's turn-end waits out its
+            # STT safety timer every turn (fd-benchmark 2026-11-06: "turn wait" was a flat ~0.8 s on every turn)
+            yield TranscriptionFrame(text, self._user_id, time_now_iso8601(), Language.EN, finalized=True)
 
 
 # characters the voices read as noise or run words together on: web text is full of them

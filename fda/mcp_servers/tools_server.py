@@ -444,8 +444,13 @@ class Apps:
             return cur                    # no clear other app named: the one on screen
         return best
 
-    def start(self, kind: str, description: str, name: str, base: Path | None = None) -> dict:
+    def start(self, kind: str, description: str, name: str, base: Path | None = None, replace: bool = False) -> dict:
         with self.lock:
+            if self.job and self.job["state"] == "building" and replace:
+                # they changed their mind ("wait, no, a racing game"): the running build stops and is never saved
+                log.info("build dropped for a change of mind: %r -> %r", self.job["title"], description[:80])
+                self.job["cancelled"] = True
+                self.job["state"] = "dropped"
             if self.job and self.job["state"] == "building":
                 if kind == "edit":
                     # a change asked for while one is still being made: do it right after, not never
@@ -484,13 +489,20 @@ class Apps:
 
             def progress(text: str) -> bool:                  # called while the code streams in
                 job["chars"], job["code"] = len(text), text[-600:]
-                return _html_done_or_looping(text)
+                return bool(job.get("cancelled")) or _html_done_or_looping(text)
+
+            def dropped() -> bool:                            # a change of mind replaced this build
+                if job.get("cancelled"):
+                    log.info("dropped build stopped: %r", job["title"])
+                return bool(job.get("cancelled"))
 
             for attempt in range(2):
                 job["attempt"] = attempt + 1
                 job["chars"], job["code"] = 0, ""
                 raw = self.coder.complete(msgs, max_tokens=self.max_tokens, temperature=0.2 if attempt == 0 else 0.6,
                                           stop_when=progress)
+                if dropped():
+                    return
                 if _looping(raw):
                     log.warning("the model started repeating itself; trying again")
                     continue
@@ -507,6 +519,8 @@ class Apps:
                     err = f"Syntax error: {err}"
                 else:
                     err = live.runtime_problem(live.run_check(html), game)
+                if dropped():
+                    return
                 if best is None or problem_rank(err) <= best[0]:
                     best = (problem_rank(err), html)
                 if not err or round_ == 2:   # check, repair, check, repair, check
@@ -530,6 +544,8 @@ class Apps:
             res = live.run_check(html) or {}
             settings = res.get("settings") or {}
             still = js_syntax_error(html) or live.runtime_problem(res, game)
+            if dropped():
+                return
             p = self.dir / f"{job['name']}.html"
             if kind == "edit" and p.exists():         # keep the previous version (undo)
                 p.replace(p.with_suffix(".prev.html"))
@@ -556,6 +572,8 @@ class Apps:
             log.info("%s %s ready in %.1f s (%d chars), %s%s", kind, p.name, job["seconds"], len(html), job["tests"],
                      f" problems: {problems}" if problems else "")
         except Exception as e:  # noqa: BLE001
+            if job.get("cancelled"):
+                return                         # dropped anyway: nothing to say
             log.exception("build failed")
             job.update(state="failed", error=str(e)[:200])
         with self.lock:
@@ -611,20 +629,22 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
     geo: dict[str, tuple] = {}
 
     @mcp.tool()
-    def create_app(description: str, name: str = "") -> dict:
+    def create_app(description: str, name: str = "", instead: bool = False) -> dict:
         """Build a new app, game or simple website from a description (e.g. "a snake game with a neon look",
         "a tip calculator", "a page about our coffee shop with a menu"). Runs in the background; the app appears on
-        the display when ready. name: a short name for it (optional)."""
-        return apps.start("build", description, name)
+        the display when ready. name: a short name for it (optional). instead: true when they changed their mind
+        about the app being built right now ("wait, no, a racing game"): that build is dropped and this one starts."""
+        return apps.start("build", description, name, replace=instead)
 
     @mcp.tool()
-    def edit_app(change: str, name: str = "") -> dict:
+    def edit_app(change: str, name: str = "", instead: bool = False) -> dict:
         """Change an app that was built before: "make the snake red", "add a high score", "bigger buttons".
-        name: which app (default: the one built or opened last)."""
+        name: which app (default: the one built or opened last). instead: true when they changed their mind about
+        the change being made right now ("wait, no, blue buttons"): that change is dropped and this one is made."""
         p = apps.find(name)
         if p is None:
             return {"ok": False, "message": "There is no app to change yet. Ask me to build one first."}
-        return apps.start("edit", change, p.stem, base=p)
+        return apps.start("edit", change, p.stem, base=p, replace=instead)
 
     @mcp.tool()
     def undo_app_change(name: str = "") -> dict:

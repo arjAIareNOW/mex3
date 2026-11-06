@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import re
 import time
@@ -45,7 +46,7 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from mcp.client.session_group import StreamableHttpParameters
 
 from .. import brain, rules
-from . import fallback_llm
+from . import fallback_llm, mind
 from ..mcp_servers import llm as llmlib
 from ..room import Room
 from ..config import ROOT
@@ -71,6 +72,8 @@ How you work:
   to build, and do not list what you can do unless they ask. After a task, a short confirmation is enough.
 - Things you can do when asked: build websites, apps and small games live on the screen; the weather and the time
   (get_weather, get_time); the room on the screen: lights, thermostat, timers, alarms, reminders, music and volume.
+  A message ending in [now: ...] already has the true time and date: use it, never call get_time then. It is only
+  there in case they ask: "the time is up", "a long time" are not questions about the time.
 - Building: when they ask for an app, a website or a game and the idea is clear enough, start at once with create_app
   and a rich, specific description (purpose, sections or gameplay, layout, colours, fonts, mood, controls). If it is
   very vague, ask one quick question, or suggest a direction and start. While it builds, describe in two or three
@@ -78,11 +81,17 @@ How you work:
   told it is ready, then say one short thing about it.
 - Remember what was built and what they liked or disliked, and build on it: "it", "that", "the button", "make it
   pop" mean the app on screen. Look changes to a game (colours, swap the bird for a butterfly, a photo for the
-  pipes, a cactus for the pipes, faster, easier / harder = its difficulty setting): tweak_app. When they change
-  their mind in the same breath ("green... wait, no, black"), do only the last one and say so: "Okay, not green:
-  black instead." Any other change, a new section or feature: edit_app with a clear instruction.
+  pipes, a cactus for the pipes, faster, easier / harder = its difficulty setting): tweak_app.
+  Any other change, a new section or feature: edit_app with a clear instruction.
+- Changing their mind, about ANYTHING ("green... wait, no, black", "a timer for 5 minutes. Actually, 10", "make me a
+  snake game. Wait, no, a racing game instead", "remind me at 5. No wait, 6"): do only the new one; if the first
+  one was already done, change or undo it so only the new one is left (edit the reminder, cancel the timer,
+  create_app with instead=true while that build still runs). Say it first: "Okay, not green: black instead."
   "Undo that": undo_app_change. "The earlier version": restore_app_version (app_history lists them).
   "Show me the snake game": open_app.
+- What you already know well, answer at once with no tool: the population or capital of a country or big city,
+  a word in another language (say it as a sentence: "In Italian, thank you is grazie."), how to do something,
+  science, history, definitions. A lookup makes them wait several seconds in silence.
 - Looking things up: for prices, flights, schedules, news, people or anything current or that you are not sure of,
   use web_search (get_news for headlines, wikipedia for background). If the snippets lack a detail they asked for
   (the airline, the exact price, the date), read_page the best link. Then say the answer in one or two sentences:
@@ -162,6 +171,7 @@ AGENT_MCP_TOOLS = ["create_app", "edit_app", "tweak_app", "undo_app_change", "ap
                    "list_apps", "open_app", "app_settings", "get_weather", "get_time",
                    "web_search", "read_page", "get_news", "wikipedia", "play_video"]
 # a short filler is spoken at once for these (internet, 1-3 s; photos for tweak_app are handled too)
+TURN_TTFS_S = 0.5          # see McpSTTService below: the turn ends 0.3 s after the transcript (was 0.8 s)
 SLOW_TOOLS: set[str] = {"web_search", "read_page", "get_news", "wikipedia", "play_video"}
 
 # ---- Interface sub-tabs: every app, video, photo set or search opens its own tab, named so that no two tabs share
@@ -404,8 +414,12 @@ class Agent:
         self.guard.on_user = (lambda ev: self.ui.send(ev)) if self.ui else None
         self.nfm = NotForMe(on_ignored=lambda: self._event("not_for_me"), io=self.io)
         self.nfm.own_name = cfg.name
+        # ttfs_p99_latency: our ASR gives its text only after the speech ends, so pipecat has already started the turn
+        # (min 3 words) and forgotten the VAD stop; it then ends the turn on a fallback timer of ttfs - stop_secs
+        # (1.0 - 0.2 = a flat 0.8 s on every turn, fd-benchmark 2026-11-06). 0.5 -> 0.3 s: still room for a short
+        # pause in the middle of a sentence.
         stt = McpSTTService(self.asr, far_db=cfg.far_speech_db, on_ignored=self._resume_soon,
-                             own_name=cfg.name)
+                             own_name=cfg.name, ttfs_p99_latency=TURN_TTFS_S)
         self.guard.asr, self.guard.stt = self.asr, stt
         stt.output_busy = lambda: bool(self.room.state.get("ringing")) or \
             self.room.state.get("music", {}).get("state") == "playing"
@@ -416,6 +430,8 @@ class Agent:
         # while a build runs, a spoken "it's ready / enjoy" is dropped (the LLM jumps ahead); app_status is polled
         # every 1.5 s, so the first seconds after create_app / edit_app count as building too
         tts.building = lambda: self._building or time.monotonic() - self._build_t0 < 6.0
+        self._heard_tap = HeardTap(self.io, self.ui, name=cfg.name, on_heard=self._heard, on_ignored=self._resume_soon,
+                                   intercept=self._intercept, echo_text=lambda: self.nfm.recent_text())
         pipeline = Pipeline([
             self.transport.input(),
             VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(confidence=0.6, start_secs=0.15,
@@ -423,8 +439,7 @@ class Agent:
             self.guard,
             Mark(self.clock, {VADUserStoppedSpeakingFrame: "speech_end"}),
             stt,
-            HeardTap(self.io, self.ui, name=cfg.name, on_heard=self._heard, on_ignored=self._resume_soon,
-                     intercept=self._intercept, echo_text=lambda: self.nfm.recent_text()),
+            self._heard_tap,
             Mark(self.clock, {TranscriptionFrame: "heard"}),
             agg.user(),
             Mark(self.clock, {LLMContextFrame: "sent"}),
@@ -1133,6 +1148,41 @@ class Agent:
         self._trim_context()
         self._status("thinking")
 
+    async def fresh_session(self):
+        """reset_session, and first cut off any reply still being written or spoken (fd-benchmark: the last trial's
+        answer was still playing when the next clip started: 3 failures that were not hers to fail)."""
+        tap = getattr(self, "_heard_tap", None)
+        if tap is not None:
+            try:
+                await tap.broadcast_interruption()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"fresh session: interruption failed: {e}")
+        if getattr(self, "nfm", None) is not None:
+            self.nfm.paused = ""                       # nothing left to "continue" from the last trial
+        self.reset_session()
+
+    def reset_session(self):
+        """A fresh session (fd-benchmark between trials: each clip is its own conversation, as in the papers):
+        the history back to the few-shot, no views or video, the room empty and quiet. Nothing is saved."""
+        if self.context is not None:
+            self.context.set_messages([*FEW_SHOT])
+        self.views, self.active_view, self.app_url, self.app_keys = [], None, "", []
+        self.io.media_playing = False
+        self._last_act, self._lead = None, None
+        self._drop_held()
+        room = getattr(self, "room", None)
+        if room is not None:
+            if room.state.get("ringing"):
+                room.stop_ringing()
+            if room.state["music"]["state"] != "stopped":
+                room.state["music"] = {"state": "stopped", "track": "", "index": 0}
+                room._apply_music()
+            for k in ("timers", "alarms", "reminders", "messages"):
+                room.state[k] = []
+            room.state["lists"] = {}
+            room._changed()
+        logger.info("fresh session (reset between benchmark trials)")
+
     def _trim_context(self, keep_turns: int = 12):
         """Keep the few-shot plus the last `keep_turns` user turns (a whole design session; a cloud LLM reads this
         in a blink, a local one would want fewer).
@@ -1173,6 +1223,10 @@ class Agent:
             self.ui.send({"type": "room", "state": _public(state)})
 
     async def _announce(self, text: str):
+        lead = getattr(self, "_lead", None)
+        if lead:                                     # a change of mind: "Okay, not 5 minutes: 10 minutes instead."
+            self._lead = None
+            text = f"{lead} {text}"
         if self.worker is not None:
             await self.worker.queue_frames([TTSSpeakFrame(text)])
 
@@ -1222,10 +1276,100 @@ class Agent:
             said = strip_name(text, self.cfg.name).strip()
             if not (_CORRECTION_ALONE.match(said) or _CORRECTION.match(said)):
                 await self._flush_held()           # a new request, not "wait, no...": the held change is made first
-        return (await self._continue(text) or await self._choice_direct(text) or await self._view_direct(text)
-                or await self._media_direct(text)
-                or await self._nav_direct(text) or await self._room_direct(text) or await self._quick(text)
-                or await self._direct_tweak(text))
+        if await self._mind_direct(text):
+            return True
+        if await self._chain(text):
+            return True
+        self._last_act = {"text": text, "t": time.monotonic(), "undo": None, "kind": "llm"}
+        return False
+
+    async def _chain(self, text: str) -> bool:
+        """The requests done without the LLM, in order. What was done is kept (_last_act) for "wait, no, ..."."""
+        self._act_undo = None
+        for fn in (self._continue, self._choice_direct, self._view_direct, self._media_direct, self._nav_direct,
+                   self._room_direct, self._quick, self._direct_tweak):
+            if await fn(text):
+                if fn != self._continue:
+                    self._last_act = {"text": text, "t": time.monotonic(), "undo": self._act_undo,
+                                      "kind": fn.__name__}
+                return True
+        return False
+
+    async def _mind_direct(self, text: str) -> bool:
+        """'Wait, no, ...' for ANY request, not only games: "Set a timer for 5 minutes. Wait, no, 10." / "Turn the
+        lights blue." ... "Actually, red." / "Make me a snake game." ... "Wait, no, a racing game instead."
+        The first one is undone (or never done), the new one is done, and Elkit says "Okay, not 5 minutes:
+        10 minutes instead." What is not a fast request goes to the LLM, told exactly what changed."""
+        said = strip_name(text, self.cfg.name).strip()
+        combined = _CORRECTION.match(said)
+        alone = None if combined else _CORRECTION_ALONE.match(said)
+        last = getattr(self, "_last_act", None)
+        fresh = last is not None and time.monotonic() - last["t"] < 60
+        loose = None
+        if not (combined or alone) and fresh and time.monotonic() - last["t"] < 20 and last["kind"] != "_direct_tweak":
+            # live 2026-11-06: "Wait, no, make it 10 minutes" was heard as "We know make it 10 minutes": "make it
+            # <a number / colour>" just after a request still changes that one (only a number or a colour)
+            lm = re.search(r"\b(?:make it|make that|change it to|change that to|i meant)\s+(.+?)\W*$", said, re.I)
+            if lm and len(lm.group(1).split()) <= 3:
+                m0 = mind.merge(last["text"], lm.group(1))
+                if m0 and m0["how"] in ("number", "colour"):
+                    loose = lm.group(1)
+        if not (combined or alone or loose):
+            return False
+        if self.app_keys and (combined or (fresh and last["kind"] == "_direct_tweak")) \
+                and await self._correction_direct(said, text):
+            return True                              # a game: its own wording ("The bird is black now.")
+        if combined:
+            first, second, undo = combined["first"], combined["second"], None
+            if not (mind.VERBS.match(mind.norm(first)) or rules.match(first, {})):
+                return False                         # "Hello. Actually, how are you": not a request changed
+        elif fresh:
+            first, second, undo = last["text"], (alone["second"] if alone else loose), last
+        else:
+            return False
+        new = mind.clean(second)
+        if re.match(r"(?:what|who|where|when|why|how|is|are|can|could|do|does|will|tell)\b", new) and \
+                not re.match(r"(?:what|how) about\b", mind.norm(second)):
+            return False                             # "Actually, what time is it?": a new question
+        strong = loose or re.search(r"\binstead\b|^\W*(?:wait|hold on)\W+no|^\W*no\W+wait|\bi meant\b", said, re.I)
+        if not (combined or strong) and (len(new.split()) > 3 or re.match(r"(?:i|you|we)\b", new)):
+            return False                             # "Sorry, I didn't hear you": not a correction
+        m = mind.merge(first, second)
+        if m is None:
+            return False
+        lead = mind.lead(m)
+        logger.info(f"change of mind ({m['how']}): {first!r} -> {m['merged']!r} | {lead!r}")
+        self._drop_held()
+        if undo and undo.get("undo"):
+            self._undo_room(undo["undo"])
+        self._lead = lead
+        if await self._chain(m["merged"]):
+            if self._lead:                           # the fast path said nothing: the lead on its own
+                self._lead = None
+                await self._announce(lead)
+            return True
+        self._lead = None
+        done = undo is not None and undo.get("kind") == "llm"
+        self.context.add_message({"role": "system", "content":
+            f'They changed their mind. Before: "{first}". Now they want: "{m["merged"]}". '
+            + ("The first one may be done already: change or cancel it (edit or delete the reminder or alarm, cancel "
+               "the timer, edit_app, or create_app with instead=true while that build is still running) so only "
+               "the new one is left. " if done else "Do only the new one. ")
+            + f'Start your answer with "{lead}"'})
+        self._last_act = {"text": m["merged"], "t": time.monotonic(), "undo": None, "kind": "llm"}
+        return False
+
+    _UNDO_KEYS = {"lights": "lights", "thermostat": "thermostat_c", "timer": "timers", "cancel_timer": "timers",
+                  "alarm": "alarms", "cancel_alarm": "alarms", "list_items": "lists", "volume": "volume",
+                  "add_reminder": "reminders", "delete_reminder": "reminders", "edit_reminder": "reminders"}
+
+    def _undo_room(self, u: dict):
+        """Put back what the last room command changed (the 5-minute timer goes, the lights are blue again)."""
+        snap = self.room.snapshot()
+        for k in u["keys"]:
+            snap[k] = copy.deepcopy(u["before"][k])
+        self.room.restore(snap)
+        logger.info(f"undone for the change of mind: {u['keys']}")
 
     async def _room_direct(self, text: str) -> bool:
         """"Turn on the lights", "set a timer for 5 minutes", "volume 30", "what time is it": the room at once,
@@ -1242,6 +1386,11 @@ class Agent:
         # it shows in the Virtual Home: go there first and say so, let the tab settle, THEN change the room,
         # so the change is seen happening (the lamp fades to blue) instead of arriving already done
         moved = await self._go_first("room") if actions else ""
+        before = room.snapshot()
+        keys = sorted({self._UNDO_KEYS[a["tool"]] for a in actions if a.get("tool") in self._UNDO_KEYS and
+                       not (a["tool"] == "list_items" and a.get("action") == "show")})
+        if keys:
+            self._act_undo = {"before": before, "keys": keys}     # for "wait, no, 10 minutes"
         t = time.perf_counter()
         for a in actions:
             r = await room.execute(a)
@@ -1443,6 +1592,8 @@ class Agent:
         if key is None or not value or len(value.split()) > 6 or \
                 value.lower() in ("on", "off", "up", "down", "back", "over", "around", "it", "that"):
             return False
+        if not lead and getattr(self, "_lead", None):  # a change of mind for anything: made now, not held
+            lead, self._lead = self._lead, None
         await self._go_first(self._app_tab())          # the app's own tab first, then the change is seen
         logger.info(f"live change by voice: {key} -> {value!r}")
         if re.search(r"photo|picture|image", value, re.I):

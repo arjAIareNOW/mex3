@@ -63,6 +63,16 @@ SCENES = [
     ("change_mind_pipes", "Changing my mind on the pipes: red, Elkit takes it, then blue instead", [
         (SAY_ONLY, "Make the pipes red."),
         (CUT_IN, "Wait, no. I want them to be blue instead.", 0.4)]),
+    ("mind_timer", "Changing my mind on a timer: 5 minutes, then 10", [
+        (SAY_ONLY, "Set a timer for 5 minutes."),
+        (CUT_IN, "Wait, no, make it 10 minutes.", 0.4)]),
+    ("mind_lights", "Changing my mind on the lights: blue, then red", [
+        (SAY_ONLY, "Turn the lights blue."),
+        (CUT_IN, "Actually, red instead.", 0.4)]),
+    ("mind_build", "Changing my mind on a build: a snake game, then a racing game", [
+        (SAY_ONLY, "Make me a snake game."),
+        (CUT_IN, "Wait, no, a racing game instead.", 1.0),
+        (APP, 300)]),
     ("background", "A library background", [
         (SAY, "Change the sky to the night sky.")]),
     ("website", "A website, colours first", [
@@ -243,6 +253,19 @@ def check(name: str, r: dict, w: Watch) -> tuple[bool, str]:
         story = [x[2] for x in before if x[1] == "said"]
         told = bool(story) and not re.search(r"sorry,? but i (?:can.?t|cannot)", " ".join(story), re.I)
         return told and stopped and answered, f"story_told={told} stopped={stopped} answered={answered}"
+    if name == "mind_timer":
+        secs = [t["seconds"] for t in room.get("timers", [])]
+        told = any(re.search(r"not 5 minutes", x[2], re.I) for x in said)
+        return secs == [600] and told, f"timers={secs} said 'not 5 minutes'={told}"
+    if name == "mind_lights":
+        told = any(re.search(r"not blue", x[2], re.I) for x in said)
+        return room["lights"]["color"] == "red" and told, f"lights={room['lights']['color']} said 'not blue'={told}"
+    if name == "mind_build":
+        built = [e.get("title", "") for e in w.agent.events if e["kind"] == "app_ready"]
+        racing = any(re.search(r"rac|car|road|drive", t, re.I) for t in built)
+        snake = any(re.search(r"snake", t, re.I) for t in built)
+        told = any(re.search(r"not (?:a )?snake|instead of (?:a )?snake|racing", x[2], re.I) for x in said)
+        return racing and not snake and told, f"built={built} said racing / not snake={told}"
     if name in ("game", "website"):
         ready = any(e["kind"] == "app_ready" for e in w.agent.events)
         pop = any(m.get("type") == "choices" and m.get("options") for m in msgs) if name == "website" else True

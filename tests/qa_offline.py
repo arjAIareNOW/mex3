@@ -262,6 +262,16 @@ def t_echo():
         stopped = await g2._peek(b"\0" * 6400)
         check("overlap 'too short': voice unducked at once, not stopped", (stopped, g2.ducked, dio.ducks),
               (False, False, [True, False]))
+        # fd-benchmark: stop sooner. 2 words count once the overlap is long enough; backchannels still never stop it
+        long_audio, short_audio = b"\0" * int(1.3 * 32000), b"\0" * 6400
+        check("overlap: 2 words after ~0.7 s of talking over it stop it ('turn left')",
+              g.not_an_interruption("turn left", long_audio), "")
+        check("overlap: 2 words in a short bit do not ('not exactly' = its own echo)",
+              g.not_an_interruption("not exactly", short_audio), "too short")
+        check("overlap: a long 'yeah okay' is still a backchannel", g.not_an_interruption("yeah okay", long_audio),
+              "backchannel")
+        check("guard: peeks from 0.5 s, fallback stop at 2 s", (DuplexGuard(FakeIO(), Cfg()).peek_s[0],
+                                                               DuplexGuard(FakeIO(), Cfg()).sustained_s), (0.5, 2.0))
     asyncio.run(go())
 
 
@@ -573,6 +583,29 @@ def t_video():
         check("photos: next", a.photo["i"], 1)
         await a._media_direct("show the previous picture")
         check("photos: previous", a.photo["i"], 0)
+
+        # fd-benchmark 2026-11-06: a clip asked for a music video; with no display nothing plays, yet 12 turns
+        # were ignored ("video playing, not called by name"). Only a connected display plays videos.
+        import pipecat.processors.frame_processor as fp
+        from pipecat.frames.frames import TranscriptionFrame
+        from pipecat.processors.frame_processor import FrameDirection as D
+        from fda.pc.processors import HeardTap
+        fp.FrameProcessor.process_frame = lambda self, f, d: asyncio.sleep(0)
+        io = FakeIO()
+        io.media_playing = True
+        for clients, want in (([], 1), ([1], 0)):
+            ui2 = FakeUI()
+            ui2.clients = clients
+            tap = HeardTap(io, ui2, name="Elkit", intercept=None, echo_text=lambda: "")
+            out = []
+
+            async def push(f, d=None):
+                out.append(f)
+            tap.push_frame = push
+            await tap.process_frame(TranscriptionFrame("Add budget review to my calendar next Monday.", "u", "t"),
+                                    D.DOWNSTREAM)
+            check(f"video flag with {'a display' if clients else 'no display'}: "
+                  f"{'ignored unless called by name' if clients else 'still answers'}", len(out), want)
     asyncio.run(go())
 
 
@@ -1012,6 +1045,130 @@ def t_watchfixes():
         check(f"quiet speech {'during the alarm: heard' if busy else 'in a quiet room: far away, ignored'}",
               len(got), want)
     check("a level under the alarm does not change the learned level", stt.user_db, -14.0)
+
+
+def t_mind():
+    """User 2026-11-06: "the wait no, change it to ... concept should work on the agent totality. not just games"."""
+    from fda.pc import mind as M
+    for f, s, want, lead in [
+            ("Set a timer for 5 minutes.", "Wait, no, 10 minutes.", "set a timer for 10 minutes",
+             "Okay, not 5 minutes: 10 minutes instead."),
+            ("Set a timer for 5 minutes.", "Actually, ten.", "set a timer for ten minutes", None),
+            ("Turn the lights blue.", "Wait, no. I want them to be red instead.", "turn the lights red",
+             "Okay, not blue: red instead."),
+            ("Turn on the lights.", "Actually, turn them off.", "turn the lights off", "Okay, not on: off instead."),
+            ("Add milk to my shopping list.", "No wait, eggs.", "add eggs to my shopping list",
+             "Okay, not milk: eggs instead."),
+            ("Add milk to my shopping list.", "I meant the to-do list.", "add milk to my to do list", None),
+            ("Make me a snake game.", "Wait, no, a racing game instead.", "make me a racing game",
+             "Okay, not snake game: racing game instead."),
+            ("Open the room tab.", "I meant the office tab.", "open the office tab", None),
+            ("Change the sky to the night sky.", "Wait, no, the beach instead.", "change the sky to the beach", None),
+            ("Make me a website for my coffee shop called Bean There.", "Sorry, Bean Here.",
+             "make me a website for my coffee shop called bean here", None),
+            ("Set an alarm for 7 am.", "Wait, no, 8 am.", "set an alarm for 8 am", "Okay, not 7 am: 8 am instead."),
+            ("Remind me to call mom at 5 pm.", "No wait, 6.", "remind me to call mom at 6 pm", None),
+            ("Call mom.", "Wait no, dad.", "call dad", None),
+            ("What is the weather in Manila?", "Actually, in Cebu.", "what is the weather in cebu", None),
+            ("Show me a photo of a cat.", "Wait, no, a dog.", "show me a photo of a dog", None)]:
+        m = M.merge(f, s)
+        check(f"mind: {f!r} + {s!r}", (m and m["merged"], lead and m and M.lead(m)), (want, lead))
+
+    async def go():
+        a, ui = make_agent()
+        a.worker = FakeWorker()
+        said = lambda: a.worker.said[-1] if a.worker.said else ""      # noqa: E731
+        await a._intercept("Set a timer for 5 minutes.")
+        await a._intercept("Wait, no, 10 minutes.")
+        check("mind: timer 5 -> 10: one timer, 10 minutes, 'not 5 minutes'",
+              ([t["seconds"] for t in a.room.state["timers"]], said().startswith("Okay, not 5 minutes: 10 minutes instead.")),
+              ([600], True))
+        await a._intercept("Turn the lights blue.")
+        await a._intercept("Actually, red.")
+        check("mind: lights blue -> 'actually, red'", (a.room.state["lights"]["color"], said().startswith("Okay, not blue: red")),
+              ("red", True))
+        before = a.room.state["thermostat_c"]
+        await a._intercept("Set the thermostat to 22 degrees. Wait, no, 20.")
+        check("mind: in one breath: thermostat 20 (22 never set)", (before != 22, a.room.state["thermostat_c"],
+                                                                  said().startswith("Okay, not 22 degrees")), (True, 20.0, True))
+        await a._intercept("Add milk to my shopping list.")
+        await a._intercept("No wait, eggs instead.")
+        check("mind: list milk -> eggs", a.room.state["lists"].get("shopping"), ["eggs"])
+        await a._intercept("Set a timer for 3 minutes.")
+        n = len(a.room.state["timers"])
+        await a._intercept("Actually, what time is it?")
+        check("mind: 'actually, what time is it?' is a question: the timer stays", (len(a.room.state["timers"]) == n,
+                                                                                    said().startswith("It's ")), (True, True))
+        # not a fast request: the LLM does it, told what changed
+        handled = await a._intercept("Remind me to call mom at 5 pm.")
+        handled2 = await a._intercept("Wait, no, 6.")
+        note = a.context.get_messages()[-1]
+        check("mind: LLM request 'remind me at 5' -> 'wait, no, 6': the LLM is told the new one and the lead",
+              (handled, handled2, note.get("role"), "remind me to call mom at 6 pm" in note.get("content", ""),
+               "Okay, not 5 pm: 6 pm instead." in note.get("content", ""), "may be done already" in note.get("content", "")),
+              (False, False, "system", True, True, True))
+        await a._intercept("Set a timer for 5 minutes.")
+        n = len(a.room.state["timers"])
+        await a._intercept("We know make it 10 minutes.")
+        check("mind: 'wait, no' misheard ('we know make it 10 minutes'): still the timer, 10 minutes",
+              ([t["seconds"] for t in a.room.state["timers"]][-1], len(a.room.state["timers"]) == n,
+               said().startswith("Okay, not 5 minutes")), (600, True, True))
+        # fd-benchmark: a fresh session between trials (history, views, video, timers, lists)
+        a._open_view("video", {"video_id": "v1", "title": "Bloom", "state": "playing"}, ["music video"], kindword="video")
+        a.io.media_playing = True
+        a.reset_session()
+        from fda.pc.agent import FEW_SHOT
+        check("reset_session: history, views, video, timers, lists all fresh",
+              (len(a.context.get_messages()) == len(FEW_SHOT), a.views, a.io.media_playing, a.room.state["timers"],
+               a.room.state["lists"], a._last_act), (True, [], False, [], {}, None))
+        a.worker.said.clear()
+        check("mind: 'sorry, I didn't hear you' is not a correction", await a._intercept("Sorry, I didn't hear you."),
+              False)
+    asyncio.run(go())
+
+    # a build still running, then "wait, no, a racing game": the first build is dropped, never saved or announced
+    import tempfile
+    import threading
+    from fda.mcp_servers import tools_server as T
+
+    class Coder:
+        engine, model = "fake", "fake"
+
+        def __init__(self):
+            self.asked, self.go = [], threading.Semaphore(0)
+
+        def eta_s(self, kind):
+            return 1
+
+        def complete(self, msgs, max_tokens=0, temperature=0, stop_when=None):
+            self.asked.append(msgs[-1]["content"])
+            self.go.acquire(timeout=5)
+            name = "Snake" if "snake" in msgs[-1]["content"] else "Racing"
+            return f"<html><head><title>{name} game</title></head><body>ok</body></html>"
+
+    d = Path(tempfile.mkdtemp(prefix="qa-mind-"))
+    apps = T.Apps.__new__(T.Apps)
+    apps.cfg, apps.dir, apps.coder, apps.max_tokens = None, d, Coder(), 1000
+    apps.job, apps.lock, apps.current, apps.done = None, threading.Lock(), None, []
+    apps.commit = lambda *a, **k: None
+    saved = (T.live.run_check, T.js_syntax_error, T.live.runtime_problem)
+    T.live.run_check, T.js_syntax_error, T.live.runtime_problem = (lambda h: {}), (lambda h: ""), (lambda r, g: "")
+    try:
+        r1 = apps.start("build", "a snake game", "")
+        r2 = apps.start("build", "a racing game", "", replace=True)
+        check("mind: build replaced while building", (r1.get("building"), r2.get("building")), (True, True))
+        apps.coder.go.release()
+        apps.coder.go.release()
+        for _ in range(80):
+            if apps.done:
+                break
+            time.sleep(0.05)
+        time.sleep(0.2)
+        check("mind: only the racing game is saved and announced",
+              ([j["title"] for j in apps.done], sorted(p.name for p in d.glob("*.html"))),
+              (["Racing game"], ["a-racing-game.html"]))
+    finally:
+        T.live.run_check, T.js_syntax_error, T.live.runtime_problem = saved
 
 
 def t_appjobs():
@@ -1745,7 +1902,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
 
 
 def main():

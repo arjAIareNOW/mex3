@@ -99,7 +99,9 @@ class DuplexGuard(FrameProcessor):
     real interruption ("no, I meant tomorrow") stops the bot in ~1 s instead of waiting for the person to finish.
     Backchannels, speech to someone else, TV-level speech and the bot's own echo never stop it."""
 
-    def __init__(self, io, cfg, sustained_s: float = 3.0, unduck_s: float = 0.9, peek_s=(1.0, 1.6), **kw):
+    # fd-benchmark 2026-11-06: it stopped 2.2 s after an interruption began (peeks at 1.0 / 1.6 s needed 3 words,
+    # fallback at 3 s). Now: earlier peeks, 2 words are enough once the overlap is ~0.7 s long, fallback at 2 s.
+    def __init__(self, io, cfg, sustained_s: float = 2.0, unduck_s: float = 0.9, peek_s=(0.5, 0.9, 1.3), **kw):
         super().__init__(**kw)
         self.io, self.cfg = io, cfg
         self.sustained_s, self.unduck_s, self.peek_s = sustained_s, unduck_s, tuple(peek_s)
@@ -240,7 +242,10 @@ class DuplexGuard(FrameProcessor):
             return "echo"
         if rules.is_echo(text, self.echo_text()):        # its voice from a sentence or two ago (late through the room)
             return "echo"
-        if len(words) < 3:
+        # 2 words stop it once the overlap has gone on ~0.7 s (the buffer also holds 0.5 s from before the VAD fired);
+        # a shorter bit ("Not exactly." = its own echo, live 2026-11-05) still needs 3
+        need = 2 if len(audio) >= int(1.2 * 32000) else 3
+        if len(words) < need:
             return "too short"
         return ""
 
@@ -636,7 +641,12 @@ class HeardTap(FrameProcessor):
                     if self.ui:
                         self.ui.send({"type": "user", "text": frame.text})
                     return
-            if getattr(self.io, "media_playing", False) and not called_by_name(frame.text, self.own_name)                     and not MEDIA_CMD.search(frame.text):
+            # a video only plays on a display: with none connected (closed page, benchmark) nothing plays, so she
+            # must not go deaf (fd-benchmark 2026-11-06: a clip asked for a music video, then 12 turns were ignored)
+            clients = getattr(self.ui, "clients", None)
+            screen = self.ui is not None and (clients is None or bool(clients))
+            if getattr(self.io, "media_playing", False) and screen and not called_by_name(frame.text, self.own_name) \
+                    and not MEDIA_CMD.search(frame.text):
                 self.not_for_me += 1
                 logger.info(f"video playing, not called by name, ignored: {frame.text!r}")
                 if self.ui:
