@@ -626,6 +626,75 @@ class RefusalGuard(FrameProcessor):
             await self.push_frame(frame, direction)
 
 
+_JOKE_ASK = re.compile(r"\b(?:jokes?|pun|puns|riddles?|make me laugh|something funny|knock knock)\b", re.I)
+_Q_WORD = re.compile(r"\b(why|what|how|who|where|when|which)\b", re.I)
+
+
+def split_joke(text: str) -> tuple[str, str] | None:
+    """'Why don't scientists trust atoms? Because they make up everything!' -> (setup, punchline); None when the
+    reply is not a question-and-answer joke (then it is said as it is)."""
+    i = text.find("?")
+    if i < 0:
+        return None
+    setup, punch = text[:i + 1].strip(), text[i + 1:].strip()
+    if len(setup.split()) < 3 or len(re.findall(r"[A-Za-z']+", punch)) < 2:
+        return None
+    return setup, punch
+
+
+def nudge_word(setup: str) -> str:
+    """The word the listener is meant to say back: 'why' for 'Why did ...?', 'what' for 'What do you call ...?'."""
+    last = re.split(r"(?<=[.!:])\s+", setup.strip())[-1]
+    m = _Q_WORD.search(last)
+    return m.group(1).lower() if m else "why"
+
+
+class JokePause(FrameProcessor):
+    """After the LLM: a joke is told like a person tells it. Only the setup question is said; the punchline waits
+    for their "why?" (the agent says it: on_setup(setup, punchline)). The user's wish, 2026-11-06."""
+
+    def __init__(self, is_joke, on_setup, **kw):
+        super().__init__(**kw)
+        self.is_joke, self.on_setup = is_joke, on_setup      # () -> bool: they asked for a joke just now
+        self.held: list[Frame] | None = None
+        self.text = ""
+
+    async def _flush(self):
+        held, self.held = self.held or [], None
+        for f in held:
+            await self.push_frame(f)
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if direction != FrameDirection.DOWNSTREAM:
+            await self.push_frame(frame, direction)
+            return
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self.held, self.text = ([], "") if self.is_joke() else (None, "")
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, LLMTextFrame) and self.held is not None:
+            self.held.append(frame)
+            self.text += frame.text
+        elif isinstance(frame, FunctionCallsStartedFrame) and self.held is not None:
+            await self._flush()                           # a tool call, not a joke
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, LLMFullResponseEndFrame) and self.held is not None:
+            parts = split_joke(self.text)
+            if parts is None:
+                await self._flush()
+            else:
+                self.held = None
+                logger.info(f"joke: setup said, punchline held for their reply: {parts[1][:60]!r}")
+                await self.push_frame(LLMTextFrame(parts[0]))
+                self.on_setup(*parts)
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, InterruptionFrame):
+            self.held = None
+            await self.push_frame(frame, direction)
+        else:
+            await self.push_frame(frame, direction)
+
+
 class ToolFiller(FrameProcessor):
     """After the LLM: when it calls a slow tool (internet), say a short filler at once, so the person hears a
     reply within ~1 s instead of waiting for the tool and the second LLM call."""

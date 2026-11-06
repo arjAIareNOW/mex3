@@ -1795,6 +1795,80 @@ def t_quickbarge():
     check("chain: transcribe_local exists", callable(getattr(ASRChain, "transcribe_local", None)), True)
 
 
+def t_jokes():
+    """A joke: the setup is said, the punchline waits for their "why?" (a nudge after 4 s, the punchline after 6 more)."""
+    import pipecat.processors.frame_processor as fp
+    from types import SimpleNamespace as NS
+    from pipecat.frames.frames import LLMFullResponseEndFrame, LLMFullResponseStartFrame, LLMTextFrame
+    from pipecat.processors.frame_processor import FrameDirection as D
+    from fda.pc.agent import Agent
+    from fda.pc.processors import JokePause, nudge_word, split_joke
+    fp.FrameProcessor.process_frame = lambda self, f, d: asyncio.sleep(0)
+
+    check("split: Q and A joke", split_joke("Sure! Why don't scientists trust atoms? Because they make up everything!"),
+          ("Sure! Why don't scientists trust atoms?", "Because they make up everything!"))
+    check("split: no question -> as it is", split_joke("Knock knock. Who's there?"), None)
+    check("split: a story is not split", split_joke("Once upon a time there was a cat."), None)
+    check("nudge words", [nudge_word("Why did the chicken cross the road?"), nudge_word("Here's one: What do you call "
+          "a fake noodle?"), nudge_word("Did you hear about the claustrophobic astronaut?")], ["why", "what", "why"])
+
+    def run(joke: bool, chunks):
+        out, got = [], []
+        p = JokePause(lambda: joke, lambda s, pu: got.append((s, pu)))
+
+        async def push(f, d=None):
+            out.append(f)
+        p.push_frame = push
+
+        async def go():
+            await p.process_frame(LLMFullResponseStartFrame(), D.DOWNSTREAM)
+            for c in chunks:
+                await p.process_frame(LLMTextFrame(c), D.DOWNSTREAM)
+            await p.process_frame(LLMFullResponseEndFrame(), D.DOWNSTREAM)
+        asyncio.run(go())
+        return "".join(f.text for f in out if isinstance(f, LLMTextFrame)), got
+    said, got = run(True, ["Why did the scarecrow", " win an award? Because he was", " outstanding in his field!"])
+    check("processor: only the setup is said, the punchline is held",
+          (said, got), ("Why did the scarecrow win an award?", [("Why did the scarecrow win an award?",
+                                                                 "Because he was outstanding in his field!")]))
+    said, got = run(False, ["What time is it? It is ten."])
+    check("processor: not a joke request -> untouched", (said, got), ("What time is it? It is ten.", []))
+
+    def agent(user_text):
+        a = Agent.__new__(Agent)
+        a.cfg = NS(name="Elkit")
+        a.io = NS(bot_speaking=False, user_speaking=False)
+        msgs = [{"role": "user", "content": user_text}]
+        a.context = NS(messages=msgs, add_message=msgs.append)
+        a.said = []
+
+        async def announce(t):
+            a.said.append(t)
+        a._announce = announce
+        a.JOKE_NUDGE_S, a.JOKE_TELL_S, a.JOKE_START_S = 0.3, 0.3, 0.05
+        return a
+    check("asked: 'tell me a joke'", Agent._joke_asked(agent("Elkit, tell me a joke")), True)
+    check("asked: weather is not a joke", Agent._joke_asked(agent("what's the weather")), False)
+
+    async def flow(reply):
+        a = agent("tell me a joke")
+        a._joke_setup("Why did the scarecrow win an award?", "Because he was outstanding in his field!")
+        if reply is None:
+            await asyncio.sleep(1.2)
+            return a.said, None
+        await asyncio.sleep(0.05)
+        handled = await a._joke_reply(reply)
+        await asyncio.sleep(0.5)
+        return a.said, handled
+    check("their 'why?' -> the punchline (no nudge)", asyncio.run(flow("Why?")),
+          (["Because he was outstanding in his field!"], True))
+    check("a guess -> the punchline", asyncio.run(flow("I don't know, because he was smart?"))[1], True)
+    check("no reply -> nudge, then the punchline anyway", asyncio.run(flow(None))[0],
+          ["This is the part where you say, why?", "Okay, I'll tell you. Because he was outstanding in his field!"])
+    said, handled = asyncio.run(flow("can you turn on the lights in the living room please now"))
+    check("a new request instead -> joke dropped, request goes on", (said, handled), ([], False))
+
+
 def t_nophotos():
     """Live changes never fetch web photos (Openverse is not an approved service): library art or emoji."""
     from fda.mcp_servers import live
@@ -2264,7 +2338,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "materials": t_materials, "photos": t_photos}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "jokes": t_jokes, "materials": t_materials, "photos": t_photos}
 
 
 def main():

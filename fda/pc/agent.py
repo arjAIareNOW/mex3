@@ -50,8 +50,8 @@ from . import fallback_llm, mind
 from ..mcp_servers import llm as llmlib
 from ..room import Room
 from ..config import ROOT
-from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, Mark, NotForMe, RefusalGuard, SpokenTap, ThinkFiller, ToolFiller, TurnClock,
-                         is_bare_stop,
+from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, JokePause, Mark, NotForMe, RefusalGuard, SpokenTap, ThinkFiller, ToolFiller, TurnClock,
+                         _JOKE_ASK, is_bare_stop, nudge_word,
                          strip_name)
 from .quick import QuickAnswers
 from .services import McpConnection, McpSTTService, McpTTSService
@@ -117,6 +117,8 @@ How you work:
   interface_tab (action go / close / list); when you open something new, you may say which tab it is on.
 - A story, a joke, a poem or an explanation they ask for: tell it (a short version, a few sentences, and keep
   going if they want more). Never answer a harmless request with "I'm sorry, but I can't help with that."
+  A joke: one question-and-answer joke, the setup question then the punchline, in one reply (it pauses for their
+  "why?" between them by itself).
 - Talk like a person: short acknowledgements, a little enthusiasm, an opinion when it helps. Do not repeat what they
   said, do not list options unless they asked for options, do not explain your tools.
 - Stop when the answer is said: never add offers like "let me know if you need anything else" or "what would
@@ -505,6 +507,7 @@ class Agent:
             Mark(self.clock, {LLMContextFrame: "sent"}),
             llm,
             RefusalGuard(self._retry_refusal),
+            JokePause(self._joke_asked, self._joke_setup),
             Mark(self.clock, {LLMTextFrame: "first_word", FunctionCallsStartedFrame: "first_word"}),
             think,
             ToolFiller(slow=SLOW_TOOLS, on_fill=lambda: self.clock.mark("filler"),
@@ -1303,6 +1306,7 @@ class Agent:
         self.views, self.active_view, self.app_url, self.app_keys = [], None, "", []
         self.io.media_playing = False
         self._last_act, self._lead = None, None
+        self._joke_drop()
         self._drop_held()
         room = getattr(self, "room", None)
         if room is not None:
@@ -1391,8 +1395,87 @@ class Agent:
             if d.get("settings") is not None:
                 self.app_keys = [x.split("=", 1)[0].strip() for x in str(d["settings"]).split(", ") if "=" in x]
 
+    # ---------------- jokes: the setup, a pause for their "why?", then the punchline ----------------
+    _JOKE_AGAIN = re.compile(r"\b(?:another|one more|again|more)\b", re.I)
+    _JOKE_REPLY = re.compile(r"\b(?:why|what|who|how|where|when|tell me|don'?t know|no idea|give up|i give|dunno|"
+                             r"not sure|because|cause)\b", re.I)
+    JOKE_NUDGE_S, JOKE_TELL_S = 4.0, 6.0          # quiet after the setup -> the nudge; quiet after that -> punchline
+    JOKE_START_S = 2.0                            # the setup (or nudge) starts playing within this
+
+    def _joke_asked(self) -> bool:
+        """The person's latest words ask for a joke ("tell me a joke", or "another one" just after a joke)."""
+        for m in reversed(getattr(self.context, "messages", None) or []):
+            if isinstance(m, dict) and m.get("role") == "user":
+                c = m.get("content")
+                text = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c or [] if isinstance(p, dict))
+                recent = time.monotonic() - getattr(self, "_t_joke", -1e9) < 180
+                return bool(_JOKE_ASK.search(text) or (recent and self._JOKE_AGAIN.search(text)))
+        return False
+
+    def _joke_setup(self, setup: str, punch: str):
+        """JokePause said the setup: keep the punchline, and wait for their reply (or nudge them)."""
+        self._joke_drop()
+        j = {"setup": setup, "punch": punch, "word": nudge_word(setup)}
+        self._joke, self._t_joke = j, time.monotonic()
+        j["task"] = asyncio.create_task(self._joke_wait(j))
+
+    def _joke_drop(self):
+        j = getattr(self, "_joke", None)
+        self._joke = None
+        if j and j.get("task") and not j["task"].done() and j["task"] is not asyncio.current_task():
+            j["task"].cancel()
+
+    async def _joke_quiet(self, j, secs: float) -> bool:
+        """True after `secs` of quiet (nobody talking) while the joke still waits; False when it was answered."""
+        t0, quiet = time.monotonic(), 0.0
+        while time.monotonic() - t0 < self.JOKE_START_S and not self.io.bot_speaking and self._joke is j:
+            await asyncio.sleep(0.05)                   # the setup (or the nudge) starts playing
+        while quiet < secs:
+            await asyncio.sleep(0.1)
+            if self._joke is not j:
+                return False
+            quiet = 0.0 if (self.io.bot_speaking or self.io.user_speaking) else quiet + 0.1
+        return self._joke is j
+
+    async def _joke_wait(self, j):
+        try:
+            if not await self._joke_quiet(j, self.JOKE_NUDGE_S):
+                return
+            nudge = f"This is the part where you say, {j['word']}?"
+            logger.info(f"joke: no reply, nudge: {nudge!r}")
+            self.context.add_message({"role": "assistant", "content": nudge})
+            await self._announce(nudge)
+            if not await self._joke_quiet(j, self.JOKE_TELL_S):
+                return
+            self._joke = None
+            logger.info("joke: still no reply, the punchline anyway")
+            self.context.add_message({"role": "assistant", "content": j["punch"]})
+            await self._announce(f"Okay, I'll tell you. {j['punch']}")
+        except asyncio.CancelledError:
+            pass
+
+    async def _joke_reply(self, text: str) -> bool:
+        """Their 'why?' (or a guess, or 'I don't know') after a setup: the punchline. Anything else: the joke is
+        dropped and the request goes on as usual."""
+        j = getattr(self, "_joke", None)
+        if not j:
+            return False
+        self._joke_drop()
+        said = strip_name(text, self.cfg.name).strip()
+        if len(re.findall(r"[A-Za-z']+", said)) > 8 and not self._JOKE_REPLY.search(said):
+            return False
+        logger.info(f"joke: reply {said!r} -> punchline")
+        self.context.add_message({"role": "user", "content": text})
+        self.context.add_message({"role": "assistant", "content": j["punch"]})
+        await self._announce(j["punch"])
+        return True
+
     async def _intercept(self, text: str) -> bool:
         """Requests handled without the LLM: "continue" after an interruption, predefined answers, live app tweaks."""
+        if is_bare_stop(text, self.cfg.name):
+            self._joke_drop()
+        elif await self._joke_reply(text):
+            return True
         if is_bare_stop(text, self.cfg.name):          # "stop": no reply, ever (HeardTap already cut the speech)
             if self.room.state.get("ringing"):
                 self.room.stop_ringing()               # an alarm or timer ringing: "stop" means that
