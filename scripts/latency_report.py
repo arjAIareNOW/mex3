@@ -86,6 +86,33 @@ def turn_stages(lines: list[str]) -> dict[str, list[float]]:
     return out
 
 
+STAMP = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)")
+
+
+def run_window(run: Path, lines: list[str]) -> list[str]:
+    """Only the log lines of this run: Elkit's own log (logs/agent.log on the Pi) also holds earlier sessions.
+    Window = fd-benchmark's run_start - 10 s .. run_end + 15 s (both clocks on NTP, same time zone)."""
+    from datetime import datetime, timedelta
+    t0 = t1 = None
+    for ln in (run / "events.jsonl").read_text(encoding="utf-8").splitlines():
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        if e.get("event") in ("run_start", "run_end"):
+            t = datetime.fromisoformat(e["t"]).replace(tzinfo=None)
+            t0, t1 = (t, t1) if e["event"] == "run_start" else (t0, t)
+    if not t0 or not any(STAMP.match(ln) for ln in lines):
+        return lines                      # fdbench's own assistant.log (no dates): already just this run
+    lo, hi = t0 - timedelta(seconds=10), (t1 or datetime.max - timedelta(seconds=15)) + timedelta(seconds=15)
+    out = []
+    for ln in lines:
+        m = STAMP.match(ln)
+        if m and lo <= datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S") <= hi:
+            out.append(ln)
+    return out
+
+
 def trial_order(run: Path) -> list[str]:
     order = []
     for ln in (run / "events.jsonl").read_text(encoding="utf-8").splitlines():
@@ -159,9 +186,10 @@ def main():
     ap.add_argument("--cooling", default="", help='e.g. "active cooler"')
     ap.add_argument("--network", default="", help='e.g. "Wi-Fi 5 GHz, ~40 Mbps"')
     a = ap.parse_args()
-    lines = (a.log or a.run / "assistant.log").read_text(encoding="utf-8", errors="replace").splitlines()
+    every = (a.log or a.run / "assistant.log").read_text(encoding="utf-8", errors="replace").splitlines()
+    lines = run_window(a.run, every)
     st = turn_stages(lines)
-    dev = a.device or next((m.group(1) for ln in lines if (m := DEVICE.search(ln))), "")
+    dev = a.device or next((m.group(1) for ln in reversed(every) if (m := DEVICE.search(ln))), "")
     w = wer(a.run, lines)
     rep = {
         "run": a.run.name, "date": str(date.today()), "device": dev, "cooling": a.cooling, "network": a.network,
