@@ -130,9 +130,14 @@ def match(text: str, room: dict) -> tuple[list[dict], str] | None:
     if re.fullmatch(r"(?:what are my reminders|what s on my reminders|whats on my reminders|list (?:my )?reminders|"
                     r"(?:do i have )?any reminders|show (?:me )?(?:my )?reminders|read (?:me )?my reminders)", t):
         return [{"tool": "list_reminders"}], ""
-    m = re.fullmatch(r"(?:call|phone|ring|dial) ([a-z]+(?: [a-z]+)?)", t)
-    if m and m.group(1) not in ("it", "me", "that", "this", "the police"):
-        return [{"tool": "call", "contact": m.group(1)}], f"Calling {m.group(1).title()}."
+    m = re.fullmatch(r"(?:(?:can you |could you |please )?(?:call|phone|ring|dial)) (my |our )?([a-z]+(?: [a-z]+)?)"
+                     r"(?: please| for me| now)?", t)
+    if m and m.group(2) not in ("it", "me", "that", "this", "the police", "back", "him", "her", "them", "it off"):
+        from .room import contact_name
+        who = contact_name(m.group(2))                     # "my wife" -> "Mommy" (the name in the phone)
+        return [{"tool": "call", "contact": who}], f"Calling {who}."
+    if re.fullmatch(r"(?:hang up|end (?:the )?call|stop (?:the )?call(?:ing)?|cancel (?:the )?call)(?: please| now)?", t):
+        return [{"tool": "end_call"}], ""
     return None
 
 

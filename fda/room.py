@@ -23,6 +23,33 @@ from .audio import read_wav
 log = logging.getLogger("fda.room")
 _ids = itertools.count(1)
 
+# ---------- the phone in the Virtual Home: a simulation only (no SIM900A, no real calls or texts) ----------
+RING_S = 20.0                      # a call rings this long, then "no answer" (the user's wish: it rings, nobody answers)
+QUICK_REPLIES = ["I'm on my way", "I'll be late", "I'll be there", "I'll be back soon"]     # MEX2's reply phrases
+_RELATION = re.compile(r"^(?:my|our|the)\s+", re.I)
+
+
+# the family's contacts, as on the MEX2 phone ("Call Mommy"): what people say -> the name saved in the phone
+CONTACT_ALIASES = {"Mommy": {"wife", "mom", "mommy", "mother", "mama", "ma", "mum", "mummy", "mamma", "nanay", "misis"},
+                   "Daddy": {"husband", "dad", "daddy", "father", "papa", "pa", "tatay", "mister"}}
+
+
+def contact_name(who: str) -> str:
+    """"my wife" -> "Mommy", "dad" -> "Daddy", "john smith" -> "John Smith"."""
+    who = _RELATION.sub("", (who or "").strip().strip(".,!?")).strip()
+    for name, said in CONTACT_ALIASES.items():
+        if who.lower() in said:
+            return name
+    return " ".join(w[:1].upper() + w[1:] for w in who.split()) or "Unknown"
+
+
+def fake_number(name: str) -> str:
+    """A made-up mobile number that stays the same for a name (only shown on the pretend phone)."""
+    h = 0
+    for ch in name.lower():
+        h = (h * 131 + ord(ch)) % 10_000_000
+    return f"+63 917 {h // 10000 % 1000:03d} {h % 10000:04d}"
+
 
 GAME_DEFAULTS = {"plane_color": "white", "tower_color": "pink", "sky": "sunset", "speed": 1.0, "gap": 1.0,
                  "gravity": 1.0, "size": 1.0, "paused": False, "restart": 0, "title": "Sky Hop"}
@@ -397,29 +424,67 @@ class Room:
         return {"ok": True, "note": f"volume {v}"}
 
     def _do_call(self, a):
-        contact = a["contact"].strip().title()
-        self.state["phone"] = {"state": "calling", "contact": contact}
-        if self._call_task:
-            self._call_task.cancel()
+        contact = contact_name(a.get("contact", ""))
+        self._end_call_task()
+        self.state["phone"] = {"state": "calling", "contact": contact, "number": fake_number(contact),
+                               "since": time.time(), "ring_s": RING_S}
         self._call_task = asyncio.create_task(self._simulate_call(contact))
-        return {"ok": True, "note": f"calling {contact} (simulated)"}
+        return {"ok": True, "note": f"calling {contact} (a simulation: it rings, nobody answers)"}
+
+    def _end_call_task(self):
+        if self._call_task and not self._call_task.done() and self._call_task is not asyncio.current_task():
+            self._call_task.cancel()
+        self._call_task = None
+        self.mixer.fx.set_loop(None)
 
     async def _simulate_call(self, contact):
         try:
             self.mixer.fx.set_loop(sounds.ringback(self.mixer.rate))
-            await asyncio.sleep(9)
+            await asyncio.sleep(RING_S)
+        except asyncio.CancelledError:
+            return
         finally:
             self.mixer.fx.set_loop(None)
-        self.state["phone"] = {"state": "no answer", "contact": contact}; self._changed()
-        await self.on_ring(f"{contact} didn't pick up.")
-        await asyncio.sleep(4)
-        self.state["phone"] = {"state": "idle", "contact": ""}; self._changed()
+        self.state["phone"] = dict(self.state["phone"], state="no answer", since=time.time())
+        self._changed()
+        await self.on_ring(f"{contact} didn't pick up. Want me to send a text instead?")
+        await asyncio.sleep(12)
+        if self.state["phone"].get("state") == "no answer":
+            self.state["phone"] = {"state": "idle", "contact": ""}
+            self._changed()
+
+    def _do_end_call(self, a):
+        p = self.state["phone"]
+        if p.get("state") not in ("calling", "no answer", "compose"):
+            return {"ok": False, "note": "no call to end"}
+        self._end_call_task()
+        was = p.get("state")
+        self.state["phone"] = dict(p, state="ended", since=time.time())
+        asyncio.get_event_loop().call_later(2.5, self._phone_idle, "ended")
+        return {"ok": True, "note": "call ended" if was == "calling" else "phone put away"}
+
+    def _phone_idle(self, only_if: str):
+        if self.state["phone"].get("state") == only_if:
+            self.state["phone"] = {"state": "idle", "contact": ""}
+            self._changed()
 
     def _do_message(self, a):
-        self.state["messages"].append({"to": a["contact"].strip().title(), "text": a["text"],
-                                       "at": time.strftime("%H:%M")})
-        self.state["messages"] = self.state["messages"][-6:]
-        return {"ok": True, "note": f"message to {a['contact']}: {a['text']}"}
+        contact = contact_name(a.get("contact", "") or self.state["phone"].get("contact", ""))
+        text = (a.get("text") or "").strip()
+        self._end_call_task()
+        if not text:
+            # MEX2 asked what to send and showed its four reply phrases: the phone shows them, Elkit asks
+            self.state["phone"] = {"state": "compose", "contact": contact, "number": fake_number(contact),
+                                   "since": time.time(), "quick": QUICK_REPLIES}
+            return {"ok": True, "note": f"text to {contact}: no message yet. Ask what it should say; the phone shows "
+                                        f"quick replies: {', '.join(QUICK_REPLIES)}"}
+        text = text[:1].upper() + text[1:]
+        msg = {"to": contact, "text": text, "at": time.strftime("%H:%M")}
+        self.state["messages"] = (self.state["messages"] + [msg])[-6:]
+        self.state["phone"] = {"state": "sent", "contact": contact, "number": fake_number(contact), "text": text,
+                               "since": time.time()}
+        asyncio.get_event_loop().call_later(7.0, self._phone_idle, "sent")
+        return {"ok": True, "note": f"text sent to {contact} (simulated): {text}"}
 
     # weather / web_search are handled by the agent (they need the network and speak later)
 

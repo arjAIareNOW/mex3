@@ -160,6 +160,42 @@
                           animation: ringglow .45s ease-in-out infinite alternate; }
   @keyframes ringglow { from { stroke-width: 4; filter: none; } to { stroke-width: 8; filter: drop-shadow(0 0 6px #ff5a52); } }
   #ringStop { display: none; cursor: pointer; }
+  /* the pretend phone (Virtual Home): a small phone on the side table; its screen comes up for a call or a text */
+  #room { position: relative; }
+  #phoneSmall.on .scr { fill: #7aa2ff; } #phoneSmall.ring { animation: phwiggle .5s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center; }
+  @keyframes phwiggle { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
+  #phone { position: absolute; right: 4%; top: 50%; width: 214px; height: 400px; margin-top: -200px; border-radius: 34px;
+           background: #0d1017; border: 3px solid #2e3647; box-shadow: 0 18px 50px rgba(0,0,0,.55), inset 0 0 0 6px #151a24;
+           padding: 30px 16px 18px; display: flex; flex-direction: column; align-items: center; text-align: center; color: #e8ecf2;
+           transition: transform .45s cubic-bezier(.2,.9,.3,1.2), opacity .35s; transform: translateY(0); }
+  #phone[hidden] { display: flex; opacity: 0; transform: translateY(40px) scale(.96); pointer-events: none; }
+  #phone::before { content: ""; position: absolute; top: 12px; left: 50%; width: 56px; height: 7px; margin-left: -28px; border-radius: 4px; background: #232a38; }
+  #phone .who { font: 700 22px system-ui, sans-serif; margin-top: 10px; }
+  #phone .num { font: 500 12.5px system-ui, sans-serif; color: var(--muted); margin-top: 3px; letter-spacing: .3px; }
+  #phone .st { font: 600 14px system-ui, sans-serif; color: var(--muted); margin-top: 14px; min-height: 20px; }
+  #phone .st.bad { color: #ff6b62; }
+  #phone .clock { font: 600 15px ui-monospace, monospace; color: #c6cede; margin-top: 4px; min-height: 20px; }
+  #phone .av { width: 82px; height: 82px; border-radius: 50%; margin-top: 18px; display: grid; place-items: center; position: relative;
+               background: linear-gradient(135deg, #ffb0c8, #b07aff); font: 800 34px system-ui, sans-serif; color: #fff; }
+  #phone .av.dad { background: linear-gradient(135deg, #8fd3ff, #7aa2ff); }
+  #phone .av { flex: none; } #phone.compose .av, #phone.sent .av { width: 56px; height: 56px; font-size: 24px; margin-top: 8px; }
+  #phone .av i { position: absolute; inset: -6px; border-radius: 50%; border: 2px solid #7aa2ff; opacity: 0; }
+  #phone.calling .av i { animation: phring 1.6s ease-out infinite; } #phone.calling .av i + i { animation-delay: .8s; }
+  @keyframes phring { from { inset: -4px; opacity: .8; } to { inset: -30px; opacity: 0; } }
+  #phone .end { margin-top: auto; width: 58px; height: 58px; border-radius: 50%; border: 0; background: #e5484d; color: #fff;
+                display: grid; place-items: center; cursor: pointer; box-shadow: 0 6px 18px rgba(229,72,77,.4); }
+  #phone .end svg { width: 26px; height: 26px; transform: rotate(135deg); }
+  #phone .thread { width: 100%; margin-top: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  #phone .bubble { max-width: 88%; padding: 9px 12px; border-radius: 16px 16px 4px 16px; background: #3b6cf6; color: #fff;
+                   font: 500 14px/1.3 system-ui, sans-serif; text-align: left; animation: phpop .35s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes phpop { from { transform: translateY(10px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+  #phone .dlv { font: 600 11.5px system-ui, sans-serif; color: #7ee2a8; }
+  #phone .quick { width: 100%; margin-top: 12px; display: flex; flex-direction: column; gap: 7px; }
+  #phone .quick button { display: flex; gap: 8px; align-items: center; text-align: left; padding: 8px 10px; border-radius: 12px;
+                         border: 1px solid #2e3647; background: #151a24; color: #e8ecf2; font: 500 13.5px system-ui, sans-serif; cursor: pointer; }
+  #phone .quick b { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #0b0d12; display: grid; place-items: center;
+                    font: 800 11.5px system-ui, sans-serif; flex: none; }
+  #phone .hint { font: 500 12.5px system-ui, sans-serif; color: var(--muted); margin-top: 12px; }
   #ringStop.on { display: inline; }
   /* live view (tests/pc_watch.py): what the scripted person says and what Elkit answers; hidden normally */
   #demo { position: absolute; left: 0; right: 0; bottom: 18px; display: flex; flex-direction: column; gap: 8px; padding: 0 6px; }
@@ -285,6 +321,13 @@
         <rect x="-34" y="-14" width="68" height="28" rx="14" fill="#d9534f"/>
         <text y="5" text-anchor="middle" fill="#fff" style="font: 700 14px system-ui, sans-serif">Stop</text>
       </g>
+      <!-- the pretend phone on a side table (its screen lights during a call or a text) -->
+      <g transform="translate(418,286)">
+        <rect x="0" y="10" width="56" height="7" rx="3" fill="#2f384b"/><rect x="6" y="17" width="5" height="15" fill="#273044"/>
+        <rect x="45" y="17" width="5" height="15" fill="#273044"/>
+        <g id="phoneSmall"><rect x="17" y="-16" width="20" height="27" rx="4" fill="#1b212d" stroke="#465069" stroke-width="1.5"/>
+          <rect class="scr" x="20" y="-12" width="14" height="18" rx="2" fill="#2a303c"/></g>
+      </g>
       <!-- speaker -->
       <g transform="translate(508,250)">
         <g id="waves" fill="none" stroke="#7aa2ff" stroke-width="2.5" stroke-linecap="round">
@@ -296,6 +339,7 @@
       <g id="volBars" transform="translate(507,332)"></g>
       <text id="trackTxt" class="lbl" x="536" y="372" text-anchor="middle">Music off</text>
     </svg>
+    <div id="phone" hidden aria-live="polite"></div>
   </section>
 </section>
 <div id="ring" hidden><div class="big" id="ringTxt"></div><button id="stopRing">Stop</button></div>
@@ -778,7 +822,39 @@ function renderRoom(s){
   $("ring").hidden = !(RING_OVERLAY && ringing); if (ringing) $("ringTxt").textContent = ringing;
   $("clock").classList.toggle("ringing", !!ringing); $("ringStop").classList.toggle("on", !!ringing);
   $("alarmTxt").style.display = ringing ? "none" : ""; drawTimer();
+  drawPhone(s.phone || {});
 }
+// the pretend phone: calling (rings, nobody answers) / no answer / ended / compose (MEX2's quick replies) / sent
+const PHONE_SVG = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>';
+let phoneKey = "", phoneSince = 0, phoneState = "idle";
+function phEsc(t){ const d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; }
+function drawPhone(p){
+  const P = $("phone"), st = p.state || "idle", on = st !== "idle";
+  $("phoneSmall").classList.toggle("on", on); $("phoneSmall").classList.toggle("ring", st === "calling");
+  phoneState = st; phoneSince = (p.since || 0) * 1000;
+  const key = JSON.stringify([st, p.contact, p.text, p.since]);
+  if (key === phoneKey) return;
+  phoneKey = key;
+  if (!on){ P.hidden = true; P.className = ""; return; }
+  const who = p.contact || "", ini = (who.trim()[0] || "?").toUpperCase(), dad = /^daddy$/i.test(who) ? " dad" : "";
+  const head = `<div class="av${dad}"><i></i><i></i>${phEsc(ini)}</div><div class="who">${phEsc(who)}</div><div class="num">${phEsc(p.number || "")}</div>`;
+  let body = "";
+  if (st === "calling") body = `<div class="st">Calling…</div><div class="clock" id="phClock">0:00</div><button class="end" title="End call">${PHONE_SVG}</button>`;
+  else if (st === "no answer") body = `<div class="st bad">No answer</div><div class="hint">${phEsc(who)} didn't pick up</div>`;
+  else if (st === "ended") body = `<div class="st">Call ended</div>`;
+  else if (st === "compose") body = `<div class="hint">What should it say?</div><div class="quick">` +
+      (p.quick || []).map((q, i) => `<button data-q="${phEsc(q)}"><b>${i + 1}</b>${phEsc(q)}</button>`).join("") + `</div>`;
+  else if (st === "sent") body = `<div class="thread"><div class="bubble">${phEsc(p.text)}</div><div class="dlv">Delivered ✓</div></div>`;
+  P.className = st.replace(" ", "-"); P.innerHTML = head + body; P.hidden = false;
+  const end = P.querySelector(".end"); if (end) end.onclick = () => act({tool: "end_call"});
+  P.querySelectorAll(".quick button").forEach(b => b.onclick = () => act({tool: "message", contact: who, text: b.dataset.q}));
+  tickPhone();
+}
+function tickPhone(){
+  const c = $("phClock"); if (!c || phoneState !== "calling") return;
+  c.textContent = fmt(Math.max(0, Math.floor((Date.now() - phoneSince) / 1000)));
+}
+setInterval(tickPhone, 500);
 $("tDesign").onclick = () => { tab("design", true); pickHere(); };
 $("tRoom").onclick = () => tab("room", true);
 $("tOffice").onclick = () => { tab("office", true); pickHere(); };

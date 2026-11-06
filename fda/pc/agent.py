@@ -73,7 +73,9 @@ How you work:
 - Do what the person asks, nothing more. Do not steer the talk to any one thing, do not ask what to do next or what
   to build, and do not list what you can do unless they ask. After a task, a short confirmation is enough.
 - Things you can do when asked: build websites, apps and small games live on the screen; the weather and the time
-  (get_weather, get_time); the room on the screen: lights, thermostat, timers, alarms, reminders, music and volume.
+  (get_weather, get_time); the room on the screen: lights, thermostat, timers, alarms, reminders, music and volume,
+  and a pretend phone in the Virtual Home (call, end_call, message: wife and mom are "Mommy", dad is "Daddy";
+  calls ring and nobody answers; it is a simulation, never a real call or text).
   A message ending in [now: ...] already has the true time and date: use it, never call get_time then. It is only
   there in case they ask: "the time is up", "a long time" are not questions about the time.
 - Building: when they ask for an app, a website or a game and the idea is clear enough, start at once with create_app
@@ -196,7 +198,8 @@ AGENT_MCP_TOOLS = ["create_app", "edit_app", "tweak_app", "undo_app_change", "ap
                    "web_search", "read_page", "get_news", "wikipedia", "play_video",
                    # the room, served by the tools MCP server through the agent's room hub (_start_room_hub)
                    "lights", "thermostat", "timer", "cancel_timer", "alarm", "cancel_alarm", "add_reminder",
-                   "list_reminders", "delete_reminder", "edit_reminder", "list_items", "music", "volume"]
+                   "list_reminders", "delete_reminder", "edit_reminder", "list_items", "music", "volume",
+                   "call", "end_call", "message"]
 # a short filler is spoken at once for these (internet, 1-3 s; photos for tweak_app are handled too)
 TURN_TTFS_S = 0.5          # the start value; each transcript then sets its own (services.turn_wait_s: 0.05 s after
                            # a question, 0.3 s after a statement, 0.8 s after "and..."); was a flat 0.8 s
@@ -295,6 +298,11 @@ ROOM_TOOLS = {
     "list_items": "The person's lists (shopping, to-do, ...): add or remove items, read a list out, or clear it.",
     "music": "Play, pause, resume, stop or skip the music.",
     "volume": "Change the speaker volume (up/down or a level 0-100).",
+    "call": "Call someone on the phone in the Virtual Home (a pretend phone: it rings, nobody answers). contact: "
+            "who, as they said it (wife, mom, John).",
+    "end_call": "Hang up the phone (end the call), or put the phone away.",
+    "message": "Send a text from the phone in the Virtual Home (pretend). contact: who; text: the message. If they "
+               "did not say what it should say, leave text empty and ask them (the phone shows quick replies).",
 }
 
 
@@ -1535,8 +1543,8 @@ class Agent:
     async def _chain(self, text: str) -> bool:
         """The requests done without the LLM, in order. What was done is kept (_last_act) for "wait, no, ..."."""
         self._act_undo = None
-        for fn in (self._continue, self._choice_direct, self._view_direct, self._media_direct, self._nav_direct,
-                   self._room_direct, self._quick, self._direct_tweak):
+        for fn in (self._continue, self._choice_direct, self._phone_direct, self._view_direct, self._media_direct,
+                   self._nav_direct, self._room_direct, self._quick, self._direct_tweak):
             if await fn(text):
                 if fn != self._continue:
                     self._last_act = {"text": text, "t": time.monotonic(), "undo": self._act_undo,
@@ -1654,6 +1662,80 @@ class Agent:
         if say:
             await self._announce(say)
         return True
+
+    # ---------------- the pretend phone in the Virtual Home: texts and the follow-ups of a call ----------------
+    _TEXT = re.compile(r"^(?:can you |could you |please |hey )*(?:send (?:a )?(?:text|message|sms)(?: message)? to|"
+                       r"text|message|sms)\s+(?:to\s+)?(?:my |our )?([a-z]+)\b(?:\s*[,:]\s*|\s+(?:that|saying|and "
+                       r"(?:say|tell (?:her|him|them))(?: that)?)\s+|\s+)?(.*)$", re.I)
+    _YES = re.compile(r"^(?:yes|yeah|yep|sure|okay|ok|please|go ahead|do it|alright|yes please|sure please)\b[\s,.!]*"
+                      r"(?:(?:tell|text|say to) (?:her|him|them|mommy|daddy)(?: that)?\s+)?(.*)$", re.I)
+    _NO = re.compile(r"^(?:no|nope|never mind|nevermind|cancel|forget it|don't|do not|no thanks)\b", re.I)
+    _PICK = {"first": 0, "one": 0, "1": 0, "second": 1, "two": 1, "2": 1, "third": 2, "three": 2, "3": 2,
+             "fourth": 3, "four": 3, "4": 3, "last": 3}
+
+    async def _phone_say(self, text: str, said: str, actions: list[dict]):
+        """Do phone actions on the Virtual Home (going there first), say `said`, and keep it in the context."""
+        moved = await self._go_first("room")
+        for a in actions:
+            await self.room.execute(a)
+        self.context.add_message({"role": "user", "content": text})
+        self.context.add_message({"role": "assistant", "content": f"{moved} {said}".strip()})
+        logger.info(f"phone (direct): {text!r} -> {actions} {said!r}")
+        if said:
+            await self._announce(said)
+
+    async def _phone_direct(self, text: str) -> bool:
+        """"Text my wife I'm on my way" (sent at once), "text Mommy" (it asks, the phone shows MEX2's quick
+        replies, and the next words are the message), and "yes" after "Mommy didn't pick up. Want me to text?"."""
+        room = getattr(self, "room", None)
+        if room is None:
+            return False
+        from ..room import QUICK_REPLIES, contact_name
+        said = strip_name(text, self.cfg.name).strip().strip(".!")
+        p = room.state.get("phone") or {}
+        age = time.time() - float(p.get("since", 0) or 0)
+        # the message itself, after "What should it say?"
+        if p.get("state") == "compose" and age < 120:
+            if self._NO.match(said):
+                await self._phone_say(text, "Okay, I won't send it.", [{"tool": "end_call"}])
+                return True
+            w = re.findall(r"[a-z0-9]+", said.lower())
+            if 0 < len(w) <= 4 and (set(w) & set(self._PICK)) and (set(w) - set(self._PICK) <=
+                                                                   {"the", "number", "reply", "option", "one", "please"}):
+                body = QUICK_REPLIES[next(self._PICK[x] for x in w if x in self._PICK)]
+            else:
+                body = re.sub(r"^(?:say|tell (?:her|him|them)|write|send|just say)\s+(?:that\s+)?", "", said, flags=re.I)
+            if not body or len(body.split()) > 30:
+                return False
+            await self._phone_say(text, f"Sent to {p.get('contact', 'them')}: {body}",
+                                  [{"tool": "message", "contact": p.get("contact", ""), "text": body}])
+            return True
+        # "yes" after a call nobody answered: a text instead
+        if p.get("state") == "no answer" and age < 25:
+            if self._NO.match(said):
+                await self._phone_say(text, "Okay.", [{"tool": "end_call"}])
+                return True
+            m = self._YES.match(said)
+            if m:
+                body = m.group(1).strip()
+                act = {"tool": "message", "contact": p.get("contact", ""), "text": body}
+                say = f"Sent to {p.get('contact')}: {body}" if body else "Okay. What should the message say?"
+                await self._phone_say(text, say, [act])
+                return True
+        # "text my wife I'm on my way" / "send a message to mom saying I'll be late" / "text Mommy"
+        m = self._TEXT.match(said)
+        known = m and (contact_name(m.group(1)) in ("Mommy", "Daddy") or m.group(1)[:1].isupper() or
+                       re.search(rf"\b(?:my|our)\s+{re.escape(m.group(1))}\b", said, re.I))
+        if known and m.group(1).lower() not in ("me", "it", "this", "that", "him", "her", "them", "back"):
+            who = contact_name(m.group(1))
+            body = (m.group(2) or "").strip()
+            if body:
+                await self._phone_say(text, f"Sent to {who}: {body}", [{"tool": "message", "contact": who, "text": body}])
+            else:
+                await self._phone_say(text, f"What should the message to {who} say?",
+                                      [{"tool": "message", "contact": who, "text": ""}])
+            return True
+        return False
 
     async def _quick(self, text: str) -> bool:
         """A question from quick_answers.txt: say its answer at once (no LLM round trip, no tokens)."""

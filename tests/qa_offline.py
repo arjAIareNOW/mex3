@@ -281,6 +281,9 @@ class _Fx:
     def push(self, *_):
         pass
 
+    def set_loop(self, *_):
+        pass
+
 
 class _Music:
     loop = None
@@ -1853,6 +1856,80 @@ def t_quickbarge():
     check("chain: transcribe_local exists", callable(getattr(ASRChain, "transcribe_local", None)), True)
 
 
+def t_phone():
+    """The pretend phone in the Virtual Home (no SIM900A): calls ring and nobody answers; texts like MEX2."""
+    import fda.room as R
+    from fda import rules
+    check("contacts: wife / mom -> Mommy, dad -> Daddy, a name stays",
+          [R.contact_name(x) for x in ["my wife", "Mom", "mommy", "dad", "my husband", "john smith"]],
+          ["Mommy", "Mommy", "Mommy", "Daddy", "Daddy", "John Smith"])
+    check("a fake number stays the same for a name", R.fake_number("Mommy"), R.fake_number("Mommy"))
+    st = {"ringing": None, "music": {"state": "stopped"}, "timers": [], "alarms": [], "reminders": [], "lists": {}}
+    check("quick rule: 'call my wife'", rules.match("call my wife", st), ([{"tool": "call", "contact": "Mommy"}],
+                                                                          "Calling Mommy."))
+    check("quick rule: 'hang up'", rules.match("hang up", st), ([{"tool": "end_call"}], ""))
+    check("quick rule: 'call it a day' is not a call", rules.match("call it a day", st), None)
+
+    async def calls():
+        old = R.RING_S
+        R.RING_S = 0.2
+        spoken = []
+        room, _ = make_room()
+
+        async def ring(t):
+            spoken.append(t)
+        room.on_ring = ring
+        try:
+            await room.execute({"tool": "call", "contact": "my wife"})
+            first = room.state["phone"]["state"], room.state["phone"]["contact"]
+            await asyncio.sleep(0.4)
+            after = room.state["phone"]["state"]
+            await room.execute({"tool": "call", "contact": "dad"})
+            await room.execute({"tool": "end_call"})
+            ended = room.state["phone"]["state"]
+            await asyncio.sleep(0.3)
+            stayed = room.state["phone"]["state"]          # the old ring task does not come back
+        finally:
+            R.RING_S = old
+        return first, after, spoken, ended, stayed
+    first, after, spoken, ended, stayed = asyncio.run(calls())
+    check("call: rings with the contact's name", first, ("calling", "Mommy"))
+    check("call: nobody answers, Elkit says so", (after, spoken),
+          ("no answer", ["Mommy didn't pick up. Want me to send a text instead?"]))
+    check("call: hang up ends it, no late 'no answer'", (ended, stayed), ("ended", "ended"))
+
+    async def texts():
+        a, ui = make_agent()
+        a._go_first = lambda tab, speak=True: asyncio.sleep(0, "")
+        said = []
+
+        async def announce(t):
+            said.append(t)
+        a._announce = announce
+        out = {}
+        out["direct"] = await a._phone_direct("Elkit, text my wife I'm on my way"), dict(a.room.state["phone"])
+        out["ask"] = await a._phone_direct("text Mommy"), a.room.state["phone"]["state"]
+        out["pick"] = await a._phone_direct("the second one"), a.room.state["phone"].get("text")
+        await a._phone_direct("message dad")
+        out["own"] = await a._phone_direct("Dinner is ready"), a.room.state["phone"].get("text"), \
+            a.room.state["phone"].get("contact")
+        a.room.state["phone"] = {"state": "no answer", "contact": "Mommy", "since": time.time()}
+        out["yes"] = await a._phone_direct("yes, tell her I'll be late"), a.room.state["phone"].get("text")
+        out["app"] = await a._phone_direct("text size bigger")
+        out["log"] = [m["text"] for m in a.room.state["messages"]]
+        return out, said
+    out, said = asyncio.run(texts())
+    check("text: 'text my wife I'm on my way' is sent at once",
+          (out["direct"][0], out["direct"][1]["state"], out["direct"][1]["contact"], out["direct"][1]["text"]),
+          (True, "sent", "Mommy", "I'm on my way"))
+    check("text: no message -> it asks, the phone shows quick replies", out["ask"], (True, "compose"))
+    check("text: 'the second one' -> MEX2's second reply", out["pick"], (True, "I'll be late"))
+    check("text: their own words after the question", out["own"], (True, "Dinner is ready", "Daddy"))
+    check("text: 'yes, tell her...' after no answer", out["yes"], (True, "I'll be late"))
+    check("text: 'text size bigger' is not a text message", out["app"], False)
+    check("text: spoken", said[:2], ["Sent to Mommy: I'm on my way", "What should the message to Mommy say?"])
+
+
 def t_jokes():
     """A joke: the setup is said, the punchline waits for their "why?" (a nudge after 4 s, the punchline after 6 more)."""
     import pipecat.processors.frame_processor as fp
@@ -1981,7 +2058,7 @@ def t_roomhub():
         await hub.cleanup()
         return names, res
     names, res = asyncio.run(go())
-    check("tools MCP server has all 13 room tools", set(A.ROOM_TOOLS) <= names, True)
+    check("tools MCP server has all 16 room tools", set(A.ROOM_TOOLS) <= names, True)
     check("room tools reach the room (lights red, timer 90 s)",
           (room.state["lights"]["power"], room.state["lights"]["color"],
            bool(room.state.get("timer") or room.state.get("timers"))), ("on", "red", True))
@@ -2396,7 +2473,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "jokes": t_jokes, "materials": t_materials, "photos": t_photos}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "jokes": t_jokes, "phone": t_phone, "materials": t_materials, "photos": t_photos}
 
 
 def main():

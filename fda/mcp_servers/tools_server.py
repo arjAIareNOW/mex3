@@ -1058,6 +1058,23 @@ def room_tools(mcp: MCPServer, cfg: Config):
         """Change the speaker volume (up/down or a level 0-100)."""
         return room("volume", change=change, level=level)
 
+    @mcp.tool()
+    def call(contact: Annotated[str, Field(description="who, as they said it: wife, mom, dad, John")]) -> dict:
+        """Call someone on the phone in the Virtual Home (a pretend phone: it rings, nobody answers)."""
+        return room("call", contact=contact)
+
+    @mcp.tool()
+    def end_call() -> dict:
+        """Hang up the phone (end the call), or put the phone away."""
+        return room("end_call")
+
+    @mcp.tool()
+    def message(contact: Annotated[str, Field(description="who: wife, mom, dad, a name")],
+                text: Annotated[str, Field(description="the message; empty if they did not say it yet")] = "") -> dict:
+        """Send a text from the phone in the Virtual Home (pretend). If they did not say what it should say, leave
+        text empty and ask them (the phone shows quick replies)."""
+        return room("message", contact=contact, text=text)
+
 
 def main():
     ap = argparse.ArgumentParser(description="FDA tools MCP server")

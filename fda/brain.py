@@ -39,6 +39,7 @@ TOOLS = {
     "volume": {"change": {"enum": ["up", "down"]}, "level": {"type": "integer", "minimum": 0, "maximum": 100}},
     "call": {"contact": {"type": "string"}},
     "message": {"contact": {"type": "string"}, "text": {"type": "string"}},
+    "end_call": {},
     "weather": {"place": {"type": "string"}},
     "web_search": {"query": {"type": "string"}},
     "game": {"action": {"enum": ["open", "close", "set", "restart", "pause", "resume"]},
@@ -52,7 +53,7 @@ TOOLS = {
 }
 REQUIRED = {"thermostat": ["celsius"], "timer": ["seconds"], "alarm": ["time"], "add_reminder": ["text"], "delete_reminder": ["which"],
             "edit_reminder": ["which"], "list_items": ["action"],
-            "music": ["action"], "call": ["contact"], "message": ["contact", "text"], "web_search": ["query"],
+            "music": ["action"], "call": ["contact"], "message": ["contact"], "web_search": ["query"],
             "game": ["action"]}
 
 HEAR_SCHEMA = {"type": "object", "additionalProperties": False, "properties": {"heard": {"type": "string"}},
