@@ -11,12 +11,36 @@ The classic (non-Pipecat) FDA can still be benchmarked with  python -m fda bench
 from __future__ import annotations
 
 import asyncio
+import os
+import platform
 import sys
 from pathlib import Path
 
 PROJECT_MARKER = "fda/pc/agent.py"
 # touched by:  --reset-cmd "python tools/fda_reset.py"  (a fresh session between trials)
 RESET_FILE = Path(__file__).resolve().parent / "runs" / ".fda_reset"
+# Elkit on the Pi, fdbench on the laptop: the reset comes over HTTP instead
+#   --reset-cmd "python tools/fda_reset.py http://<pi>:8792/reset"
+RESET_PORT = int(os.environ.get("FDA_RESET_PORT", "8792"))
+
+
+def device_info() -> str:
+    """For the latency report: what this runs on (RPi model, RAM, OS)."""
+    model = ""
+    for p in ("/proc/device-tree/model", "/sys/firmware/devicetree/base/model"):
+        try:
+            model = Path(p).read_text(errors="ignore").strip("\x00\n ")
+            break
+        except OSError:
+            pass
+    ram = ""
+    try:
+        kb = int(next(ln.split()[1] for ln in open("/proc/meminfo") if ln.startswith("MemTotal")))
+        ram = f"{kb / 1024 / 1024:.0f} GB RAM"
+    except (OSError, StopIteration, ValueError):
+        pass
+    return ", ".join(x for x in (model or platform.node(), ram, f"{platform.system()} {platform.release()}",
+                                 f"Python {platform.python_version()}") if x)
 
 
 def audio_rates() -> tuple[int, int]:
@@ -36,6 +60,8 @@ async def build(transport, log_dir: Path):
     cfg.say_ready = False
     cfg.state_file = ""          # test clips ("set an alarm for 6:30") must never reach the real saved alarms / lists
     setup_logging(cfg.log_level.upper())
+    from loguru import logger
+    logger.info(f"device: {device_info()}")
     urls = await asyncio.to_thread(start_mcp_servers, cfg)
     agent = Agent(cfg, transport, NullMixerTransport(cfg), urls, log_dir=Path(log_dir), out_rate=16000)
     worker = await agent.build()
@@ -53,13 +79,34 @@ async def build(transport, log_dir: Path):
                 last = m
                 await agent.fresh_session()
 
+    async def reset_server():
+        # the same reset over HTTP, for fdbench on another machine (it cannot touch our RESET_FILE)
+        from aiohttp import web
+
+        async def reset(_req):
+            await agent.fresh_session()
+            return web.Response(text="ok")
+        app = web.Application()
+        app.router.add_get("/reset", reset)
+        app.router.add_post("/reset", reset)
+        r = web.AppRunner(app)
+        await r.setup()
+        try:
+            await web.TCPSite(r, "0.0.0.0", RESET_PORT).start()
+            print(f"reset: http://<this machine>:{RESET_PORT}/reset", flush=True)
+        except OSError as e:
+            print(f"reset over HTTP not available ({e})", flush=True)
+        return r
+
     async def run():
         reset_task = asyncio.create_task(watch_reset())
+        web_runner = await reset_server()
         try:
             await runner.add_workers(worker)
             await runner.run()
         finally:
             reset_task.cancel()
+            await web_runner.cleanup()
             await agent.close()
 
     async def cancel():

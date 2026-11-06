@@ -17,5 +17,19 @@ Laptop (local):
 
 (free local judge first: `python -m fda judge`)
 
-With the Pi (`--where remote`), the reset runs on the laptop, but the file it touches must change on the Pi:
-the Pi watches its own `fd-benchmark/runs/.fda_reset`. Until that is wired up, the Pi run has no per-trial reset.
+- `assistant_entry.py` also answers `GET http://<pi>:8792/reset` (port: env `FDA_RESET_PORT`) and logs a
+  `device:` line (RPi model, RAM, OS) for the latency report.
+
+With the Pi (`--where remote`): Elkit runs on the Pi, fdbench on the laptop, and the reset goes over HTTP.
+
+    # Pi (fd-benchmark/.env has FDBENCH_URL=ws://LAPTOP-IP:8791, see fd-benchmark docs/GUIDE.md)
+    ~/ME3/.venv/bin/python launch_assistant.py --url ws://LAPTOP-IP:8791
+
+    # laptop
+    .venv\Scripts\python.exe -m fdbench run --student fda-pc --rounds 3 --connect direct --where remote `
+      --judge-provider custom --judge-url http://127.0.0.1:8092/v1 --judge-model qwen2.5-3b --no-utmos --yes `
+      --recordings k --reset-cmd ".venv\Scripts\python.exe tools\fda_reset.py http://PI-IP:8792/reset"
+
+Then copy Elkit's log of that run from the Pi to the laptop and run
+`python scripts/latency_report.py fd-benchmark/runs/fda-pc/<run> --log pi-assistant.log --cooling "..." --network "..."`,
+then `python scripts/me_slides.py` (the deck fills Mean / p95 only from a Raspberry Pi report).

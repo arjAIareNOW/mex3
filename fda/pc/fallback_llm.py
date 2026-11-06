@@ -65,6 +65,39 @@ def clean_messages(msgs: list) -> list:
     return out
 
 
+class _Timed:
+    """The LLM stream, passed on unchanged; logs where the time goes before the first word ('llm timing' line):
+    request size, time to the reply headers, thinking chunks and the first word / tool call."""
+
+    def __init__(self, stream, t0: float, t_open: float, info: str):
+        self.stream, self.t0, self.t_open, self.info = stream, t0, t_open, info
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        first = think = None
+        n_think = 0
+        try:
+            async for ch in self.stream:
+                if first is None and ch.choices:
+                    d = ch.choices[0].delta
+                    if d is not None and (d.content or d.tool_calls):
+                        first = time.perf_counter()
+                    elif d is not None and (getattr(d, "reasoning", None) or (d.model_extra or {}).get("reasoning")):
+                        n_think += 1
+                        think = think or time.perf_counter()
+                yield ch
+        finally:
+            ms = lambda t: f"{(t - self.t0) * 1000:.0f}" if t else "-"   # noqa: E731
+            logger.info(f"llm timing (ms): open {ms(self.t_open)}, thinking from {ms(think)} ({n_think} chunks), "
+                        f"first word {ms(first)} | {self.info}")
+
+    async def close(self):
+        if hasattr(self.stream, "close"):
+            await self.stream.close()
+
+
 class FallbackLLMService(OpenAILLMService):
     """OpenAILLMService that tries each entry of `chain()` in order for every turn."""
 
@@ -127,7 +160,13 @@ class FallbackLLMService(OpenAILLMService):
                 params.pop(k, None)
             params["max_tokens"] = 400 if extra else 90       # thinking models count thinking in max_tokens
             try:
+                t0 = time.perf_counter()
                 stream = await self._client_for(e).chat.completions.create(**params)
+                msgs, tools = params.get("messages") or [], params.get("tools") or []
+                stream = _Timed(stream, t0, time.perf_counter(),
+                                f"{e['model']}, {len(msgs)} messages {len(str(msgs)) // 1000} k chars, "
+                                f"{len(tools) if isinstance(tools, list) else '?'} tools "
+                                f"{len(str(tools)) // 1000} k chars")
             except (RateLimitError, NotFoundError, APIConnectionError, APITimeoutError, APIStatusError) as err:
                 code = getattr(err, "status_code", None)
                 if isinstance(err, APIStatusError) and code not in (400, 404, 408, 409, 429, 500, 502, 503, 504):

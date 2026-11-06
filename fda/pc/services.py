@@ -17,7 +17,7 @@ import numpy as np
 from loguru import logger
 
 from mcp.client.client import Client
-from pipecat.frames.frames import ErrorFrame, Frame, TranscriptionFrame
+from pipecat.frames.frames import ErrorFrame, Frame, STTMetadataFrame, TranscriptionFrame
 from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.services.stt_service import SegmentedSTTService
 from pipecat.services.tts_service import TTSService
@@ -99,6 +99,23 @@ class McpConnection:
         self.client, self._task = None, None
 
 
+_UNFINISHED = re.compile(r"(?:,|\.\.\.|…|-|\b(?:and|but|or|so|because|um+|uh+|the|a|an|to|of|with|my|like))\s*$",
+                         re.I)
+
+
+def turn_wait_s(text: str) -> float:
+    """Pipecat's turn-end wait after our transcript (ttfs_p99_latency; it waits that minus VAD stop_secs 0.2 s).
+    A question is done: answer at once (0.05 s). A statement may go on after a pause ("I practice every day. Yeah,
+    the chords...", fd-benchmark pause clips): 0.3 s. Cut off mid-thought ("and", "the", a comma): 0.8 s.
+    If they start talking again, VAD cancels the wait anyway."""
+    t = (text or "").strip()
+    if _UNFINISHED.search(t):
+        return 1.0
+    if t.endswith("?"):
+        return 0.25
+    return 0.5
+
+
 class McpSTTService(SegmentedSTTService):
     """Speech-to-text through the asr MCP server (Moonshine offline, or Groq Whisper)."""
 
@@ -164,6 +181,8 @@ class McpSTTService(SegmentedSTTService):
                 self.user_db = lvl if self.user_db is None else 0.7 * self.user_db + 0.3 * lvl
             # the whole utterance at once: this IS the final transcript. Not marked, pipecat's turn-end waits out its
             # STT safety timer every turn (fd-benchmark 2026-11-06: "turn wait" was a flat ~0.8 s on every turn)
+            # how long the turn end waits after this text (see turn_wait_s): read by the stop strategy before the text
+            yield STTMetadataFrame(service_name=getattr(self, "_name", "McpSTTService"), ttfs_p99_latency=turn_wait_s(text))
             yield TranscriptionFrame(text, self._user_id, time_now_iso8601(), Language.EN, finalized=True)
 
 

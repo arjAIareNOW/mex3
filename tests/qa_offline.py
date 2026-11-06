@@ -1040,7 +1040,7 @@ def t_watchfixes():
         stt.output_busy = (lambda b=busy: b)
 
         async def run():
-            return [f async for f in stt.run_stt(quiet)]
+            return [f async for f in stt.run_stt(quiet) if type(f).__name__ == "TranscriptionFrame"]
         got = asyncio.run(run())
         check(f"quiet speech {'during the alarm: heard' if busy else 'in a quiet room: far away, ignored'}",
               len(got), want)
@@ -1559,6 +1559,51 @@ def t_speed():
     check("a long sentence is spoken in comma pieces (first piece shorter)", (len(p), " ".join(p) == long,
                                                                              len(p[0]) < len(long)), (2, True, True))
     check("a short sentence stays whole", split_long("It's 11:08 PM."), ["It's 11:08 PM."])
+    import time as _t, concurrent.futures as _cf
+    from fda.mcp_servers import chain as _ch
+
+    class _Fake(_ch.CloudASR):
+        def __init__(self, name, delay, text):
+            _ch.Backend.__init__(self, name)
+            self.delay, self.text, self.calls = delay, text, 0
+
+        def __call__(self, x, rate, language):
+            self.calls += 1
+            _t.sleep(self.delay)
+            return self.text
+
+    def _chain(*bk, hedge=0.15):
+        c = object.__new__(_ch.ASRChain)
+        c.backends, c.hedge_s, c.hedged, c.last = list(bk), hedge, 0, ""
+        c._pool = _cf.ThreadPoolExecutor(4)
+        return c
+    a, b = _Fake("groq", 0.05, "turbo"), _Fake("groq-v3", 0.05, "v3")
+    c = _chain(a, b)
+    check("ASR: turbo fast -> its text, no backup asked", (c.transcribe(None, 16000), b.calls, c.last),
+          ("turbo", 0, "groq"))
+    a, b = _Fake("groq", 0.8, "turbo"), _Fake("groq-v3", 0.05, "v3")
+    c = _chain(a, b)
+    t0 = _t.monotonic()
+    out = c.transcribe(None, 16000)
+    check("ASR: turbo slow -> the backup is asked and the first answer wins",
+          (out, c.last, c.hedged, _t.monotonic() - t0 < 0.5), ("v3", "groq-v3", 1, True))
+    a, b = _Fake("groq", 0.01, None), _Fake("groq-v3", 0.01, "v3")
+    a.failed("x")
+    check("ASR: turbo down -> the next engine as before", (_chain(a, b).transcribe(None, 16000), b.calls), ("v3", 1))
+    from fda.pc.services import turn_wait_s as _tw
+    check("turn end wait: a question at once, a statement 0.3 s, 'and...' 0.8 s (minus VAD 0.2 s)",
+          [round(_tw(t) - 0.2, 2) for t in ("What's the population of Toronto?", "I practice every day.",
+                                            "Yeah, the chords still feel tricky and", "So I went to the,",
+                                            "Set a timer for 5 minutes.")],
+          [0.05, 0.3, 0.8, 0.8, 0.3])
+    import io as _io, numpy as _np, soundfile as _sf
+    from fda.mcp_servers.chain import _upload, _wav
+    x = (_np.sin(_np.arange(32000) / 9) * 0.3).astype("float32")
+    name, data, mime = _upload(x, 16000)
+    back, rate = _sf.read(_io.BytesIO(data), dtype="int16")
+    check("the ASR upload is FLAC, smaller than WAV, same samples",
+          (name, mime, len(data) < len(_wav(x, 16000)), rate, int(_np.abs(back.astype(int) - (x * 32767).astype(int)).max()) <= 1),
+          ("turn.flac", "audio/flac", True, 16000, True))
 
 
 # ---------------------------------------------------------------- no "it's ready" while the build is still running

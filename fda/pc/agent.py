@@ -122,6 +122,10 @@ How you work:
   brackets like "(no further response)" or "(pause)": when you have nothing more to say, just stop.
 - Never say something is done unless the tool said so. If something fails, say so and offer to try again.
 - If they interrupt you, drop what you were saying and answer what they just said.
+- Before something that cannot be undone or costs a lot (clearing a whole list, deleting all reminders or alarms,
+  going back to an old version of an app, building a big new app they only wondered about), ask once in a few words
+  ("Clear the whole shopping list?") and do it only after a yes. One clear request for one thing (cancel the timer,
+  remove milk, turn off the lights) needs no question: just do it.
 - Only when speech is clearly not meant for you (a TV, or someone talking to another person by name), reply with
   exactly (silent) and nothing else."""
 
@@ -171,7 +175,8 @@ AGENT_MCP_TOOLS = ["create_app", "edit_app", "tweak_app", "undo_app_change", "ap
                    "list_apps", "open_app", "app_settings", "get_weather", "get_time",
                    "web_search", "read_page", "get_news", "wikipedia", "play_video"]
 # a short filler is spoken at once for these (internet, 1-3 s; photos for tweak_app are handled too)
-TURN_TTFS_S = 0.5          # see McpSTTService below: the turn ends 0.3 s after the transcript (was 0.8 s)
+TURN_TTFS_S = 0.5          # the start value; each transcript then sets its own (services.turn_wait_s: 0.05 s after
+                           # a question, 0.3 s after a statement, 0.8 s after "and..."); was a flat 0.8 s
 SLOW_TOOLS: set[str] = {"web_search", "read_page", "get_news", "wikipedia", "play_video"}
 
 # ---- Interface sub-tabs: every app, video, photo set or search opens its own tab, named so that no two tabs share
@@ -416,8 +421,9 @@ class Agent:
         self.nfm.own_name = cfg.name
         # ttfs_p99_latency: our ASR gives its text only after the speech ends, so pipecat has already started the turn
         # (min 3 words) and forgotten the VAD stop; it then ends the turn on a fallback timer of ttfs - stop_secs
-        # (1.0 - 0.2 = a flat 0.8 s on every turn, fd-benchmark 2026-11-06). 0.5 -> 0.3 s: still room for a short
-        # pause in the middle of a sentence.
+        # (1.0 - 0.2 = a flat 0.8 s on every turn, fd-benchmark 2026-11-06). 0.25 -> 0.05 s: when the text comes,
+        # the person has been quiet for 0.2 s (VAD) + the ASR time (~0.4-0.8 s) already; if they start again,
+        # VAD start cancels this timer (pipecat _discard_pending_end_of_turn), so a pause mid-sentence still waits.
         stt = McpSTTService(self.asr, far_db=cfg.far_speech_db, on_ignored=self._resume_soon,
                              own_name=cfg.name, ttfs_p99_latency=TURN_TTFS_S)
         self.guard.asr, self.guard.stt = self.asr, stt

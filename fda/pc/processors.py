@@ -693,6 +693,7 @@ class TurnClock:
 
     STEPS = [("speech_end", "heard", "asr"), ("heard", "sent", "turn wait"), ("sent", "first_word", "llm"),
              ("first_word", "first_audio", "tts")]
+    STALE_S = 3.0          # heard -> sent is ~0.05-0.8 s in a real turn
 
     def __init__(self):
         self.t: dict[str, float] = {}
@@ -705,7 +706,10 @@ class TurnClock:
             if not self.active:
                 self.t[name] = now
         elif name == "sent":
-            self.t = {k: v for k, v in self.t.items() if k in ("speech_end", "heard")}
+            # speech that was ignored (side talk, "not for me") leaves its stamps behind: a reply sent long after
+            # (a tool result, a resumed answer) is not a spoken turn, so its timing must not start from them
+            fresh = now - self.t.get("heard", now) <= self.STALE_S
+            self.t = {k: v for k, v in self.t.items() if k in ("speech_end", "heard") and fresh}
             self.t["sent"], self.active = now, True
         elif self.active and name not in self.t:      # first_word, first_audio: once per turn
             self.t[name] = now

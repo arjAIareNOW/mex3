@@ -9,6 +9,7 @@ TTS engines: piper, kokoro (offline); dgx3; deepgram (DEEPGRAM_API_KEY).
 """
 from __future__ import annotations
 
+import concurrent.futures as cf
 import copy
 import io
 import logging
@@ -39,6 +40,18 @@ def _wav(x: np.ndarray, rate: int) -> bytes:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
         w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
     return b.getvalue()
+
+
+def _upload(x: np.ndarray, rate: int) -> tuple[str, bytes, str]:
+    """The turn as FLAC: lossless, ~40% of the WAV size, 2-5 ms to make; a smaller upload is ~40 ms
+    faster to Groq (measured). Opus is smaller still but takes ~45 ms to encode, so no gain. WAV if no soundfile."""
+    try:
+        import soundfile as sf
+        b = io.BytesIO()
+        sf.write(b, np.clip(x, -1, 1), rate, format="FLAC", subtype="PCM_16")
+        return "turn.flac", b.getvalue(), "audio/flac"
+    except Exception:  # noqa: BLE001
+        return "turn.wav", _wav(x, rate), "audio/wav"
 
 
 class Backend:
@@ -133,7 +146,7 @@ class CloudASR(Backend):
     def __call__(self, x, rate, language):
         try:
             r = self.http.post(f"{self.base}/audio/transcriptions",
-                               files={"file": ("turn.wav", _wav(x, rate), "audio/wav")},
+                               files={"file": _upload(x, rate)},
                                data={"model": self.model, "language": language, "response_format": "json",
                                      "temperature": "0", **({"prompt": self.hint} if self.hint else {})})
             if r.status_code != 200:
@@ -260,26 +273,61 @@ class Chain:
 
 
 class ASRChain(Chain):
+    # Groq turbo answers in ~0.35-0.7 s, but 1 call in 5 takes 1-2.4 s (fd-benchmark logs, 2026-11-06): when the
+    # first engine has not answered in hedge_s and the next one is a cloud engine too (groq-v3: same key, its own
+    # rate limit), ask that one as well and take whichever answers first. 0 = off.
+    hedge_s = 0.7
+
     def __init__(self, cfg, spec: str):
         super().__init__(cfg, spec, asr_backend, cfg.offline_asr if cfg.offline_asr in LOCAL_ASR else "moonshine",
                          LOCAL_ASR, "asr")
+        self.hedge_s = float(getattr(cfg, "asr_hedge_s", self.hedge_s))
+        self.hedged = 0
+        self._pool = cf.ThreadPoolExecutor(max_workers=6, thread_name_prefix="asr")
+
+    def _hedged(self, x, rate, language):
+        """(text, engine) from the first engine or the backup asked when it is slow; (None, None) = do the plain
+        chain (no backup to ask, or both failed: they are marked down then)."""
+        up = [b for b in self.backends if b.available]
+        if self.hedge_s <= 0 or len(up) < 2 or not all(isinstance(b, CloudASR) for b in up[:2]):
+            return None, None
+        a, b = up[0], up[1]
+        fa = self._pool.submit(a, x, rate, language)
+        try:
+            text = fa.result(timeout=self.hedge_s)
+            return (text, a) if text is not None else (None, None)
+        except cf.TimeoutError:
+            pass
+        self.hedged += 1
+        log.info("%s slow (> %.1f s): asking %s too", a.name, self.hedge_s, b.name)
+        fb = self._pool.submit(b, x, rate, language)
+        for f in cf.as_completed([fa, fb]):
+            text = f.result()
+            if text is not None:
+                return text, (a if f is fa else b)
+        return None, None
 
     def transcribe(self, x: np.ndarray, rate: int, language: str = "en") -> str:
-        for b in self.backends:
-            if not b.available:
-                continue
-            text = b(x, rate, language)
-            if text is not None:
-                self.last = b.name
-                if language == "en" and text:
-                    letters = [c for c in text if c.isalpha()]
-                    if letters and sum(c.isascii() for c in letters) < 0.6 * len(letters):
-                        return ""             # a mumble written as Chinese etc.: not words for an English agent
-                    if any(w in text.lower().split() for w in ("não", "é", "você")):
-                        return ""
-                return text
-        self.last = "none"
-        return ""
+        text, used = self._hedged(x, rate, language)
+        if used is None:
+            for b in self.backends:
+                if not b.available:
+                    continue
+                text = b(x, rate, language)
+                if text is not None:
+                    used = b
+                    break
+        if used is None:
+            self.last = "none"
+            return ""
+        self.last = used.name
+        if language == "en" and text:
+            letters = [c for c in text if c.isalpha()]
+            if letters and sum(c.isascii() for c in letters) < 0.6 * len(letters):
+                return ""             # a mumble written as Chinese etc.: not words for an English agent
+            if any(w in text.lower().split() for w in ("não", "é", "você")):
+                return ""
+        return text
 
 
 class TTSChain(Chain):
