@@ -66,7 +66,8 @@ How you work:
   ground); for anything else say two or three choices out loud in one sentence. Then wait for them to pick (by number
   or name: pick_choice). Do not build, change or open anything until they choose. create_app only when they ask you
   to make something new; a change to what is on the screen is tweak_app or edit_app, never a new app.
-- Websites: before create_app for a website, if they did not say the colours, show_choices "colour scheme" with
+- Websites only (never games: a game is built straight away, no colour scheme question): before create_app for a
+  website, if they did not say the colours, show_choices "colour scheme" with
   for_new and ask which one they like; then create_app with the picked colours in the description (exact hex
   values), plus anything else they picked. "You pick" or "just build it": choose yourself and start.
 - Do what the person asks, nothing more. Do not steer the talk to any one thing, do not ask what to do next or what
@@ -554,6 +555,16 @@ class Agent:
             await runner.cleanup()
             return None
 
+    def _asking_for_game(self) -> bool:
+        """The person's latest words ask for a game (not a website): looked up past the tool-call round."""
+        for m in reversed(getattr(self.context, "messages", None) or []):
+            if isinstance(m, dict) and m.get("role") == "user":
+                c = m.get("content")
+                text = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c or [] if isinstance(p, dict))
+                w = set(re.findall(r"[a-z]+", text.lower()))
+                return bool(w & _GAME_WORDS) and not (w & _SITE_WORDS)
+        return False
+
     def _last_user_text(self) -> str | None:
         """What the person just said, if the LLM is answering it (None on a tool-result round)."""
         msgs = self.context.messages if self.context else []
@@ -687,6 +698,9 @@ class Agent:
         if prev:                                       # "show me more": the same kind of thing, the next four
             what, setting, for_new = prev["what"], prev.get("key") or "", prev["for_new"]
         palette = bool(re.search(r"palette|scheme|theme|colou?rs?\b", what, re.I)) and C.group_of(what) is None
+        if palette and for_new and not prev and self._asking_for_game():
+            # colour schemes are for websites only: a new game is built straight away (the user's rule)
+            return {"ok": False, "result": "No colour scheme question for a game: call create_app now and build it."}
         if palette:
             off = (prev["offset"] + C.SHOW) if prev else 0
             options, key, title = C.palette_choice(off), "", "Colour schemes"
