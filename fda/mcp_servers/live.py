@@ -436,6 +436,17 @@ def resolve_value_plain(value, current, web) -> tuple[object, str]:
         return (url, f"a photo of {m.group(1)}") if url else (None, f"no photo of {m.group(1)} found")
     if m:                                          # "photo of ice" -> the library's ice, or an ice emoji
         v = m.group(1).strip()
+    # "ice pipes" / "pipes made of ice" / "like ice" / "icy": the material, not the thing being changed
+    # (live 2026-11-06: "change the pipes to ice pipes" found nothing)
+    v2 = re.sub(r"^(?:(?:make|turn|change)\s+(?:it|them)\s+(?:into|to)\s+)?(?:(?:something\s+)?like\s+|"
+                r"(?:pipes?|walls?|obstacles?|columns?|towers?|blocks?|platforms?)\s+(?:made\s+)?(?:of|from)\s+)",
+                "", v, flags=re.I)
+    v2 = re.sub(r"\s+(?:pipes?|walls?|obstacles?|columns?|towers?|blocks?|platforms?|ones?|style|looking)$", "",
+                v2, flags=re.I).strip()
+    v2 = {"icy": "ice", "frozen": "ice", "icicle": "ice", "icicles": "ice", "wooden": "wood", "stony": "stone",
+          "fiery": "fire", "watery": "water", "bricks": "brick"}.get(v2.lower(), v2)
+    if v2 and v2.lower() != v.lower() and re.search(r"[a-z]", v2, re.I):
+        v = v2
     low = v.lower().replace(" ", "")
     if re.match(r"^#[0-9a-f]{3,8}$", low) or low in CSS_COLORS or re.match(r"^(rgb|hsl)a?\(", low):
         if _is_sprite(current):                    # "make the bird red": keep the bird, tint it

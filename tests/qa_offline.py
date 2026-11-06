@@ -1732,6 +1732,12 @@ def t_nophotos():
             got[val] = "WEB"
     check("web photos are off", live.PHOTOS, False)
     check("'photo of ice' -> the library's ice tile, no web", got["photo of ice"], "/assets/tiles/ice.svg")
+    said = ["ice pipes", "pipes made of ice", "like ice", "icy", "frozen pipes"]
+    check("'ice pipes' / 'made of ice' / 'icy' -> the ice tile",
+          [live.resolve_value_plain(s, "pipe.svg", NoWeb())[0] for s in said], ["/assets/tiles/ice.svg"] * len(said))
+    check("'cactus pipes' -> cactus emoji, 'blue pipes' -> blue tint",
+          (live.resolve_value_plain("cactus pipes", "pipe.svg", NoWeb())[0],
+           live.resolve_value_plain("blue pipes", "pipe.svg", NoWeb())[0]), ("🌵", "pipe.svg@blue"))
     check("'photo of cactus' / 'picture of bamboo' -> emoji, no web",
           (got["photo of cactus"], got["a picture of bamboo"]), ("\U0001F335", "\U0001F38B"))
     check("unknown thing -> no picture (the LLM offers something close), no web", got["zorblax machine"], None)
