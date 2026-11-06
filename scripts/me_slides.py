@@ -189,7 +189,7 @@ def page1(prs):
     box(sl, 3.74, 1.93, 1.56, 2.15, None, ORANGE, dash=True, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
     node(sl, 3.82, 2.0, 1.4, 0.46, "asr-mcp :8101", "transcribe()", line=ORANGE)
     node(sl, 3.82, 3.1, 1.4, 0.42, "tts-mcp :8102", "synthesize()", line=ORANGE)
-    node(sl, 3.82, 3.6, 1.4, 0.42, "tools-mcp :8103", "23 tools: apps, web", line=ORANGE)
+    node(sl, 3.82, 3.6, 1.4, 0.42, "tools-mcp :8103", "36 tools: apps, web, room", line=ORANGE)
     text(sl, 3.74, 2.52, 1.56, 0.2, "OUR MCP SERVERS", size=7, color=ORANGE, bold=True, align=PP_ALIGN.CENTER)
     # audio in -> VAD -> guard -> asr-mcp
     node(sl, 0.72, 2.0, 0.62, 0.46, "Mic", "USB")
@@ -199,7 +199,7 @@ def page1(prs):
     arrow(sl, 2.4, 2.23, 2.56, 2.23)
     arrow(sl, 3.56, 2.23, 3.82, 2.23)
     # agent: MCP client to the three servers, LLM by API
-    node(sl, 0.72, 2.62, 2.84, 0.42, "Pipecat agent  (MCP client)", "context · room tools · display :8765",
+    node(sl, 0.72, 2.62, 2.84, 0.42, "Pipecat agent  (MCP client)", "context · room hub · fillers · :8765",
          fill=NAVY, line=NAVY, tcolor=WHITE)
     arrow(sl, 3.06, 2.46, 3.06, 2.62)
     # voice out
@@ -282,12 +282,12 @@ def page2(prs):
          "Groq Whisper large-v3-turbo -> large-v3 -> Moonshine", "RPi server; final on VAD end; FLAC upload; backup after 0.7 s"],
         ["TTS", "tts-mcp / HTTP :8102", "synthesize(text, voice, speed) -> audio",
          "DGX3 Qwen3-TTS -> Piper (offline)", "RPi server; sentence by sentence, cancelled on barge-in"],
-        ["LLM", "(Pipecat MCP client)", "function calling: MCP + room tools",
+        ["LLM", "(Pipecat MCP client)", "function calling: MCP + screen tools",
          "Groq gpt-oss-120b -> gpt-oss-20b", "commercial API; streaming tokens"],
         ["VAD", "in-process", "VADProcessor(frames)", "Silero VAD (0.6, start 0.15 s, stop 0.2 s)",
          "RPi on-device, 16 kHz mono"],
-        ["Task", "tools-mcp / HTTP :8103", "create_app, edit_app, get_weather, web_search, get_news, play_video ... (23)",
-         "app coder: Groq qwen3.8-27b; web APIs", "RPi server; room tools (lights, timers) in the agent"],
+        ["Task", "tools-mcp / HTTP :8103", "create_app, edit_app, get_weather, web_search, lights, timer, list_items ... (36)",
+         "app coder: Groq qwen3.8-27b; web APIs", "RPi server; room tools call the agent's room hub"],
     ], row_h=0.3, size=8.5)
 
     section(sl, 0.6, 3.68, 5, "EVALUATION & BENCHMARK", "standardized latency method (classwork)")

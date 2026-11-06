@@ -251,6 +251,17 @@ class McpTTSService(TTSService):
         self.conn = conn
         self._reply_id, self._said_in_reply = None, 0
         self.building = None            # callable -> True while an app is being built (set by the agent)
+        self.cache: dict[str, tuple[bytes, int]] = {}    # fillers, synthesized ahead: no round trip when said
+
+    async def warm(self, texts: list[str]):
+        """Synthesize these now and keep them (the fillers). Called again later: the voice may have changed
+        (DGX3 back after the VPN came up, or Piper while it is down)."""
+        for t in texts:
+            try:
+                r = await self.conn.call("synthesize", {"text": speakable(t)}, timeout=30)
+                self.cache[speakable(t)] = (base64.b64decode(r["audio_b64"]), int(r["sample_rate"]))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"filler {t!r} not cached: {e}")
 
     def can_generate_metrics(self) -> bool:
         return True
@@ -294,7 +305,12 @@ class McpTTSService(TTSService):
         # a long sentence is synthesized in comma-sized pieces, all started at once: the first (short) piece is
         # ready sooner, so the voice starts sooner (synthesis time grows with length: ~0.7 s short, ~2 s long)
         pieces = split_long(text)
-        jobs = [asyncio.create_task(self.conn.call("synthesize", {"text": p}, timeout=60)) for p in pieces]
+        cached = getattr(self, "cache", {}).get(text)
+
+        async def from_cache():
+            return {"audio_b64": base64.b64encode(cached[0]).decode(), "sample_rate": cached[1]}
+        jobs = [asyncio.create_task(from_cache())] if cached else \
+            [asyncio.create_task(self.conn.call("synthesize", {"text": p}, timeout=60)) for p in pieces]
         try:
             await self.start_tts_usage_metrics(text)
             for job in jobs:

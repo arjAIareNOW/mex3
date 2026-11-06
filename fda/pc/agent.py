@@ -50,7 +50,7 @@ from . import fallback_llm, mind
 from ..mcp_servers import llm as llmlib
 from ..room import Room
 from ..config import ROOT
-from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, Mark, NotForMe, RefusalGuard, SpokenTap, ToolFiller, TurnClock,
+from .processors import (CONTINUE, MEDIA_CMD, DuplexGuard, HeardTap, Mark, NotForMe, RefusalGuard, SpokenTap, ThinkFiller, ToolFiller, TurnClock,
                          is_bare_stop,
                          strip_name)
 from .quick import QuickAnswers
@@ -173,7 +173,10 @@ _DIFFICULTY = re.compile(
 # the tools the agent is given (the tools server has more: news, web search, documents, device check...)
 AGENT_MCP_TOOLS = ["create_app", "edit_app", "tweak_app", "undo_app_change", "app_history", "restore_app_version",
                    "list_apps", "open_app", "app_settings", "get_weather", "get_time",
-                   "web_search", "read_page", "get_news", "wikipedia", "play_video"]
+                   "web_search", "read_page", "get_news", "wikipedia", "play_video",
+                   # the room, served by the tools MCP server through the agent's room hub (_start_room_hub)
+                   "lights", "thermostat", "timer", "cancel_timer", "alarm", "cancel_alarm", "add_reminder",
+                   "list_reminders", "delete_reminder", "edit_reminder", "list_items", "music", "volume"]
 # a short filler is spoken at once for these (internet, 1-3 s; photos for tweak_app are handled too)
 TURN_TTFS_S = 0.5          # the start value; each transcript then sets its own (services.turn_wait_s: 0.05 s after
                            # a question, 0.3 s after a statement, 0.8 s after "and..."); was a flat 0.8 s
@@ -395,6 +398,8 @@ class Agent:
         picks = {"create_app": new_tab, "edit_app": app_tab, "tweak_app": app_tab, "undo_app_change": app_tab,
                  "restore_app_version": app_tab, "open_app": app_tab,
                  "play_video": lambda a: "design", "web_search": lambda a: "design", "get_news": lambda a: "design"}
+        # room tools come from the tools MCP server (it calls back into our room hub); the Virtual Home shows first
+        picks.update({n: (lambda a: "room") for n in ROOM_TOOLS})
         for fs in remote.standard_tools:
             if fs.name in picks:
                 self._tab_first(fs, picks[fs.name])
@@ -402,9 +407,14 @@ class Agent:
                 self._mark_build(fs)
         self._tab_first(nav, lambda a: self._app_tab())
         self._tab_first(video, lambda a: None if a.get("action") == "close" else "design")
-        tools = ToolsSchema(standard_tools=[*remote.standard_tools,
-                                            *room_tools(self.room, on_use=lambda: self._move_tab("room")), show, video,
-                                            nav, subtab, offer, pick])
+        self.room_hub = await self._start_room_hub()
+        own_room = []
+        if not (self.room_hub and set(ROOM_TOOLS) <= {fs.name for fs in remote.standard_tools}):
+            # an older tools server (no room tools) or the hub port taken: the agent's own room tools, as before
+            logger.warning("room tools served by the agent itself, not over MCP")
+            remote.standard_tools[:] = [t for t in remote.standard_tools if t.name not in ROOM_TOOLS]
+            own_room = room_tools(self.room, on_use=lambda: self._move_tab("room"))
+        tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
         self.context = LLMContext(messages=[*FEW_SHOT], tools=tools)
@@ -452,6 +462,8 @@ class Agent:
             llm,
             RefusalGuard(self._retry_refusal),
             Mark(self.clock, {LLMTextFrame: "first_word", FunctionCallsStartedFrame: "first_word"}),
+            ThinkFiller(after_s=getattr(cfg, "filler_after_s", 0.7), last_user=self._last_user_text,
+                        own_name=cfg.name, slow=SLOW_TOOLS | {"tweak_app"}, on_fill=lambda: self.clock.mark("filler")),
             ToolFiller(slow=SLOW_TOOLS),
             self.nfm,
             tts,
@@ -467,7 +479,51 @@ class Agent:
             idle_timeout_secs=None)
         self.tasks.append(asyncio.create_task(self._watch_apps()))
         self.tasks.append(asyncio.create_task(self.room.tick_forever()))      # timers and alarms
+        if getattr(cfg, "filler_after_s", 0.7) > 0:
+            self.tasks.append(asyncio.create_task(self._warm_fillers(tts)))
         return self.worker
+
+    async def _start_room_hub(self):
+        """The room for the tools MCP server's room tools: POST /room/<tool> {args} -> what the room did. Local only
+        (127.0.0.1). None when the port is taken: the agent then keeps its own room tools."""
+        from aiohttp import web
+
+        async def call(req):
+            name = req.match_info["tool"]
+            if name not in ROOM_TOOLS:
+                return web.json_response({"ok": False, "result": f"no room tool {name}"}, status=404)
+            try:
+                args = await req.json()
+            except ValueError:
+                args = {}
+            r = await self.room.execute({"tool": name, **(args if isinstance(args, dict) else {})})
+            return web.json_response({"ok": r.get("ok", True), "result": r.get("note", ""),
+                                      **({"say": r["speak"]} if r.get("speak") else {})})
+        app = web.Application()
+        app.router.add_post("/room/{tool}", call)
+        runner = web.AppRunner(app, access_log=None)
+        await runner.setup()
+        try:
+            await web.TCPSite(runner, "127.0.0.1", getattr(self.cfg, "room_hub_port", 8104)).start()
+            return runner
+        except OSError as e:
+            logger.warning(f"room hub not started ({e})")
+            await runner.cleanup()
+            return None
+
+    def _last_user_text(self) -> str | None:
+        """What the person just said, if the LLM is answering it (None on a tool-result round)."""
+        msgs = self.context.messages if self.context else []
+        if not msgs or not isinstance(msgs[-1], dict) or msgs[-1].get("role") != "user":
+            return None
+        c = msgs[-1].get("content")
+        return c if isinstance(c, str) else " ".join(p.get("text", "") for p in c or [] if isinstance(p, dict))
+
+    async def _warm_fillers(self, tts: McpTTSService):
+        """The fillers (ThinkFiller) synthesized ahead, again every 5 min: the voice follows DGX3 / Piper."""
+        while True:
+            await tts.warm(ThinkFiller.phrases())
+            await asyncio.sleep(300)
 
     async def _retry_refusal(self):
         """RefusalGuard held back a bare "I'm sorry, but I can't help with that.": ask once more."""
@@ -1769,6 +1825,8 @@ class Agent:
             await self.mcp_tools.close()
         except Exception:  # noqa: BLE001
             pass
+        if getattr(self, "room_hub", None):
+            await self.room_hub.cleanup()
         if self.log_dir:
             self.log_dir.mkdir(parents=True, exist_ok=True)
             p = self.log_dir / f"fda-pc-events-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"

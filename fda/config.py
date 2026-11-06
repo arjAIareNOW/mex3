@@ -59,12 +59,15 @@ class Config:
     asr_mcp_port: int = 8101
     tts_mcp_port: int = 8102
     tools_mcp_port: int = 8103
+    room_hub_port: int = 8104             # the agent's room, for the room tools of the tools MCP server (local only)
     far_speech_db: float = 10.0           # speech this much quieter than the user's level = TV/across the room (0 = off)
     docs_dir: str = "docs"                # documents FDA can answer questions about (PDF, DOCX, XLSX, CSV, MD, TXT)
     reports_dir: str = "reports"          # device check reports (audit-<time>.md)
     apps_dir: str = "apps"                # apps and games FDA builds (served on the display at /apps/)
     quick_answers: str = "quick_answers.txt"   # predefined answers, spoken without the LLM ("" = off)
     quick_match: float = 0.85             # how close what was heard must be to a question there (0-1)
+    filler_after_s: float = 0.7           # no answer yet this long after the turn: a short filler ("On it.") from the
+                                          # TTS cache, so the person hears Elkit at once (0 = off)
 
     # --- audio devices ---
     input_device: str | int | None = None    # name substring or index; None = system default

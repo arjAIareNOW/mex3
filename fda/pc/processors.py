@@ -581,6 +581,89 @@ class ToolFiller(FrameProcessor):
                 await self.push_frame(TTSSpeakFrame(self.FILLERS[self.n % len(self.FILLERS)]))
 
 
+# a filler fits only what is clearly said to Elkit: a question or a request that starts like one (side talk,
+# TV and "I think..." statements never get one: there the LLM may well stay silent)
+_FILL_START = re.compile(r"^\W*(?:(?:hey|okay|ok|so|and|um+|uh+|please|wait|now|also)\W+)*(?:"
+                         r"what|who|how|why|when|where|which|can|could|would|will|is|are|do|does|did|should|"
+                         r"tell|turn|set|play|open|show|give|add|remove|make|build|create|find|search|remind|change|"
+                         r"switch|put|start|cancel|delete|clear|read|check|look|explain|help|let'?s)\b", re.I)
+
+
+def wants_filler(text: str, own_name: str = "") -> bool:
+    t = re.sub(r"\[now:[^\]]*\]", "", text or "").strip()
+    if own_name:
+        t = re.sub(rf"^\W*(?:hey\W+)?{re.escape(own_name)}\W*", "", t, flags=re.I)
+    # one short, whole request: a pause inside ("do you think... I would"), a second sentence or a long ramble
+    # is talk the LLM may well stay silent on (fd-benchmark Candor clip, 2026-11-06): no filler before it decides
+    if re.search(r"\.\.\.|…|[.!?]\s+\S", t) or len(t.split()) > 18:
+        return False
+    return bool(_FILL_START.match(t)) and rules.probably_for_me(t, own_name or "FDA")
+
+
+class ThinkFiller(FrameProcessor):
+    """After the LLM: if no word of the answer has come `after_s` after the turn was sent, and what was heard is
+    clearly a question or request for Elkit, say a short filler at once ("On it.", "Let me see."). The filler
+    audio is cached in the TTS (McpTTSService.cache), so it plays without a synthesis round trip; the answer
+    follows it. Not on a tool-result round, after a slow-tool filler (ToolFiller), or when the person goes on."""
+
+    ASK = ["Let me see.", "Hmm, let me think.", "Good question."]
+    DO = ["On it.", "Alright.", "One sec."]
+
+    def __init__(self, after_s: float, last_user=None, own_name: str = "", slow: set[str] = frozenset(),
+                 on_fill=None, **kw):
+        super().__init__(**kw)
+        self.after_s, self.last_user, self.own_name, self.slow = after_s, last_user, own_name, set(slow)
+        self.on_fill = on_fill            # called when a filler is said (TurnClock: keep it apart from the answer)
+        self.task: asyncio.Task | None = None
+        self.n = 0
+        self.calls = False
+
+    @classmethod
+    def phrases(cls) -> list[str]:
+        return [*cls.ASK, *cls.DO]
+
+    def _cancel(self):
+        if self.task and not self.task.done():
+            self.task.cancel()
+        self.task = None
+
+    async def _later(self, text: str):
+        try:
+            await asyncio.sleep(self.after_s)
+        except asyncio.CancelledError:
+            return
+        self.task = None
+        self.n += 1
+        ask = text.rstrip().endswith("?") or re.match(r"^\W*(?:what|who|how|why|when|where|which|is|are|do|does|"
+                                                       r"did|can|could|would|will|should|tell|explain)\b",
+                                                       text, re.I) is not None
+        pick = (self.ASK if ask else self.DO)[self.n % 3]
+        logger.info(f"filler (no answer after {self.after_s:.1f} s): {pick!r}")
+        if self.on_fill:
+            self.on_fill()
+        await self.push_frame(TTSSpeakFrame(pick))
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if direction == FrameDirection.DOWNSTREAM and self.after_s > 0:
+            if isinstance(frame, LLMFullResponseStartFrame):
+                self.calls = False
+                text = self.last_user() if self.last_user else None       # None: a tool-result round
+                if text and self.task is None and wants_filler(text, self.own_name):
+                    self.task = asyncio.create_task(self._later(text))
+            elif isinstance(frame, LLMTextFrame) and frame.text.strip():
+                self._cancel()                      # the answer (or "(silent)") is coming
+            elif isinstance(frame, FunctionCallsStartedFrame):
+                self.calls = True
+                if {c.function_name for c in frame.function_calls} & self.slow:
+                    self._cancel()                  # ToolFiller says "Let me check that." instead
+            elif isinstance(frame, LLMFullResponseEndFrame) and not self.calls:
+                self._cancel()                      # ended with nothing to say
+            elif isinstance(frame, (InterruptionFrame, VADUserStartedSpeakingFrame, TTSSpeakFrame)):
+                self._cancel()                      # the person goes on, or something else is said already
+        await self.push_frame(frame, direction)
+
+
 class SpokenTap(FrameProcessor):
     """After the TTS: tells NotForMe which sentences have started playing, and shows them on the display."""
 
@@ -699,9 +782,11 @@ class TurnClock:
         self.t: dict[str, float] = {}
         self.active = False
         self.last: dict[str, int] = {}
+        self.filler_ctx = None
 
-    def mark(self, name: str):
+    def mark(self, name: str, frame=None):
         now = time.monotonic()
+        ctx = getattr(frame, "context_id", None)
         if name in ("speech_end", "heard"):           # the last one before the turn is sent counts
             if not self.active:
                 self.t[name] = now
@@ -711,6 +796,16 @@ class TurnClock:
             fresh = now - self.t.get("heard", now) <= self.STALE_S
             self.t = {k: v for k, v in self.t.items() if k in ("speech_end", "heard") and fresh}
             self.t["sent"], self.active = now, True
+        elif name == "filler":
+            if self.active and "first_audio" not in self.t:
+                self.t["filler"] = now                # the next audio is the filler's, not the answer's
+        elif self.active and name == "first_audio" and "filler" in self.t and "filler_audio" not in self.t:
+            # the filler goes into the TTS before any word of the answer, so the first audio after it is its own;
+            # its later chunks (same TTS context) are not the answer's first audio either
+            self.t["filler_audio"], self.filler_ctx = now, ctx
+        elif self.active and name == "first_audio" and "filler_audio" in self.t and \
+                (ctx == self.filler_ctx if ctx is not None else "first_word" not in self.t):
+            pass
         elif self.active and name not in self.t:      # first_word, first_audio: once per turn
             self.t[name] = now
             if name == "first_audio":
@@ -724,6 +819,9 @@ class TurnClock:
                 ms[label] = round((self.t[b] - self.t[a]) * 1000)
                 parts.append(f"{label} {ms[label]}")
         start = self.t.get("speech_end", self.t.get("heard", self.t["sent"]))
+        if "filler_audio" in self.t:                  # what the person heard first (total stays the answer's)
+            ms["filler"] = round((self.t["filler_audio"] - start) * 1000)
+            parts.append(f"filler {ms['filler']}")
         ms["total"] = round((self.t["first_audio"] - start) * 1000)
         self.last = ms
         logger.info(f"turn timing (ms): {', '.join(parts)} | total {ms['total']}")
@@ -742,5 +840,5 @@ class Mark(FrameProcessor):
         if direction == FrameDirection.DOWNSTREAM:
             for kind, name in self.kinds.items():
                 if isinstance(frame, kind):
-                    self.clock.mark(name)
+                    self.clock.mark(name, frame)
         await self.push_frame(frame, direction)

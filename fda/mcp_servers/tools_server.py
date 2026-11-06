@@ -36,8 +36,10 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Annotated, Literal
 
 import httpx
+from pydantic import Field
 
 from mcp.server.mcpserver import MCPServer
 
@@ -946,7 +948,105 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
         """The current local time, day and date (for "what time is it", "what day is today")."""
         return time.strftime("%I:%M %p, %A %B %d %Y").lstrip("0")
 
+    room_tools(mcp, cfg)
     return mcp, apps
+
+
+When = Annotated[str, Field(description="a time like 15:00 (leave out for none)")]
+Repeat = Annotated[str, Field(description="for a repeating reminder: daily, weekdays, weekends, or a day like monday; "
+                                          "leave out for once")]
+
+
+def room_tools(mcp: MCPServer, cfg: Config):
+    """The room (lights, thermostat, timers, alarms, reminders, lists, music, volume) as MCP tools. The room itself
+    lives in the agent (it plays the alarm and the music, and draws the Virtual Home): each tool hands the call to
+    the agent's room hub (http://127.0.0.1:<room_hub_port>/room/<tool>, fda/pc/agent.py) and returns its answer."""
+    hub = f"http://127.0.0.1:{getattr(cfg, 'room_hub_port', 8104)}/room/"
+    client = httpx.Client(timeout=10.0)
+
+    def room(tool: str, **args) -> dict:
+        args = {k: v for k, v in args.items() if v not in (None, "")}      # left out = not given
+        try:
+            r = client.post(hub + tool, json=args)
+            r.raise_for_status()
+            return r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            return {"ok": False, "result": f"The room is not reachable right now ({type(e).__name__})."}
+
+    @mcp.tool()
+    def lights(power: Literal["on", "off"] | None = None,
+               brightness: Annotated[int | None, Field(ge=0, le=100)] = None, color: str = "") -> dict:
+        """Turn the room lights on/off, set brightness (0-100) or colour."""
+        return room("lights", power=power, brightness=brightness, color=color)
+
+    @mcp.tool()
+    def thermostat(celsius: float) -> dict:
+        """Set the room temperature in degrees Celsius."""
+        return room("thermostat", celsius=celsius)
+
+    @mcp.tool()
+    def timer(seconds: Annotated[int, Field(ge=1)], label: str = "") -> dict:
+        """Start a countdown timer (seconds)."""
+        return room("timer", seconds=seconds, label=label)
+
+    @mcp.tool()
+    def cancel_timer() -> dict:
+        """Cancel the running timer."""
+        return room("cancel_timer")
+
+    @mcp.tool()
+    def alarm(time: str) -> dict:
+        """Set an alarm at a time like 06:30."""
+        return room("alarm", time=time)
+
+    @mcp.tool()
+    def cancel_alarm(time: Annotated[str, Field(description="the alarm's time like 06:30, or 'all'; leave out when "
+                                                            "there is only one")] = "") -> dict:
+        """Cancel an alarm (its time, or 'all')."""
+        return room("cancel_alarm", time=time)
+
+    @mcp.tool()
+    def add_reminder(text: str, time: When = "", repeat: Repeat = "") -> dict:
+        """Remember something for the user, optionally at a time like 15:00."""
+        return room("add_reminder", text=text, time=time, repeat=repeat)
+
+    @mcp.tool()
+    def list_reminders() -> dict:
+        """List the user's reminders."""
+        return room("list_reminders")
+
+    @mcp.tool()
+    def delete_reminder(which: Annotated[str, Field(description="words from the reminder, its number (1 = first), "
+                                                                "'last', or 'all'")]) -> dict:
+        """Delete reminders: by words from it, its number, 'last', or 'all'."""
+        return room("delete_reminder", which=which)
+
+    @mcp.tool()
+    def edit_reminder(which: Annotated[str, Field(description="words from the reminder, its number, or 'last'")],
+                      text: Annotated[str, Field(description="new text (leave out to keep it)")] = "",
+                      time: Annotated[str, Field(description="new time like 18:00 (leave out to keep it)")] = "",
+                      repeat: Repeat = "") -> dict:
+        """Change a reminder's text or time ("scratch that, call father instead": edit the last one)."""
+        return room("edit_reminder", which=which, text=text, time=time, repeat=repeat)
+
+    @mcp.tool()
+    def list_items(action: Literal["add", "remove", "show", "clear"],
+                   items: Annotated[str, Field(description="the items, comma separated (add / remove)")] = "",
+                   list: Annotated[str, Field(description="which list: shopping (default), to-do, or a name")] = ""
+                   ) -> dict:  # noqa: A002 (the argument the agent's room expects is called "list")
+        """The person's lists (shopping, to-do, ...): add or remove items, read a list out, or clear it."""
+        return room("list_items", action=action, items=items, list=list)
+
+    @mcp.tool()
+    def music(action: Literal["play", "pause", "resume", "stop", "next"]) -> dict:
+        """Play, pause, resume, stop or skip the music."""
+        return room("music", action=action)
+
+    @mcp.tool()
+    def volume(change: Literal["up", "down"] | None = None,
+               level: Annotated[int | None, Field(ge=0, le=100)] = None) -> dict:
+        """Change the speaker volume (up/down or a level 0-100)."""
+        return room("volume", change=change, level=level)
 
 
 def main():

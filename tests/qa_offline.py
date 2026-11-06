@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import re
 import shutil
@@ -1544,6 +1545,150 @@ def t_refusal():
 
 
 # ---------------------------------------------------------------- faster replies: barge-in words, long sentences
+def t_filler():
+    """ThinkFiller: a cached filler when the answer is slow, only for what is clearly said to Elkit."""
+    from fda.pc.processors import ThinkFiller, TurnClock, wants_filler
+    from pipecat.frames.frames import (FunctionCallsStartedFrame, LLMFullResponseEndFrame, LLMFullResponseStartFrame,
+                                       LLMTextFrame, TTSSpeakFrame)
+    from pipecat.processors.frame_processor import FrameDirection
+    yes = ["What's the weather in Davao?", "Turn the lights blue.", "Elkit, set a timer for 5 minutes",
+           "Can you tell me a joke?", "Is morning the best time to exercise? [now: Thu 6 Nov, 15:20]"]
+    no = ["Gianna, this coffee is legit amazing.", "I think the time is up", "Maybe for kids.",
+          "Dr. Chen, I'll bring the lab results tomorrow.", "Mike, can you pass the salt?", "mm-hm",
+          "What kind of movies do you think... I would like to share.",          # Candor clip: LLM stayed silent
+          "What do you mean? I told you yesterday that we were going to the market together."]
+    check("filler for questions / requests to Elkit", [wants_filler(t, "Elkit") for t in yes], [True] * len(yes))
+    check("no filler for side talk, statements, backchannels", [wants_filler(t, "Elkit") for t in no], [False] * len(no))
+
+    def run(frames, user="Turn the lights blue.", wait=0.15):
+        async def go():
+            f = ThinkFiller(after_s=0.05, last_user=lambda: user, own_name="Elkit", slow={"web_search"})
+            out = []
+
+            async def push(frame, direction=FrameDirection.DOWNSTREAM):
+                out.append(frame)
+            f.push_frame = push
+            for fr in frames:
+                if fr == "wait":
+                    await asyncio.sleep(wait)
+                else:
+                    await _pf(f, fr)
+            await asyncio.sleep(wait)
+            return [x.text for x in out if isinstance(x, TTSSpeakFrame)]
+        return asyncio.run(go())
+
+    async def _pf(f, fr):            # ThinkFiller.process_frame without the pipecat setup (StartFrame etc.)
+        from pipecat.processors.frame_processor import FrameProcessor
+        orig = FrameProcessor.process_frame
+
+        async def noop(self, frame, direction):
+            return None
+        FrameProcessor.process_frame = noop
+        try:
+            await ThinkFiller.process_frame(f, fr, FrameDirection.DOWNSTREAM)
+        finally:
+            FrameProcessor.process_frame = orig
+
+    said = run([LLMFullResponseStartFrame(), "wait"])
+    check("slow answer -> one filler from the 'do' set", (len(said), said[0] in ThinkFiller.DO if said else None),
+          (1, True))
+    said = run([LLMFullResponseStartFrame(), "wait"], user="What's the capital of Japan?")
+    check("slow answer to a question -> a filler from the 'ask' set", said[0] in ThinkFiller.ASK if said else None,
+          True)
+    check("answer in time -> no filler", run([LLMFullResponseStartFrame(), LLMTextFrame("The lights are blue.")]), [])
+    check("side talk -> no filler", run([LLMFullResponseStartFrame(), "wait"], user="Mike, can you pass the salt?"), [])
+    check("tool-result round (last message not the user's) -> no filler",
+          run([LLMFullResponseStartFrame(), "wait"], user=None), [])
+
+    class _Call:
+        def __init__(self, n):
+            self.function_name, self.arguments = n, {}
+    check("slow tool -> no filler here (ToolFiller speaks)",
+          run([LLMFullResponseStartFrame(), FunctionCallsStartedFrame(function_calls=[_Call("web_search")]),
+               LLMFullResponseEndFrame()]), [])
+    said = run([LLMFullResponseStartFrame(), FunctionCallsStartedFrame(function_calls=[_Call("lights")]),
+                LLMFullResponseEndFrame(), "wait"])
+    check("room tool round trip slow -> filler still comes", len(said), 1)
+    check("empty answer -> no filler", run([LLMFullResponseStartFrame(), LLMFullResponseEndFrame()]), [])
+
+    c = TurnClock()
+    for n in ["speech_end", "heard", "sent", "filler", "first_audio", "first_audio", "first_word", "first_audio"]:
+        c.mark(n)
+    check("turn clock: filler kept apart, total = the answer's first audio",
+          (set(c.last) >= {"filler", "total", "llm"}, c.last["filler"] <= c.last["total"]), (True, True))
+
+    class _Aud:
+        def __init__(self, ctx):
+            self.context_id = ctx
+    c = TurnClock()
+    for n, fr in [("speech_end", None), ("heard", None), ("sent", None), ("filler", None), ("first_audio", _Aud("f")),
+                  ("first_word", None), ("first_audio", _Aud("f")), ("first_audio", _Aud("f"))]:
+        c.mark(n, fr)
+        time.sleep(0.005)
+    check("turn clock: later chunks of the filler are not the answer's first audio", c.last, {})
+    c.mark("first_audio", _Aud("answer"))
+    check("... the answer's own audio is", ("total" in c.last, c.last.get("filler", 99999) < c.last.get("total", 0)),
+          (True, True))
+
+    from fda.pc.services import McpTTSService, speakable
+
+    class _Conn:
+        calls = 0
+
+        async def call(self, name, args, timeout=0):
+            _Conn.calls += 1
+            return {"audio_b64": base64.b64encode(b"\0\0" * 3200).decode(), "sample_rate": 16000}
+
+    async def tts_go():
+        t = object.__new__(McpTTSService)
+        t.conn, t.cache = _Conn(), {}
+        await t.warm(["On it."])
+        n0 = _Conn.calls
+        hit = t.cache.get(speakable("On it."))
+        return n0, hit is not None and hit[1] == 16000
+    check("fillers are synthesized ahead (TTS cache)", asyncio.run(tts_go()), (1, True))
+
+
+def t_roomhub():
+    """Room tools over MCP: the tools server's room tools post to the agent's room hub, which runs the room."""
+    import socket
+    from fda.config import Config
+    from fda.mcp_servers import tools_server
+    from fda.pc import agent as A
+    room, changes = make_room()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    async def go():
+        a = object.__new__(A.Agent)
+        cfg = Config()
+        cfg.room_hub_port = port
+        a.cfg, a.room = cfg, room
+        hub = await a._start_room_hub()
+        mcp, _ = tools_server.build(cfg)
+        names = {t.name for t in await mcp.list_tools()}
+        res = []
+        for tool, args in [("lights", {"power": "on", "color": "red"}), ("timer", {"seconds": 90}),
+                           ("list_items", {"action": "add", "items": "milk, eggs"}),
+                           ("add_reminder", {"text": "call mother", "time": "18:00"})]:
+            r = await mcp.call_tool(tool, args)
+            res.append(r)
+        await hub.cleanup()
+        return names, res
+    names, res = asyncio.run(go())
+    check("tools MCP server has all 13 room tools", set(A.ROOM_TOOLS) <= names, True)
+    check("room tools reach the room (lights red, timer 90 s)",
+          (room.state["lights"]["power"], room.state["lights"]["color"],
+           bool(room.state.get("timer") or room.state.get("timers"))), ("on", "red", True))
+    lists = room.state.get("lists", {})
+    check("list_items over MCP adds to the shopping list",
+          any("milk" in str(v).lower() for v in lists.values()) if isinstance(lists, dict) else "milk" in str(lists),
+          True)
+    check("add_reminder over MCP", [r["text"] for r in room.state["reminders"]][-1:], ["call mother"])
+    check("agent asks the MCP server for the room tools", set(A.ROOM_TOOLS) <= set(A.AGENT_MCP_TOOLS), True)
+
+
 def t_speed():
     from fda import rules
     from fda.pc.services import split_long
@@ -1947,7 +2092,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub}
 
 
 def main():

@@ -71,18 +71,23 @@ def edits(ref: list[str], hyp: list[str]) -> int:
 
 
 def turn_stages(lines: list[str]) -> dict[str, list[float]]:
-    out = {"asr": [], "turn wait": [], "llm": [], "tts": [], "e2e": []}
+    out = {"asr": [], "turn wait": [], "llm": [], "tts": [], "e2e": [], "filler": [], "first sound": []}
     for ln in lines:
         m = TURN.search(ln)
         if not m:
             continue
         if "asr" not in m.group(1):                     # not a spoken turn (a tool result, a resumed answer)
             continue
-        out["e2e"].append(int(m.group(2)) / 1000)
+        total = int(m.group(2)) / 1000
+        out["e2e"].append(total)
+        first = total
         for part in m.group(1).split(","):
             k, _, v = part.strip().rpartition(" ")
             if k in out and v.isdigit():
                 out[k].append(int(v) / 1000)
+                if k == "filler":
+                    first = min(first, int(v) / 1000)
+        out["first sound"].append(first)            # a filler ("On it.") or the answer, whichever came first
     return out
 
 
@@ -202,6 +207,8 @@ def main():
             "LLM TTFT (turn end -> first token)": stats(st["llm"]),
             "TTS TTFB (first text -> first audio)": stats(st["tts"]),
             "Barge-in (speech -> playback stopped)": barge_in(a.run),
+            **({"First sound (VAD end -> filler or answer)": stats(st["first sound"]),
+                "Filler said (turns with one)": stats(st["filler"])} if st["filler"] else {}),
         },
         "wer": {k: v for k, v in w.items() if k != "per_trial"},
         "wer_per_trial": w.get("per_trial", []),
