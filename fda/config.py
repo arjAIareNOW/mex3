@@ -69,6 +69,8 @@ class Config:
     reports_dir: str = "reports"          # device check reports (audit-<time>.md)
     apps_dir: str = "apps"                # apps and games FDA builds (served on the display at /apps/)
     quick_answers: str = "quick_answers.txt"   # predefined answers, spoken without the LLM ("" = off)
+    publish_games: bool = False           # new games also go to the owner's GitHub Pages (fda/publish.py)
+    publish_dir: str = "~/elkit-site"     # a clone of the repo that can push (deploy key with write access)
     quick_match: float = 0.85             # how close what was heard must be to a question there (0-1)
     filler_after_s: float = 0.7           # no answer yet this long after the turn: a short filler ("On it.") from the
                                           # TTS cache, so the person hears Elkit at once (0 = off)

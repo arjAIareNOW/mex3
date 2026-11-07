@@ -1998,6 +1998,43 @@ def t_phone():
     check("picker: text spoken", "Who should I text: Mommy, Sister or Brother?" in said, True)
 
 
+def t_publish():
+    """New games go to GitHub Pages (publish_games): copied to docs/games, list page rebuilt, committed, pushed."""
+    import subprocess
+    import tempfile
+    from fda import publish
+    from fda.pc.agent import _app_kind
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        def git(*a, cwd=None):
+            return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, check=True).stdout
+        git("init", "-q", "--bare", "-b", "main", str(tmp / "remote.git"))
+        git("clone", "-q", str(tmp / "remote.git"), str(tmp / "site"))
+        for k, v in (("user.name", "qa"), ("user.email", "qa@example.com")):
+            git("config", k, v, cwd=tmp / "site")
+        (tmp / "site" / "README.md").write_text("x")
+        git("add", ".", cwd=tmp / "site"); git("commit", "-q", "-m", "init", cwd=tmp / "site")
+        git("push", "-q", "origin", "HEAD:main", cwd=tmp / "site")
+        git("branch", "-q", "--set-upstream-to=origin/main", cwd=tmp / "site")
+        app = tmp / "sky-hopper.html"
+        app.write_text("<html><head><title>Sky Hopper</title></head><body>game</body></html>", encoding="utf-8")
+        name = publish.publish_game(app, tmp / "site", "Sky Hopper")
+        again = publish.publish_game(app, tmp / "site", "Sky Hopper")      # same game again: nothing new
+        log = git("--git-dir", str(tmp / "remote.git"), "log", "--format=%s", "main")
+        files = git("--git-dir", str(tmp / "remote.git"), "ls-tree", "-r", "--name-only", "main")
+        index = (tmp / "site" / "docs" / "games" / "index.html").read_text(encoding="utf-8")
+    check("publish: the game and the list page are pushed",
+          (name, "docs/games/sky-hopper.html" in files, "docs/games/index.html" in files), ("sky-hopper.html", True, True))
+    check("publish: one commit, none for the same game again", (again, log.splitlines()[0], log.count("Publish game")),
+          ("sky-hopper.html", "Publish game: Sky Hopper", 1))
+    check("publish: the list page names the game", 'href="sky-hopper.html"><b>Sky Hopper</b>' in index, True)
+    check("publish: only games go (not a website)", [_app_kind(t) for t in ("Sky Hopper game", "Bakery website")],
+          ["game", "site"])
+    from fda.config import Config
+    check("publish: off unless fda.toml turns it on", Config().publish_games, False)
+
+
 def t_jokes():
     """A joke: the setup is said, the punchline waits for their "why?" (a nudge after 4 s, the punchline after 6 more)."""
     import pipecat.processors.frame_processor as fp
@@ -2562,7 +2599,7 @@ def t_difficulty():
 
 SECTIONS = {"voice": t_voice, "thinking": t_thinking, "stop": t_stop, "echo": t_echo, "rules": t_rules, "room": t_room,
             "replies": t_replies, "tabs": t_tabs, "video": t_video, "app": t_app, "tweak": t_tweak,
-            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "jokes": t_jokes, "phone": t_phone, "materials": t_materials, "photos": t_photos}
+            "fastroom": t_fastroom, "dgx3": t_dgx3, "polish": t_polish, "assets": t_assets, "choices": t_choices, "watchfixes": t_watchfixes, "threetabs": t_threetabs, "lists": t_lists, "refusal": t_refusal, "speed": t_speed, "ready": t_ready, "difficulty": t_difficulty, "mind": t_mind, "appjobs": t_appjobs, "history": t_history, "tools": t_tools, "filler": t_filler, "roomhub": t_roomhub, "nophotos": t_nophotos, "realservice": t_realservice, "quickbarge": t_quickbarge, "jokes": t_jokes, "phone": t_phone, "publish": t_publish, "materials": t_materials, "photos": t_photos}
 
 
 def main():

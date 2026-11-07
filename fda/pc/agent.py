@@ -2213,6 +2213,26 @@ class Agent:
             pass
         return output
 
+    def _publish_soon(self, job: dict):
+        """A finished game also goes to the owner's GitHub Pages site (publish_games = true), in the background."""
+        cfg = self.cfg
+        if not getattr(cfg, "publish_games", False) or _app_kind(job.get("title", "")) != "game":
+            return
+        name = (job.get("url") or "").split("?")[0].rsplit("/", 1)[-1]
+        d = Path(cfg.apps_dir) if Path(cfg.apps_dir).is_absolute() else ROOT / cfg.apps_dir
+        if not name.endswith(".html") or not (d / name).exists():
+            return
+        from .. import publish
+
+        async def go():
+            try:
+                f = await asyncio.to_thread(publish.publish_game, d / name, Path(cfg.publish_dir), job.get("title", ""))
+                logger.info(f"published to GitHub Pages: games/{f}")
+                self._event("published", title=job.get("title"), file=f)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"publish {name}: {e}")
+        self.tasks.append(asyncio.create_task(go()))
+
     async def _watch_apps(self):
         """When a background build finishes: show it and say so (waits until nobody is talking)."""
         while True:
@@ -2244,6 +2264,7 @@ class Agent:
                     self._remember_app(job)
                     logger.info(f"app ready: {job.get('title')} -> {job.get('url')} ({job.get('seconds')} s)")
                     v = self._open_app_view(job["url"], job.get("title", ""))
+                    self._publish_soon(job)
                     what = "changed" if job.get("kind") == "edit" else "ready"
                     msg = f"{job.get('title', 'Your app')} is {what}, it's on the {v['label']} tab."
                     if job.get("problems"):
