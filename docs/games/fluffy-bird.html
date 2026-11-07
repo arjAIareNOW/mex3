@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script id="fda-live">window.FDA_SAVED = {};
+/* FDA live settings: put into every app FDA builds. The app reads its look from named settings
+   (const C = FDA.defaults({bird: "🐦", pipe: "#3a3", sky: "#7cf", speed: 3})) and draws things with
+   FDA.draw(ctx, "bird", x, y, w, h). A setting is a colour, an emoji/text or an image (photo), and FDA
+   changes it while the app runs (by voice: "make the bird a butterfly"), without rebuilding it. */
+window.FDA = (function () {
+  const cfg = {}, imgs = {}, pats = {}, tinted = {}, saved = window.FDA_SAVED || {};
+  const isImg = v => typeof v === "string" && /^(data:image|https?:|blob:)|\.(png|jpe?g|gif|webp|svg)$/i.test(v);
+  const isColor = v => typeof v === "string" && /^(#|rgb|hsl)|^[a-z]+$/i.test(v) && v.indexOf("@") < 0 &&
+    (typeof CSS === "undefined" || !CSS.supports || CSS.supports("color", v));
+  // "/assets/sprites/bird.svg@red" = that picture tinted red (the tint is cut off before loading it)
+  function splitTint(v) {
+    v = String(v).replace("|flip", "");
+    const i = v.lastIndexOf("@");
+    if (i > 0 && /^[#a-z0-9(),.% ]+$/i.test(v.slice(i + 1)) && isImg(v.slice(0, i))) return [v.slice(0, i), v.slice(i + 1)];
+    return [v, ""];
+  }
+  function load(k, v) {
+    if (typeof v !== "string") return;
+    const src = splitTint(v)[0];
+    if (!isImg(src) || (imgs[k] && imgs[k]._src === src)) return;   // (.src would be the full URL)
+    const im = new Image(); im.src = src; im._src = src; imgs[k] = im;
+    for (const p in pats) if (p.indexOf(k + "@") === 0) delete pats[p];
+  }
+  function tintImg(im, tint, w, h) {           // the picture, coloured over (its shape and shading stay)
+    const key = im._src + "@" + tint + "|" + Math.round(w) + "x" + Math.round(h);
+    if (tinted[key]) return tinted[key];
+    if (typeof document === "undefined" || !document.createElement) return im;
+    const off = document.createElement("canvas");
+    off.width = Math.max(1, Math.ceil(w)); off.height = Math.max(1, Math.ceil(h));
+    const o = off.getContext("2d");
+    o.drawImage(im, 0, 0, off.width, off.height);
+    o.globalCompositeOperation = "source-atop"; o.globalAlpha = 0.6; o.fillStyle = tint;
+    o.fillRect(0, 0, off.width, off.height);
+    return (tinted[key] = off);
+  }
+  function defaults(d) {
+    for (const k in d) if (!(k in cfg)) cfg[k] = (k in saved) ? saved[k] : d[k];
+    for (const k in cfg) load(k, cfg[k]);
+    return cfg;
+  }
+  function set(patch) {
+    for (const k in patch) { cfg[k] = patch[k]; load(k, patch[k]); }
+    try { window.dispatchEvent(new CustomEvent("fda-change", { detail: patch })); } catch (e) {}
+  }
+  function draw(ctx, k, x, y, w, h) {
+    // a setting's name ("bird"), or its value (FDA.draw(ctx, C.bird, ...) works too: C.bird is live)
+    let v = (typeof k === "string" && k in cfg) ? cfg[k] : k;
+    if (v === undefined || v === null || v === "") return;
+    if (!(typeof k === "string" && k in cfg)) { k = String(v).slice(0, 200); load(k, v); }
+    // "🐦|flip" (or a photo + "|flip") = drawn mirrored: emoji face one fixed way, the game may need the other
+    const flip = typeof v === "string" && v.indexOf("|flip") >= 0;
+    if (flip) v = v.replace("|flip", "");
+    ctx.save();
+    if (flip) { ctx.translate(2 * x + w, 0); ctx.scale(-1, 1); }
+    const [src, itint] = splitTint(v);
+    if (isImg(src)) {
+      const im = imgs[k];
+      if (im && im.complete && im.naturalWidth) {
+        if (w > 2.2 * h || h > 2.2 * w) {          // long thing (pipe, ground): tile the photo
+          const pk = k + "@" + itint;               // a new tint = a new pattern
+          if (!pats[pk]) {
+            const s = Math.min(w, h);               // tinted: one tile = the short side
+            pats[pk] = ctx.createPattern(itint ? tintImg(im, itint, s, s) : im, "repeat");
+          }
+          ctx.translate(x, y); ctx.fillStyle = pats[pk]; ctx.fillRect(0, 0, w, h);
+        } else ctx.drawImage(itint ? tintImg(im, itint, w, h) : im, x, y, w, h);
+      } else { ctx.fillStyle = "#999"; ctx.fillRect(x, y, w, h); }
+    } else if (isColor(v)) {
+      ctx.fillStyle = v; ctx.fillRect(x, y, w, h);
+    } else {                                       // emoji or text ("🐦", or "🐦@red" = tinted red)
+      const [glyph, tint] = String(v).split("@");
+      const s = Math.max(4, Math.min(w, h));
+      let off = null;
+      if (tint) {
+        const key = v + "|" + Math.round(s);
+        off = tinted[key];
+        if (!off && typeof document !== "undefined" && document.createElement) {
+          off = document.createElement("canvas"); off.width = off.height = Math.ceil(s * 1.2);
+          const o = off.getContext("2d");
+          o.font = Math.round(s * 0.9) + "px serif"; o.textAlign = "center"; o.textBaseline = "middle";
+          o.fillText(glyph, off.width / 2, off.height / 2 + s * 0.05);
+          o.globalCompositeOperation = "source-atop"; o.globalAlpha = 0.6; o.fillStyle = tint;
+          o.fillRect(0, 0, off.width, off.height);
+          tinted[key] = off;
+        }
+      }
+      // a long thing (a pipe turned into a cactus) repeats its emoji along its length, so what you see fills the
+      // box the game collides with (one small emoji in a tall box = "game over" in empty air)
+      const along = h > 2.2 * w ? "y" : w > 2.2 * h ? "x" : "";
+      const n = along ? Math.ceil((along === "y" ? h : w) / s) : 1;
+      if (along) { ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip(); }
+      if (!tint) { ctx.font = Math.round(s * 0.9) + "px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; }
+      for (let i = 0; i < n; i++) {
+        const cx = along === "x" ? x + s / 2 + i * s : x + w / 2;
+        const cy = along === "y" ? y + s / 2 + i * s : y + h / 2;
+        if (tint) { if (off) ctx.drawImage(off, cx - off.width / 2, cy - off.height / 2); }
+        else ctx.fillText(glyph, cx, cy + s * 0.05);
+      }
+    }
+    ctx.restore();
+  }
+  function color(k, fallback) { const v = cfg[k]; return isColor(v) ? v : (fallback || "#888"); }
+  window.addEventListener("message", e => {
+    if (e.data && e.data.type === "fda_set" && e.data.patch) set(e.data.patch);
+    if (e.data && e.data.type === "fda_pause") { try { document.querySelectorAll("audio,video").forEach(a => a.pause()); } catch (_) {} }
+  });
+  return { cfg, defaults, set, draw, color, isImg, isColor };
+})();
+</script>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Fluffy Bird</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #bfe3ff; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+let W, H; function fit() { W = cv.width = innerWidth; H = cv.height = innerHeight; } fit(); addEventListener("resize", fit);
+const C = FDA.defaults({bird: "/assets/sprites/bird.svg|flip", pipe: "#a7e8bd", sky: "/assets/backgrounds/sky-day.svg", ground: "#cdeaa6", text: "#5b4a6b", speed: 3, size: 44, gravity: 0.5, jump: 7, gap: 160, lives: 1, difficulty: 1});
+let state = "ready", score = 0, best = +(localStorage.getItem("fluffyBest") || 0);
+let bird = {x: 0, y: 0, vy: 0, r: 22};
+let pipes = [], clouds = [], stars = [];
+let blink = 0, invuln = 0, t = 0;
+function reset() {
+  score = 0; state = "play"; blink = 0; invuln = 0;
+  bird.x = W * 0.28; bird.y = H * 0.45; bird.vy = 0; bird.r = C.size / 2;
+  pipes = []; clouds = []; stars = [];
+  for (let i = 0; i < 5; i++) clouds.push({x: Math.random() * W, y: 40 + Math.random() * (H * 0.5), s: 0.3 + Math.random() * 0.5, w: 90 + Math.random() * 90});
+  for (let i = 0; i < 14; i++) stars.push({x: Math.random() * W, y: Math.random() * H, r: 1 + Math.random() * 2, p: Math.random() * 6.28});
+}
+function flap() { bird.vy = -C.jump * (0.5 + 0.25 * C.difficulty); }
+function action() {
+  if (state !== "play") { reset(); flap(); return; }
+  flap();
+}
+addEventListener("keydown", e => { if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); action(); } });
+cv.addEventListener("pointerdown", e => { e.preventDefault(); action(); });
+function spawnPipe() {
+  const d = C.difficulty;
+  const gap = C.gap * (1.4 - 0.2 * d);
+  const margin = 70;
+  const gy = margin + Math.random() * (H - 120 - gap - margin);
+  pipes.push({x: W + 60, gy: gy, gap: gap, scored: false, w: 70});
+}
+function update() {
+  t++;
+  const d = C.difficulty;
+  const spd = C.speed * (0.5 + 0.25 * d);
+  bird.vy += C.gravity;
+  bird.y += bird.vy;
+  bird.r = C.size / 2;
+  if (invuln > 0) invuln--;
+  if (blink > 0) blink--;
+  for (let c of clouds) { c.x -= spd * c.s; if (c.x + c.w < -20) { c.x = W + 20; c.y = 40 + Math.random() * (H * 0.5); c.w = 90 + Math.random() * 90; } }
+  for (let s of stars) { s.x -= spd * 0.4; if (s.x < -4) { s.x = W + 4; s.y = Math.random() * H; } }
+  if (t % Math.max(1, Math.round(90 / (0.5 + 0.25 * d))) === 0) spawnPipe();
+  for (let p of pipes) p.x -= spd;
+  pipes = pipes.filter(p => p.x + p.w > -20);
+  const hf = 0.5 + 0.15 * d;
+  const bx = bird.x - bird.r * hf, by = bird.y - bird.r * hf, bw = bird.r * 2 * hf, bh = bird.r * 2 * hf;
+  if (invuln === 0) {
+    for (let p of pipes) {
+      const topH = p.gy, botY = p.gy + p.gap, botH = H - 120 - botY;
+      const hit = bx < p.x + p.w && bx + bw > p.x && (
+        (by < topH) || (by + bh > botY && by < botY + botH)
+      );
+      if (hit) {
+        if (lives > 1) { lives--; blink = 20; invuln = 90; bird.vy = -C.jump * (0.5 + 0.25 * d); bird.y = p.gy + p.gap / 2; }
+        else { gameOver(); return; }
+      }
+    }
+  }
+  if (bird.y + bird.r > H - 120) {
+    if (lives > 1) { lives--; blink = 20; invuln = 90; bird.y = H - 120 - bird.r; bird.vy = -C.jump * (0.5 + 0.25 * d); }
+    else { gameOver(); return; }
+  }
+  if (bird.y - bird.r < 0) { bird.y = bird.r; bird.vy = 0; }
+  for (let p of pipes) {
+    if (!p.scored && p.x + p.w < bird.x) { p.scored = true; score++; }
+  }
+}
+function gameOver() {
+  state = "over";
+  if (score > best) { best = score; localStorage.setItem("fluffyBest", best); }
+}
+let lives = 1;
+function drawCloud(x, y, w) {
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.beginPath();
+  ctx.ellipse(x, y, w * 0.5, w * 0.28, 0, 0, 6.28);
+  ctx.ellipse(x - w * 0.3, y + w * 0.05, w * 0.3, w * 0.2, 0, 0, 6.28);
+  ctx.ellipse(x + w * 0.3, y + w * 0.05, w * 0.32, w * 0.22, 0, 0, 6.28);
+  ctx.fill();
+}
+function draw() {
+  FDA.draw(ctx, "sky", 0, 0, W, H);
+  for (let s of stars) { ctx.fillStyle = "rgba(255,255,255," + (0.4 + 0.4 * Math.sin(t * 0.05 + s.p)) + ")"; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.28); ctx.fill(); }
+  for (let c of clouds) drawCloud(c.x, c.y, c.w);
+  FDA.draw(ctx, "ground", 0, H - 120, W, 120);
+  for (let p of pipes) {
+    FDA.draw(ctx, "pipe", p.x, 0, p.w, p.gy);
+    FDA.draw(ctx, "pipe", p.x, p.gy + p.gap, p.w, H - 120 - (p.gy + p.gap));
+  }
+  if (blink === 0 || Math.floor(blink / 4) % 2 === 0) FDA.draw(ctx, "bird", bird.x - bird.r, bird.y - bird.r, bird.r * 2, bird.r * 2);
+  ctx.fillStyle = FDA.color("text");
+  ctx.textAlign = "center";
+  ctx.font = "bold 44px sans-serif";
+  ctx.fillText(score, W / 2, 70);
+  ctx.font = "bold 26px sans-serif";
+  ctx.fillText("❤️ " + lives, W / 2, 110);
+  if (state !== "play") {
+    ctx.font = "bold 40px sans-serif";
+    ctx.fillText(state === "ready" ? "Tap to start" : "Game over - tap to restart", W / 2, H / 2);
+    if (state === "over") { ctx.font = "bold 28px sans-serif"; ctx.fillText("Best: " + best, W / 2, H / 2 + 44); }
+  }
+}
+function loop() { if (state === "play") update(); draw(); requestAnimationFrame(loop); }
+reset();
+loop();
+</script>
+<script type="application/json" id="fda-tests">[
+  {"name": "tap makes the bird go up", "setup": ["tap", "wait 5"], "before": "bird.y", "do": ["tap", "wait 3"], "expect": "bird.y < before"},
+  {"name": "passing a pipe scores a point", "setup": ["tap"], "do": ["run pipes = [{x: bird.x - 60, gy: bird.y - 80, gap: 160, scored: false, w: 70}]", "wait 40"], "expect": "score >= 1"},
+  {"name": "hitting a pipe with one life ends the game", "setup": ["tap"], "do": ["run pipes = [{x: bird.x - 20, gy: 0, gap: 1000, scored: false, w: 70}]", "wait 5"], "expect": "state === 'over'"}
+]</script>
+</body>
+</html>
