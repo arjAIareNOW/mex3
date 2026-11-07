@@ -2048,6 +2048,8 @@ def t_publish():
         async def announce(t):
             said.append(t)
         a._announce = announce
+        from fda.config import Config
+        a.cfg.publish_url = Config().publish_url
         ok = await a._github_direct("Elkit, open my github io")
         v = a.views[-1]
         again = await a._github_direct("open my GitHub page")
