@@ -252,6 +252,13 @@ REAL_SERVICE_NOTE = ("NOT built: they want to open the real service, not a copy.
                      "ask to build one.")
 
 
+# "build my personal website" / "a site about me" / "my portfolio based on my GitHub": the owner's real profile goes in
+_PERSONAL_SITE = re.compile(r"\b(?:my|our)\s+(?:own\s+)?(?:personal\s+)?(?:website|web site|site|portfolio|homepage|home page|"
+                            r"profile (?:site|page|website)|cv|resume)\b|\bpersonal (?:website|site|page|portfolio)\b|"
+                            r"\b(?:website|site|page) about me\b|\bbased on my (?:git\s?hub|get\s?hub|profile|linkedin)\b",
+                            re.I)
+
+
 def real_service(what: str, said: str) -> bool:
     """create_app for a real site (YouTube, Netflix...) when the person did not ask to build anything."""
     return bool(_REAL.search(what or "") and _REAL.search(said or "") and not _BUILD_WORDS.search(said or ""))
@@ -693,11 +700,32 @@ class Agent:
                     # "Open YouTube" is never a build (2026-11-06: it built a fake YouTube in 45 s)
                     logger.info(f"create_app refused, they want the real thing: {said!r}")
                     return await params.result_callback({"ok": False, "result": REAL_SERVICE_NOTE})
+                if _PERSONAL_SITE.search(f"{what} {said}") and isinstance(params.arguments, dict):
+                    facts = await self._profile_facts()          # their own site: their real profile, word for word
+                    if facts:
+                        params.arguments["description"] = (f"{params.arguments.get('description', '')}\n\n{facts}")
+                        logger.info("create_app: personal website, the GitHub profile goes in word for word")
             self._build_t0 = time.monotonic()
             return await inner(params)
         if inner is not None:
             fs._handler = handler
         return fs
+
+    async def _profile_facts(self) -> str:
+        """The owner's profile for their personal website: from GitHub (live), else the copy in this repo."""
+        prof = (await self._profile())[1] if getattr(self.cfg, "profile_url", "") else None
+        if not prof:
+            try:
+                t = (ROOT / "docs" / "profile.html").read_text(encoding="utf-8")
+                prof = json.loads(re.search(r'<script[^>]*id="profile"[^>]*>(.*?)</script>', t, re.S).group(1))
+            except Exception:  # noqa: BLE001
+                return ""
+        return ("PERSONAL WEBSITE OF THE OWNER: use exactly this profile, word for word. Invent nothing else about "
+                "them (no projects, jobs, awards, quotes or contact details that are not here).\n"
+                f"Name: {prof.get('name', '')}\nWork: {prof.get('work', '')}\n"
+                f"Credentials: {'; '.join(prof.get('credentials', []))}\n"
+                f"Education: {'; '.join(prof.get('education', []))}\n"
+                f"Links (buttons): GitHub {prof.get('github', '')} ; LinkedIn {prof.get('linkedin', '')}")
 
     def _last_heard(self) -> str:
         """The person's last words in the context (also while a tool call is under way)."""

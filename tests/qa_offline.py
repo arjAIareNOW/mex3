@@ -2125,6 +2125,22 @@ def t_publish():
     ok, out, kinds = asyncio.run(prof(OSError("offline")))
     check("profile: GitHub not reachable -> says so, no tab", (ok, out, kinds),
           (True, ["I couldn't reach your GitHub profile right now."], []))
+    from fda.pc.agent import _PERSONAL_SITE
+    yes = ["build my personal website based on my github", "make my portfolio", "create a website about me",
+           "a personal website", "make my website"]
+    no = ["make me a website for my bakery", "build a website for a dog lovers club", "create a flappy bird game",
+          "make me a landing page for my shop"]
+    check("personal site: their own site is spotted", [bool(_PERSONAL_SITE.search(x)) for x in yes], [True] * len(yes))
+    check("personal site: other sites are not", [bool(_PERSONAL_SITE.search(x)) for x in no], [False] * len(no))
+
+    async def facts():
+        a, ui = make_agent()
+        a.cfg.profile_url = ""                          # no network in the test: the copy in docs/profile.html
+        return await a._profile_facts()
+    f = asyncio.run(facts())
+    check("personal site: the profile goes in word for word",
+          ("Name: Arjay Arnao" in f, "Science Research Specialist II" in f, "Invent nothing" in f,
+           "linkedin.com/in/arjay-arnao-103827118" in f), (True, True, True, True))
     check("publish: 'okay, publish it' at the end of live changes",
           bool(Agent._PUBLISH.match("okay publish it")), True)
 
