@@ -2059,6 +2059,30 @@ def t_publish():
           (True, "page", "https://arjaiarenow.github.io/mex3/games/", "Here's your GitHub page."))
     check("github page: asked again -> the same tab (reloaded), not a second one", (again, n), (True, 1))
 
+    async def pub():
+        a, ui = make_agent()
+        said, started = [], []
+
+        async def announce(t):
+            said.append(t)
+        a._announce = announce
+        a.cfg.publish_games, a.cfg.apps_dir = True, "apps"
+        a._publish_soon = lambda job: started.append(job["title"]) or ""
+        none = await a._publish_direct("publish this game")
+        a._open_app_view("/apps/sky-hopper.html", "Sky Hopper game")
+        a._open_app_view("/apps/bakery.html", "Bakery website")          # a site is showing; the game is newest
+        yes = await a._publish_direct("Elkit, put it on my GitHub")
+        no = [await a._publish_direct(x) for x in ("put it on the table", "send it", "post it")]
+        return none, yes, started, said, no
+    none, yes, started, said, no = asyncio.run(pub())
+    check("publish: only when asked; no game -> says so", (none, said[0]),
+          (True, "There's no game on the screen to publish."))
+    check("publish: 'put it on my GitHub' -> the game (not the website)", (yes, started),
+          (True, ["Sky Hopper game"]))
+    check("publish: 'put it on the table' / 'send it' / 'post it' are not a publish", no, [False, False, False])
+    from fda.config import Config
+    check("publish: never by itself (publish_auto off)", Config().publish_auto, False)
+
 
 def t_jokes():
     """A joke: the setup is said, the punchline waits for their "why?" (a nudge after 4 s, the punchline after 6 more)."""

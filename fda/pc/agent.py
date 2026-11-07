@@ -478,11 +478,16 @@ class Agent:
             own_room = room_tools(self.room, on_use=lambda: self._move_tab("room"), redirect=self._music_to_video)
         github = FunctionSchema(
             name="open_github_page", description="Open the owner's GitHub page (github.io: their published games) "
-            "in its own tab. For \"open my github.io\" / \"show my GitHub page\". New games Elkit makes appear on it "
-            "by themselves about a minute after they are ready.",
+            "in its own tab. For \"open my github.io\" / \"show my GitHub page\". Games go on it only when they ask "
+            "(publish_game).",
             properties={}, required=[], handler=self._github_tool)
+        pub = FunctionSchema(
+            name="publish_game", description="Put the game on the screen on the owner's GitHub page. ONLY when they "
+            "ask to publish / upload / put it on GitHub; never on your own.", properties={}, required=[],
+            handler=self._publish_tool)
         tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick,
-                                            *([github] if getattr(cfg, "publish_url", "") else [])])
+                                            *([github] if getattr(cfg, "publish_url", "") else []),
+                                            *([pub] if getattr(cfg, "publish_games", False) else [])])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
         self.context = LLMContext(messages=[*FEW_SHOT], tools=tools) if getattr(cfg, "llm_tools", True) else \
@@ -1073,8 +1078,8 @@ class Agent:
         v = self._github_view(url)
         said = "Here's your GitHub page."
         self.context.add_message({"role": "user", "content": text})
-        self.context.add_message({"role": "assistant", "content": f"{said} (tab {v['label']}; new games show up on "
-                                                                  f"it about a minute after they are ready)"})
+        self.context.add_message({"role": "assistant", "content": f"{said} (tab {v['label']}; a game goes on it only "
+                                                                  f"when they say to publish it)"})
         logger.info(f"github page -> tab {v['label']!r}: {url}")
         await self._announce(said)
         return True
@@ -1687,7 +1692,8 @@ class Agent:
     async def _chain(self, text: str) -> bool:
         """The requests done without the LLM, in order. What was done is kept (_last_act) for "wait, no, ..."."""
         self._act_undo = None
-        for fn in (self._continue, self._choice_direct, self._phone_direct, self._github_direct, self._view_direct, self._media_direct,
+        for fn in (self._continue, self._choice_direct, self._phone_direct, self._github_direct, self._publish_direct,
+                   self._view_direct, self._media_direct,
                    self._nav_direct, self._room_direct, self._quick, self._direct_tweak):
             if await fn(text):
                 if fn != self._continue:
@@ -2248,15 +2254,18 @@ class Agent:
             pass
         return output
 
-    def _publish_soon(self, job: dict):
-        """A finished game also goes to the owner's GitHub Pages site (publish_games = true), in the background."""
+    def _publish_soon(self, job: dict) -> str:
+        """A game goes to the owner's GitHub Pages site (publish_games = true), in the background.
+        Returns "" when it started, else why not (said by the "publish this game" command)."""
         cfg = self.cfg
-        if not getattr(cfg, "publish_games", False) or _app_kind(job.get("title", "")) != "game":
-            return
+        if not getattr(cfg, "publish_games", False):
+            return "Publishing to your GitHub page is turned off on this device."
+        if _app_kind(job.get("title", "")) != "game":
+            return "I only put games on your GitHub page."
         name = (job.get("url") or "").split("?")[0].rsplit("/", 1)[-1]
         d = Path(cfg.apps_dir) if Path(cfg.apps_dir).is_absolute() else ROOT / cfg.apps_dir
         if not name.endswith(".html") or not (d / name).exists():
-            return
+            return "I can't find that game's file."
         from .. import publish
 
         async def go():
@@ -2279,6 +2288,45 @@ class Agent:
                 self.context.add_message({"role": "assistant", "content": msg})
                 await self._announce(msg)
         self.tasks.append(asyncio.create_task(go()))
+        return ""
+
+    def _game_on_screen(self) -> dict | None:
+        """The game they mean by "this game": the one showing, else the newest game tab."""
+        act = next((x for x in self.views if x["id"] == self.active_view), None)
+        if act and act["kind"] == "app" and _app_kind(act.get("title", "")) == "game":
+            return act
+        return next((x for x in reversed(self.views) if x["kind"] == "app" and _app_kind(x.get("title", "")) == "game"),
+                    None)
+
+    def _publish_now(self) -> str:
+        """ "Publish this game": what Elkit says."""
+        g = self._game_on_screen()
+        if g is None:
+            return "There's no game on the screen to publish."
+        why = self._publish_soon({"url": g["url"], "title": g.get("title", "")})
+        return why or f"Publishing {g.get('title') or 'the game'} to your GitHub page. It'll be there in about a minute."
+
+    _PUBLISH = re.compile(r"^(?:(?:please|can you|could you|now|okay|ok|and|then|let's|lets)\s+)*(?:publish|upload|post|"
+                          r"put|share|send)\s+(?:it|this|that|the game|this game|that game|my game|the (?:[a-z]+ )?game|"
+                          r"this one)(?:\s+(?:on|to|onto)\s+(?:my|the)\s+(?:git\s?hub|get\s?hub)(?:\s*(?:\.|dot)?\s*"
+                          r"i\.?\s?o\b)?(?:\s+(?:page|site))?)?(?:\s+(?:now|please))?$", re.I)
+
+    async def _publish_direct(self, text: str) -> bool:
+        """"Publish this game" / "put it on my GitHub": the game on screen goes to the GitHub page (only when asked)."""
+        t = strip_name(text, self.cfg.name).strip().strip(".!?")
+        m = self._PUBLISH.match(t)
+        if not m or (re.match(r"^(?:(?:please|can you|could you|now|okay|ok|and|then|let's|lets)\s+)*(?:put|share|send|post)\b",
+                              t, re.I) and not re.search(r"git\s?hub|get\s?hub", t, re.I)):
+            return False                       # "put it on" alone is not a publish ("send it" may be a text)
+        said = self._publish_now()
+        self.context.add_message({"role": "user", "content": text})
+        self.context.add_message({"role": "assistant", "content": said})
+        logger.info(f"publish (direct): {text!r} -> {said!r}")
+        await self._announce(said)
+        return True
+
+    async def _publish_tool(self, params):
+        await params.result_callback({"ok": True, "result": self._publish_now()})
 
     async def _watch_apps(self):
         """When a background build finishes: show it and say so (waits until nobody is talking)."""
@@ -2311,7 +2359,8 @@ class Agent:
                     self._remember_app(job)
                     logger.info(f"app ready: {job.get('title')} -> {job.get('url')} ({job.get('seconds')} s)")
                     v = self._open_app_view(job["url"], job.get("title", ""))
-                    self._publish_soon(job)
+                    if getattr(self.cfg, "publish_auto", False):
+                        self._publish_soon(job)
                     what = "changed" if job.get("kind") == "edit" else "ready"
                     msg = f"{job.get('title', 'Your app')} is {what}, it's on the {v['label']} tab."
                     if job.get("problems"):

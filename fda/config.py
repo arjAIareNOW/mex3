@@ -69,7 +69,8 @@ class Config:
     reports_dir: str = "reports"          # device check reports (audit-<time>.md)
     apps_dir: str = "apps"                # apps and games FDA builds (served on the display at /apps/)
     quick_answers: str = "quick_answers.txt"   # predefined answers, spoken without the LLM ("" = off)
-    publish_games: bool = False           # new games also go to the owner's GitHub Pages (fda/publish.py)
+    publish_games: bool = False           # games can go to the owner's GitHub Pages (fda/publish.py)
+    publish_auto: bool = False            # every new game at once; False: only when they say "publish this game"
     publish_dir: str = "~/elkit-site"     # a clone of the repo that can push (deploy key with write access)
     publish_url: str = "https://arjaiarenow.github.io/mex3/games/"   # "open my github.io" shows this page
     quick_match: float = 0.85             # how close what was heard must be to a question there (0-1)
