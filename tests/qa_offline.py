@@ -2090,6 +2090,41 @@ def t_publish():
     check("publish: 'put it on the table' / 'send it' / 'post it' are not a publish", no, [False, False, False])
     from fda.config import Config
     check("publish: never by itself (publish_auto off)", Config().publish_auto, False)
+    said = ["what's my github profile", "search my GitHub profile", "show me my github profile please",
+            "tell me about my github profile", "look up my get hub profile"]
+    check("profile: the ways people ask", [bool(Agent._PROFILE.match(x)) for x in said], [True] * len(said))
+    check("profile: 'open my github page' is the games page, not the profile",
+          bool(Agent._PROFILE.match("open my github page")), False)
+    page_html = Path("docs/profile.html").read_text(encoding="utf-8")
+
+    async def prof(reply):
+        import httpx
+        a, ui = make_agent()
+        out = []
+
+        async def announce(t):
+            out.append(t)
+        a._announce = announce
+        a.cfg.profile_url = Config().profile_url
+        real = httpx.AsyncClient.get
+
+        async def fake(self, url, **kw):
+            if isinstance(reply, Exception):
+                raise reply
+            return httpx.Response(200, text=reply, request=httpx.Request("GET", url))
+        httpx.AsyncClient.get = fake
+        try:
+            ok = await a._profile_direct("Elkit, what's my GitHub profile?")
+        finally:
+            httpx.AsyncClient.get = real
+        return ok, out, [v["kind"] for v in a.views]
+    ok, out, kinds = asyncio.run(prof(page_html))
+    check("profile: read from the GitHub page, said, shown in a tab",
+          (ok, out[0].startswith("Here's your GitHub profile. You're Arjay Arnao, a Science Research Specialist Two"),
+           kinds), (True, True, ["page"]))
+    ok, out, kinds = asyncio.run(prof(OSError("offline")))
+    check("profile: GitHub not reachable -> says so, no tab", (ok, out, kinds),
+          (True, ["I couldn't reach your GitHub profile right now."], []))
     check("publish: 'okay, publish it' at the end of live changes",
           bool(Agent._PUBLISH.match("okay publish it")), True)
 

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arjay Arnao</title>
+<!-- Elkit reads this block when asked "what's my GitHub profile?" (fda/pc/agent.py: _profile). Edit it here. -->
+<script type="application/json" id="profile">
+{
+  "name": "Arjay Arnao",
+  "work": "Science Research Specialist II, Industrial Technology Development Institute (ITDI), DOST",
+  "credentials": ["Registered Chemical Engineer", "Professional Food Technologist"],
+  "education": [
+    "BS Chemical Engineering, Pamantasan ng Lungsod ng Maynila (PLM)",
+    "MS Food Science and Technology Engineering, Magyar Agrár- és Élettudományi Egyetem (MATE), Hungary"
+  ],
+  "spoken": "You're Arjay Arnao, a Science Research Specialist Two at I T D I, D O S T. You're a registered chemical engineer and a professional food technologist, with a bachelor's in chemical engineering from P L M and a master's in food science and technology engineering from the Hungarian University of Agriculture and Life Sciences.",
+  "github": "https://github.com/arjAIareNOW",
+  "linkedin": "https://www.linkedin.com/in/arjay-arnao-103827118/"
+}
+</script>
+<style>
+  :root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --line: #e2e6ec; --text: #14181f; --muted: #5d6675; --accent: #0a66c2; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0d1017; --card: #161b26; --line: #283041; --text: #e8ecf2; --muted: #8b95a8; --accent: #5aa9ff; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 40px 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px 24px; }
+  .top { display: flex; gap: 18px; align-items: center; margin-bottom: 22px; }
+  .av { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; flex: none;
+        background: linear-gradient(135deg, #0a66c2, #2bb3a3); color: #fff; font: 700 28px system-ui, sans-serif; }
+  h1 { margin: 0; font-size: 28px; line-height: 1.2; } .role { color: var(--muted); margin-top: 4px; }
+  h2 { margin: 22px 0 8px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+  ul { margin: 0; padding-left: 20px; } li { margin: 4px 0; }
+  .links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+  .links a { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-weight: 600; }
+  .links a:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <div class="top">
+      <div class="av" aria-hidden="true">AA</div>
+      <div><h1 id="name"></h1><div class="role" id="work"></div></div>
+    </div>
+    <h2>Credentials</h2><ul id="credentials"></ul>
+    <h2>Education</h2><ul id="education"></ul>
+    <div class="links"><a id="gh" href="#">GitHub</a><a id="li" href="#">LinkedIn</a><a href="games/">Elkit games</a></div>
+  </div>
+</main>
+<script>
+  const p = JSON.parse(document.getElementById("profile").textContent);
+  document.getElementById("name").textContent = p.name;
+  document.getElementById("work").textContent = p.work;
+  for (const k of ["credentials", "education"])
+    for (const t of p[k]) { const li = document.createElement("li"); li.textContent = t; document.getElementById(k).append(li); }
+  document.getElementById("gh").href = p.github;
+  document.getElementById("li").href = p.linkedin;
+</script>
+</body>
+</html>

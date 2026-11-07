@@ -61,6 +61,10 @@ natural, usually one or two short sentences. Everything you write is spoken: no 
 numbers as words people say.
 The person you talk to is your owner, who built you: Arjay Arnao (call them Arjay; use the name only now and then).
 Their LinkedIn is linkedin.com/in/arjay-arnao-103827118 (say "your LinkedIn, under Arjay Arnao"; you cannot open it here).
+Arjay's background (when asked): Science Research Specialist II at ITDI, DOST (say "I T D I, D O S T");
+registered Chemical Engineer and Professional Food Technologist; BS Chemical Engineering, PLM (say "P L M"); MS in Food
+Science and Technology Engineering, Magyar Agrar- es Eletudomanyi Egyetem (MATE, the Hungarian University of
+Agriculture and Life Sciences: say it in English).
 Their GitHub account is arjAIareNOW (say it "R J A I are now"),
 and your code is their repo mex3 at github.com/arjAIareNOW/mex3 (say "mex three"). It is theirs.
 How you work:
@@ -483,13 +487,18 @@ class Agent:
             "in its own tab. For \"open my github.io\" / \"show my GitHub page\". Games go on it only when they ask "
             "(publish_game).",
             properties={}, required=[], handler=self._github_tool)
+        prof = FunctionSchema(
+            name="github_profile", description="Look up the owner's profile on their GitHub page (live) and show it: "
+            "for \"what's my GitHub profile\", \"search my GitHub profile\". Then say what it returns.",
+            properties={}, required=[], handler=self._profile_tool)
         pub = FunctionSchema(
             name="publish_game", description="Put the game on the screen on the owner's GitHub page. ONLY when they "
             "ask to publish / upload / put it on GitHub; never on your own.", properties={}, required=[],
             handler=self._publish_tool)
         tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick,
                                             *([github] if getattr(cfg, "publish_url", "") else []),
-                                            *([pub] if getattr(cfg, "publish_games", False) else [])])
+                                            *([pub] if getattr(cfg, "publish_games", False) else []),
+                                            *([prof] if getattr(cfg, "profile_url", "") else [])])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
         self.context = LLMContext(messages=[*FEW_SHOT], tools=tools) if getattr(cfg, "llm_tools", True) else \
@@ -1065,6 +1074,52 @@ class Agent:
     def _github_view(self, url: str) -> dict:
         return self._open_view("page", {"url": url, "title": "My GitHub page"}, ["GitHub"], match=("url", url),
                                kindword="page")
+
+    _PROFILE = re.compile(r"^(?:(?:please|can you|could you|now|okay|ok|hey)\s+)*(?:what(?:'s| is)|show(?: me)?|open|"
+                          r"search(?: for)?|find|look up|check|tell me|read(?: me)?|get)\s+(?:me\s+)?(?:about\s+)?"
+                          r"(?:my|the)\s+(?:git\s?hub|get\s?hub)\s+profile(?:\s+(?:please|for me))?$", re.I)
+
+    async def _profile(self) -> tuple[str, dict | None]:
+        """Read the owner's profile from their GitHub page (live): what to say, and the profile (None if unreachable)."""
+        import html as _html
+
+        import httpx
+        url = getattr(self.cfg, "profile_url", "")
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, connect=3.0), follow_redirects=True) as c:
+                r = await c.get(url, params={"t": int(time.time())})
+            m = re.search(r'<script[^>]*id="profile"[^>]*>(.*?)</script>', r.text, re.S) if r.status_code == 200 else None
+            prof = json.loads(_html.unescape(m.group(1))) if m else None
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"github profile: {e}")
+            prof = None
+        if not prof:
+            return "I couldn't reach your GitHub profile right now.", None
+        said = prof.get("spoken") or f"You're {prof.get('name', '')}, {prof.get('work', '')}."
+        return f"Here's your GitHub profile. {said}", prof
+
+    async def _profile_direct(self, text: str) -> bool:
+        """"What's my GitHub profile?" / "search my GitHub profile": read it from GitHub, show it, say it."""
+        if not getattr(self.cfg, "profile_url", "") or \
+                not self._PROFILE.match(strip_name(text, self.cfg.name).strip().strip(".!?")):
+            return False
+        said, prof = await self._profile()
+        if prof:
+            self._open_view("page", {"url": self.cfg.profile_url, "title": prof.get("name", "Profile")},
+                            ["GitHub profile"], match=("url", self.cfg.profile_url), kindword="profile")
+        self.context.add_message({"role": "user", "content": text})
+        self.context.add_message({"role": "assistant", "content": said})
+        logger.info(f"github profile (direct): {'found' if prof else 'unreachable'}")
+        await self._announce(said)
+        return True
+
+    async def _profile_tool(self, params):
+        said, prof = await self._profile()
+        if prof:
+            self._open_view("page", {"url": self.cfg.profile_url, "title": prof.get("name", "Profile")},
+                            ["GitHub profile"], match=("url", self.cfg.profile_url), kindword="profile")
+        await params.result_callback({"ok": bool(prof), "result": said if not prof else
+                                      f"Shown on the screen. Say this: {said}"})
 
     async def _github_tool(self, params):
         url = getattr(self.cfg, "publish_url", "")
@@ -1694,7 +1749,8 @@ class Agent:
     async def _chain(self, text: str) -> bool:
         """The requests done without the LLM, in order. What was done is kept (_last_act) for "wait, no, ..."."""
         self._act_undo = None
-        for fn in (self._continue, self._choice_direct, self._phone_direct, self._github_direct, self._publish_direct,
+        for fn in (self._continue, self._choice_direct, self._phone_direct, self._profile_direct, self._github_direct,
+                   self._publish_direct,
                    self._view_direct, self._media_direct,
                    self._nav_direct, self._room_direct, self._quick, self._direct_tweak):
             if await fn(text):

@@ -28,6 +28,16 @@ Q: do you know who i am
 Q: who am i
 A: You're Arjay Arnao, the one who built me.
 
+Q: what is my background
+Q: what's my background
+Q: tell me my background
+Q: tell me about myself
+Q: tell me about me
+Q: what do i do
+Q: where do i work
+Q: what is my job
+A: You're Arjay Arnao, a Science Research Specialist Two at I T D I, D O S T. You're a registered chemical engineer and a professional food technologist, with a bachelor's in chemical engineering from P L M and a master's in food science and technology engineering from the Hungarian University of Agriculture and Life Sciences.
+
 Q: what is my linkedin
 Q: what's my linkedin
 A: Your LinkedIn is under your name, Arjay Arnao.
