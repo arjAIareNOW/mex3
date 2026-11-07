@@ -2029,6 +2029,14 @@ def t_publish():
     check("publish: one commit, none for the same game again", (again, log.splitlines()[0], log.count("Publish game")),
           ("sky-hopper.html", "Publish game: Sky Hopper", 1))
     check("publish: the list page names the game", 'href="sky-hopper.html"><b>Sky Hopper</b>' in index, True)
+    with tempfile.TemporaryDirectory() as tmp:
+        g = Path(tmp)
+        out = publish.with_assets('<img src="/assets/icons/plus.svg"><script>FDA_SAVED={"bird":"/assets/sprites/bird.svg@red"}'
+                                  '</script>', g)
+        copied = sorted(str(f.relative_to(g)).replace("\\", "/") for f in g.rglob("*.svg"))
+    check("publish: the Pi's pictures go along, the game points at the copies",
+          ('src="assets/icons/plus.svg"' in out, '"assets/sprites/bird.svg@red"' in out, "/assets/" in out, copied),
+          (True, True, False, ["assets/icons/plus.svg", "assets/sprites/bird.svg"]))
     check("publish: only games go (not a website)", [_app_kind(t) for t in ("Sky Hopper game", "Bakery website")],
           ["game", "site"])
     from fda.config import Config
@@ -2082,6 +2090,8 @@ def t_publish():
     check("publish: 'put it on the table' / 'send it' / 'post it' are not a publish", no, [False, False, False])
     from fda.config import Config
     check("publish: never by itself (publish_auto off)", Config().publish_auto, False)
+    check("publish: 'okay, publish it' at the end of live changes",
+          bool(Agent._PUBLISH.match("okay publish it")), True)
 
 
 def t_jokes():

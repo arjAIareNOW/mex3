@@ -74,6 +74,24 @@ async def wait_live(url: str, limit_s: float = 240, every_s: float = 8) -> bool:
     return False
 
 
+ASSETS = Path(__file__).parent / "assets"          # Elkit's art library (served by the Pi at /assets/)
+_ASSET = re.compile(r"/assets/([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:svg|png|jpe?g|gif|webp))")
+
+
+def with_assets(html_text: str, games: Path) -> str:
+    """The Pi's /assets/ pictures do not exist on GitHub Pages: copy the ones the game uses to games/assets/ and point
+    the game there ("/assets/sprites/bird.svg@red" -> "assets/sprites/bird.svg@red")."""
+    found = False
+    for rel in set(_ASSET.findall(html_text)):
+        src = (ASSETS / rel).resolve()
+        if ASSETS.resolve() in src.parents and src.is_file():
+            out = games / "assets" / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, out)
+            found = True
+    return re.sub(r"(?<=[\"'(=\s])/assets/", "assets/", html_text) if found else html_text
+
+
 def _git(repo: Path, *args: str, timeout: float = 60) -> str:
     r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
@@ -90,7 +108,7 @@ def publish_game(app_file: Path, repo: Path, title: str = "") -> str:
     games = repo / GAMES
     games.mkdir(parents=True, exist_ok=True)
     dest = games / app_file.name
-    shutil.copyfile(app_file, dest)
+    dest.write_text(with_assets(app_file.read_text(encoding="utf-8"), games), encoding="utf-8")
     (games / "index.html").write_text(index_page(games), encoding="utf-8")
     _git(repo, "add", str(GAMES))
     if not _git(repo, "status", "--porcelain", "--", str(GAMES)).strip():

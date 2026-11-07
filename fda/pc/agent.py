@@ -2281,7 +2281,7 @@ class Agent:
                 page = next((x for x in self.views if x["kind"] == "page" and x.get("url") == url), None)
                 if page is not None:
                     page["v"] = page.get("v", 0) + 1                # the display reloads it
-                    self._sync_views()
+                    self._activate(page)                          # and shows it: the new game is on the list
                 while self.io.user_speaking or self.io.bot_speaking:
                     await asyncio.sleep(0.3)
                 msg = f"{job.get('title', 'Your game')} is on your GitHub page now."
