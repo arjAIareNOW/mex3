@@ -62,6 +62,9 @@ class Config:
     room_hub_port: int = 8104             # the agent's room, for the room tools of the tools MCP server (local only)
     llm_tools: bool = True                # False: the LLM gets no tools (fd-benchmark "conversation only" runs)
     far_speech_db: float = 10.0           # speech this much quieter than the user's level = TV/across the room (0 = off)
+    stream_asr: str = ""                  # "deepgram": stream speech to Deepgram nova-3 while it is said (DEEPGRAM_API_KEY),
+                                          # text ~0.3 s after the end; asr_engine (MCP) is the fallback. "" = off
+    stream_asr_wait_s: float = 1.5        # no Deepgram text this long after the end of speech -> ask asr_engine
     docs_dir: str = "docs"                # documents FDA can answer questions about (PDF, DOCX, XLSX, CSV, MD, TXT)
     reports_dir: str = "reports"          # device check reports (audit-<time>.md)
     apps_dir: str = "apps"                # apps and games FDA builds (served on the display at /apps/)

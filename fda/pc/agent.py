@@ -492,7 +492,9 @@ class Agent:
         # the person has been quiet for 0.2 s (VAD) + the ASR time (~0.4-0.8 s) already; if they start again,
         # VAD start cancels this timer (pipecat _discard_pending_end_of_turn), so a pause mid-sentence still waits.
         stt = McpSTTService(self.asr, far_db=cfg.far_speech_db, on_ignored=self._resume_soon,
-                             own_name=cfg.name, ttfs_p99_latency=TURN_TTFS_S)
+                             own_name=cfg.name, ttfs_p99_latency=TURN_TTFS_S,
+                             stream=getattr(cfg, "stream_asr", ""), stream_wait_s=getattr(cfg, "stream_asr_wait_s", 1.5),
+                             keyterms=[cfg.name, *re.split(r"\s*,\s*", getattr(cfg, "location", "") or "")])
         self.guard.asr, self.guard.stt = self.asr, stt
         stt.output_busy = lambda: bool(self.room.state.get("ringing")) or \
             self.room.state.get("music", {}).get("state") == "playing"
