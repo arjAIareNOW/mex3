@@ -518,9 +518,9 @@ function drawLinks(v){
   });
 }
 function makeView(d){
-  const el = document.createElement("div"); el.className = "view " + d.kind; el.hidden = true;
+  const el = document.createElement("div"); el.className = "view " + (d.kind === "page" ? "app page" : d.kind); el.hidden = true;
   const v = {id: d.id, kind: d.kind, el, data: d, frame: null};
-  if (d.kind === "app"){
+  if (d.kind === "app" || d.kind === "page"){
     v.frame = document.createElement("iframe"); v.frame.title = d.title || d.label; el.append(v.frame); loadApp(v);
   } else if (d.kind === "video"){
     v.yt = {state: "", vol: 100, muted: false, time: 0, duck: false};
@@ -553,7 +553,7 @@ function renderViews(m){
     const v = views.get(d.id);
     if (!v){ makeView(d); continue; }
     const old = v.data; v.data = d;
-    if (d.kind === "app" && (d.v !== old.v || d.url !== old.url)) loadApp(v);
+    if ((d.kind === "app" || d.kind === "page") && (d.v !== old.v || d.url !== old.url)) loadApp(v);
     else if (d.kind === "photos" && d.photos !== old.photos){ v.phI = d.i || 0; drawPhoto(v); }
     else if (d.kind === "links") drawLinks(v);
   }
@@ -578,7 +578,7 @@ function showActive(){
   const a = views.get(activeId), here = !!a && tabOf(a.data) === curTab;
   for (const v of views.values()) v.el.hidden = !(here && v.id === activeId);
   $("empty").hidden = here;
-  appFrame = here && a.kind === "app" ? a.frame : null;
+  appFrame = here && (a.kind === "app" || a.kind === "page") ? a.frame : null;
   focusApp();
   if (!here && !$("bar").classList.contains("on"))
     $("empty").textContent = curTab === "office" ? "Virtual Office: ask for slides, a document or a spreadsheet." : "Elkit is listening.";
@@ -596,7 +596,7 @@ function activate(id){
   for (const v of views.values()) v.el.hidden = v.id !== activeId;
   $("empty").hidden = activeId !== null;
   const a = views.get(activeId);
-  appFrame = a && a.kind === "app" ? a.frame : null;
+  appFrame = a && (a.kind === "app" || a.kind === "page") ? a.frame : null;
   focusApp();
   const btn = $("sub").querySelector(".on"); if (btn) btn.scrollIntoView({inline: "nearest", block: "nearest"});
   note("");

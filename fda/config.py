@@ -71,6 +71,7 @@ class Config:
     quick_answers: str = "quick_answers.txt"   # predefined answers, spoken without the LLM ("" = off)
     publish_games: bool = False           # new games also go to the owner's GitHub Pages (fda/publish.py)
     publish_dir: str = "~/elkit-site"     # a clone of the repo that can push (deploy key with write access)
+    publish_url: str = "https://arjaiarenow.github.io/mex3/games/"   # "open my github.io" shows this page
     quick_match: float = 0.85             # how close what was heard must be to a question there (0-1)
     filler_after_s: float = 0.7           # no answer yet this long after the turn: a short filler ("On it.") from the
                                           # TTS cache, so the person hears Elkit at once (0 = off)

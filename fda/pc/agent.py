@@ -476,7 +476,13 @@ class Agent:
             logger.warning("room tools served by the agent itself, not over MCP")
             remote.standard_tools[:] = [t for t in remote.standard_tools if t.name not in ROOM_TOOLS]
             own_room = room_tools(self.room, on_use=lambda: self._move_tab("room"), redirect=self._music_to_video)
-        tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick])
+        github = FunctionSchema(
+            name="open_github_page", description="Open the owner's GitHub page (github.io: their published games) "
+            "in its own tab. For \"open my github.io\" / \"show my GitHub page\". New games Elkit makes appear on it "
+            "by themselves about a minute after they are ready.",
+            properties={}, required=[], handler=self._github_tool)
+        tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick,
+                                            *([github] if getattr(cfg, "publish_url", "") else [])])
         logger.info(f"tools: {[t.name for t in tools.standard_tools]}")
 
         self.context = LLMContext(messages=[*FEW_SHOT], tools=tools) if getattr(cfg, "llm_tools", True) else \
@@ -1043,6 +1049,35 @@ class Agent:
         else:
             self._activate(v)
             await params.result_callback({"ok": True, "result": f"the {v['label']} tab is showing"})
+
+    _GITHUB = re.compile(r"^(?:(?:please|can you|could you|now|okay|ok|hey|let's|lets)\s+)*(?:open|show(?: me)?|go to|"
+                         r"bring up|pull up|take me to|load)\s+(?:up\s+)?(?:my|our|the)\s+(?:git\s?hub|get\s?hub|github)"
+                         r"(?:\s*(?:\.|dot)?\s*i\.?\s?o\b)?(?:\s+(?:page|site|website|games|game page|games page))?"
+                         r"(?:\s+please)?$", re.I)
+
+    def _github_view(self, url: str) -> dict:
+        return self._open_view("page", {"url": url, "title": "My GitHub page"}, ["GitHub"], match=("url", url),
+                               kindword="page")
+
+    async def _github_tool(self, params):
+        url = getattr(self.cfg, "publish_url", "")
+        v = self._github_view(url)
+        logger.info(f"github page (LLM) -> tab {v['label']!r}: {url}")
+        await params.result_callback({"ok": True, "result": f"the GitHub page is showing (tab {v['label']})"})
+
+    async def _github_direct(self, text: str) -> bool:
+        """"Open my github.io" / "show my GitHub page": the owner's games page (GitHub Pages) in its own tab."""
+        url = getattr(self.cfg, "publish_url", "")
+        if not url or not self._GITHUB.match(strip_name(text, self.cfg.name).strip().strip(".!?")):
+            return False
+        v = self._github_view(url)
+        said = "Here's your GitHub page."
+        self.context.add_message({"role": "user", "content": text})
+        self.context.add_message({"role": "assistant", "content": f"{said} (tab {v['label']}; new games show up on "
+                                                                  f"it about a minute after they are ready)"})
+        logger.info(f"github page -> tab {v['label']!r}: {url}")
+        await self._announce(said)
+        return True
 
     async def _view_direct(self, text: str) -> bool:
         """"Go to the snake tab", "switch to the video", "close the Davao links", "show me the room": no LLM."""
@@ -1652,7 +1687,7 @@ class Agent:
     async def _chain(self, text: str) -> bool:
         """The requests done without the LLM, in order. What was done is kept (_last_act) for "wait, no, ..."."""
         self._act_undo = None
-        for fn in (self._continue, self._choice_direct, self._phone_direct, self._view_direct, self._media_direct,
+        for fn in (self._continue, self._choice_direct, self._phone_direct, self._github_direct, self._view_direct, self._media_direct,
                    self._nav_direct, self._room_direct, self._quick, self._direct_tweak):
             if await fn(text):
                 if fn != self._continue:
@@ -2231,6 +2266,18 @@ class Agent:
                 self._event("published", title=job.get("title"), file=f)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"publish {name}: {e}")
+                return
+            url = getattr(cfg, "publish_url", "")
+            if url and await publish.wait_live(url + f):
+                page = next((x for x in self.views if x["kind"] == "page" and x.get("url") == url), None)
+                if page is not None:
+                    page["v"] = page.get("v", 0) + 1                # the display reloads it
+                    self._sync_views()
+                while self.io.user_speaking or self.io.bot_speaking:
+                    await asyncio.sleep(0.3)
+                msg = f"{job.get('title', 'Your game')} is on your GitHub page now."
+                self.context.add_message({"role": "assistant", "content": msg})
+                await self._announce(msg)
         self.tasks.append(asyncio.create_task(go()))
 
     async def _watch_apps(self):

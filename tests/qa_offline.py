@@ -2033,6 +2033,29 @@ def t_publish():
           ["game", "site"])
     from fda.config import Config
     check("publish: off unless fda.toml turns it on", Config().publish_games, False)
+    from fda.pc.agent import Agent
+    said = ["open my github io", "Elkit, open my GitHub.io", "show me my GitHub page", "open my github dot io",
+            "go to my github games", "open my get hub page please"]
+    check("github page: the ways people say it", [bool(Agent._GITHUB.match(x.replace("Elkit, ", ""))) for x in said],
+          [True] * len(said))
+    check("github page: two requests in one go to the LLM (it has open_github_page)",
+          bool(Agent._GITHUB.match("open my github io then create a flappy bird game")), False)
+
+    async def page():
+        a, ui = make_agent()
+        said = []
+
+        async def announce(t):
+            said.append(t)
+        a._announce = announce
+        ok = await a._github_direct("Elkit, open my github io")
+        v = a.views[-1]
+        again = await a._github_direct("open my GitHub page")
+        return ok, v["kind"], v["url"], said, again, len([x for x in a.views if x["kind"] == "page"])
+    ok, kind, url, said, again, n = asyncio.run(page())
+    check("github page: opens the games page in a tab", (ok, kind, url, said[0]),
+          (True, "page", "https://arjaiarenow.github.io/mex3/games/", "Here's your GitHub page."))
+    check("github page: asked again -> the same tab (reloaded), not a second one", (again, n), (True, 1))
 
 
 def t_jokes():

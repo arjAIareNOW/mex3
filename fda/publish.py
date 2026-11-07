@@ -50,10 +50,28 @@ def index_page(games: Path) -> str:
   <h1>Elkit games</h1>
   <p>Games made by talking to Elkit, a voice assistant on a Raspberry Pi.</p>
   <div class="list">
-{items}
+{items or '    <p>No games yet. Ask Elkit to make one.</p>'}
   </div>
 </main></body></html>
 """
+
+
+async def wait_live(url: str, limit_s: float = 240, every_s: float = 8) -> bool:
+    """GitHub Pages takes ~30-90 s to put a push online: True once `url` answers 200."""
+    import asyncio
+
+    import httpx
+    t = time.monotonic()
+    async with httpx.AsyncClient(timeout=8, follow_redirects=True) as c:
+        while time.monotonic() - t < limit_s:
+            try:
+                if (await c.get(url, params={"t": int(time.time())})).status_code == 200:
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(every_s)
+    log.warning("not live after %.0f s: %s", limit_s, url)
+    return False
 
 
 def _git(repo: Path, *args: str, timeout: float = 60) -> str:
