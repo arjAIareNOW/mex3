@@ -35,6 +35,6 @@ llm_engine = "groq"
 # Examples: asr_engine = "groq,dgx3,moonshine"     tts_engine = "dgx3,kokoro,piper"
 #           Pi offline only: asr_engine = "parakeet-small"   tts_engine = "piper"
 asr_engine = "groq"   # Groq Whisper; its one fallback is offline_asr (Moonshine, on the device)
-tts_engine = "dgx3"   # school Qwen3-TTS; its one fallback is offline_tts (Piper, on the device)
+tts_engine = "piper"  # Piper on the device (the final Pi setup); "dgx3" = school Qwen3-TTS (campus network or VPN)
 offline_asr = "moonshine-base"   # the offline end of the listening chain: moonshine-base | parakeet-small | parakeet
 offline_tts = "piper"            # the offline end of the voice chain: piper (Pi) | kokoro (laptop, nicer)

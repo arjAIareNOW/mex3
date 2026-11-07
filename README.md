@@ -1,5 +1,23 @@
 # FDA: Full-Duplex Agent
 
+## Quick start (the final setup: Elkit on a Raspberry Pi 5)
+
+Final configuration, as benchmarked (report/final_pi_run): **Groq** for listening (Whisper) and the LLM, **Piper** for
+the voice on the Pi, everything else on the device. You need one key: a free Groq API key from console.groq.com.
+
+```bash
+git clone https://github.com/arjAIareNOW/mex3.git ~/fda && cd ~/fda
+bash deploy/pi/install.sh             # venv, packages, Node + jsdom, offline models, boot service, kiosk,
+                                      # fda.toml (Groq + Piper already chosen) and a .env template
+nano .env                             # paste your key after GROQ_API_KEY= (the only key needed)
+python -m fda.pc                      # run; the screen is at http://<pi-address>:8765
+python tests/qa_offline.py            # offline test suite (no key, no tokens)
+```
+
+On a Windows laptop: Python 3.12, then `deploy\windows\setup.bat`, put `GROQ_API_KEY=...` in `.env`, and run
+`python -m fda.pc`. The sections below describe the full system, including the earlier DGX3 (school server) setup.
+
+
 A voice assistant you talk to like a person. It is **always listening** from boot, with no wake word. You can **interrupt
 it mid-sentence**, and it **cancels its own echo**, so with an open speaker and mic it does not mistake its own voice
 for you. It controls a virtual room shown on a 7" display (lights, thermostat, timers, alarms, reminders, music, volume,
