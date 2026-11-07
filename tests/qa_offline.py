@@ -2041,6 +2041,7 @@ def t_publish():
           ["game", "site"])
     from fda.config import Config
     check("publish: off unless fda.toml turns it on", Config().publish_games, False)
+    check("no owner pages in the code (set in fda.toml)", (Config().publish_url, Config().profile_url), ("", ""))
     from fda.pc.agent import Agent
     said = ["open my github io", "Elkit, open my GitHub.io", "show me my GitHub page", "open my github dot io",
             "go to my github games", "open my get hub page please"]
@@ -2057,14 +2058,14 @@ def t_publish():
             said.append(t)
         a._announce = announce
         from fda.config import Config
-        a.cfg.publish_url = Config().publish_url
+        a.cfg.publish_url = "https://example.github.io/site/games/"
         ok = await a._github_direct("Elkit, open my github io")
         v = a.views[-1]
         again = await a._github_direct("open my GitHub page")
         return ok, v["kind"], v["url"], said, again, len([x for x in a.views if x["kind"] == "page"])
     ok, kind, url, said, again, n = asyncio.run(page())
     check("github page: opens the games page in a tab", (ok, kind, url, said[0]),
-          (True, "page", "https://arjaiarenow.github.io/mex3/games/", "Here's your GitHub page."))
+          (True, "page", "https://example.github.io/site/games/", "Here's your GitHub page."))
     check("github page: asked again -> the same tab (reloaded), not a second one", (again, n), (True, 1))
 
     async def pub():
@@ -2095,7 +2096,8 @@ def t_publish():
     check("profile: the ways people ask", [bool(Agent._PROFILE.match(x)) for x in said], [True] * len(said))
     check("profile: 'open my github page' is the games page, not the profile",
           bool(Agent._PROFILE.match("open my github page")), False)
-    page_html = Path("docs/profile.html").read_text(encoding="utf-8")
+    page_html = ('<html><script type="application/json" id="profile">{"name": "Sam Cruz", "work": "Engineer", '
+                 '"spoken": "You\'re Sam Cruz, an engineer."}</script></html>')
 
     async def prof(reply):
         import httpx
@@ -2105,7 +2107,7 @@ def t_publish():
         async def announce(t):
             out.append(t)
         a._announce = announce
-        a.cfg.profile_url = Config().profile_url
+        a.cfg.profile_url = "https://example.github.io/site/profile.html"
         real = httpx.AsyncClient.get
 
         async def fake(self, url, **kw):
@@ -2120,27 +2122,11 @@ def t_publish():
         return ok, out, [v["kind"] for v in a.views]
     ok, out, kinds = asyncio.run(prof(page_html))
     check("profile: read from the GitHub page, said, shown in a tab",
-          (ok, out[0].startswith("Here's your GitHub profile. You're Arjay Arnao, a Science Research Specialist Two"),
+          (ok, out[0] == "Here's your GitHub profile. You're Sam Cruz, an engineer.",
            kinds), (True, True, ["page"]))
     ok, out, kinds = asyncio.run(prof(OSError("offline")))
     check("profile: GitHub not reachable -> says so, no tab", (ok, out, kinds),
           (True, ["I couldn't reach your GitHub profile right now."], []))
-    from fda.pc.agent import _PERSONAL_SITE
-    yes = ["build my personal website based on my github", "make my portfolio", "create a website about me",
-           "a personal website", "make my website"]
-    no = ["make me a website for my bakery", "build a website for a dog lovers club", "create a flappy bird game",
-          "make me a landing page for my shop"]
-    check("personal site: their own site is spotted", [bool(_PERSONAL_SITE.search(x)) for x in yes], [True] * len(yes))
-    check("personal site: other sites are not", [bool(_PERSONAL_SITE.search(x)) for x in no], [False] * len(no))
-
-    async def facts():
-        a, ui = make_agent()
-        a.cfg.profile_url = ""                          # no network in the test: the copy in docs/profile.html
-        return await a._profile_facts()
-    f = asyncio.run(facts())
-    check("personal site: the profile goes in word for word",
-          ("Name: Arjay Arnao" in f, "Science Research Specialist II" in f, "Invent nothing" in f,
-           "linkedin.com/in/arjay-arnao-103827118" in f), (True, True, True, True))
     check("publish: 'okay, publish it' at the end of live changes",
           bool(Agent._PUBLISH.match("okay publish it")), True)
 

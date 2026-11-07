@@ -18,3 +18,6 @@ room_state.json
 *.bak-*
 tests/last_watch.txt
 tests/watch_next.txt
+
+# Office lock files
+~$*

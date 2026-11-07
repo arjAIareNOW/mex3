@@ -59,14 +59,6 @@ from .services import McpConnection, McpSTTService, McpTTSService
 SYSTEM = """You are {name}, a voice assistant on a small screen. You speak out loud in real time: warm, relaxed and
 natural, usually one or two short sentences. Everything you write is spoken: no lists, no markdown, no emoji,
 numbers as words people say.
-The person you talk to is your owner, who built you: Arjay Arnao (call them Arjay; use the name only now and then).
-Their LinkedIn is linkedin.com/in/arjay-arnao-103827118 (say "your LinkedIn, under Arjay Arnao"; you cannot open it here).
-Arjay's background (when asked): Science Research Specialist II at ITDI, DOST (say "I T D I, D O S T");
-registered Chemical Engineer and Professional Food Technologist; BS Chemical Engineering, PLM (say "P L M"); MS in Food
-Science and Technology Engineering, Magyar Agrar- es Eletudomanyi Egyetem (MATE, the Hungarian University of
-Agriculture and Life Sciences: say it in English).
-Their GitHub account is arjAIareNOW (say it "R J A I are now"),
-and your code is their repo mex3 at github.com/arjAIareNOW/mex3 (say "mex three"). It is theirs.
 How you work:
 - Questions get spoken answers. "What options are there for the bird", "show me other birds", "what could I use",
   and a change with no new look named ("change the pipes", "make the bird different"; never choose for them):
@@ -250,13 +242,6 @@ REAL_SERVICE_NOTE = ("NOT built: they want to open the real service, not a copy.
                      "did not say what to watch, ask what they want to watch). For other sites say you cannot open "
                      "that app here and offer a web search or a video instead. Never build a copy unless they "
                      "ask to build one.")
-
-
-# "build my personal website" / "a site about me" / "my portfolio based on my GitHub": the owner's real profile goes in
-_PERSONAL_SITE = re.compile(r"\b(?:my|our)\s+(?:own\s+)?(?:personal\s+)?(?:website|web site|site|portfolio|homepage|home page|"
-                            r"profile (?:site|page|website)|cv|resume)\b|\bpersonal (?:website|site|page|portfolio)\b|"
-                            r"\b(?:website|site|page) about me\b|\bbased on my (?:git\s?hub|get\s?hub|profile|linkedin)\b",
-                            re.I)
 
 
 def real_service(what: str, said: str) -> bool:
@@ -700,32 +685,11 @@ class Agent:
                     # "Open YouTube" is never a build (2026-11-06: it built a fake YouTube in 45 s)
                     logger.info(f"create_app refused, they want the real thing: {said!r}")
                     return await params.result_callback({"ok": False, "result": REAL_SERVICE_NOTE})
-                if _PERSONAL_SITE.search(f"{what} {said}") and isinstance(params.arguments, dict):
-                    facts = await self._profile_facts()          # their own site: their real profile, word for word
-                    if facts:
-                        params.arguments["description"] = (f"{params.arguments.get('description', '')}\n\n{facts}")
-                        logger.info("create_app: personal website, the GitHub profile goes in word for word")
             self._build_t0 = time.monotonic()
             return await inner(params)
         if inner is not None:
             fs._handler = handler
         return fs
-
-    async def _profile_facts(self) -> str:
-        """The owner's profile for their personal website: from GitHub (live), else the copy in this repo."""
-        prof = (await self._profile())[1] if getattr(self.cfg, "profile_url", "") else None
-        if not prof:
-            try:
-                t = (ROOT / "docs" / "profile.html").read_text(encoding="utf-8")
-                prof = json.loads(re.search(r'<script[^>]*id="profile"[^>]*>(.*?)</script>', t, re.S).group(1))
-            except Exception:  # noqa: BLE001
-                return ""
-        return ("PERSONAL WEBSITE OF THE OWNER: use exactly this profile, word for word. Invent nothing else about "
-                "them (no projects, jobs, awards, quotes or contact details that are not here).\n"
-                f"Name: {prof.get('name', '')}\nWork: {prof.get('work', '')}\n"
-                f"Credentials: {'; '.join(prof.get('credentials', []))}\n"
-                f"Education: {'; '.join(prof.get('education', []))}\n"
-                f"Links (buttons): GitHub {prof.get('github', '')} ; LinkedIn {prof.get('linkedin', '')}")
 
     def _last_heard(self) -> str:
         """The person's last words in the context (also while a tool call is under way)."""

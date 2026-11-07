@@ -72,8 +72,8 @@ class Config:
     publish_games: bool = False           # games can go to the owner's GitHub Pages (fda/publish.py)
     publish_auto: bool = False            # every new game at once; False: only when they say "publish this game"
     publish_dir: str = "~/elkit-site"     # a clone of the repo that can push (deploy key with write access)
-    publish_url: str = "https://arjaiarenow.github.io/mex3/games/"   # "open my github.io" shows this page
-    profile_url: str = "https://arjaiarenow.github.io/mex3/profile.html"   # "what's my GitHub profile?" reads it
+    publish_url: str = ""                 # the games page on GitHub Pages: "open my github.io" shows it ("" = off)
+    profile_url: str = ""                 # a profile page with a JSON block: "what's my GitHub profile?" reads it
     quick_match: float = 0.85             # how close what was heard must be to a question there (0-1)
     filler_after_s: float = 0.7           # no answer yet this long after the turn: a short filler ("On it.") from the
                                           # TTS cache, so the person hears Elkit at once (0 = off)

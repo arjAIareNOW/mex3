@@ -1,4 +1,4 @@
-"""Put the games Elkit builds on the owner's GitHub Pages site (arjaiarenow.github.io/mex3/games/).
+"""Put the games Elkit builds on the owner's GitHub Pages site (fda.toml: publish_url, publish_dir).
 
 Off unless fda.toml has `publish_games = true`. Needs a clone of the repo at `publish_dir` that can push (a GitHub
 deploy key with write access on the Pi). Runs in a thread after a game is ready: never holds Elkit up, and a failure

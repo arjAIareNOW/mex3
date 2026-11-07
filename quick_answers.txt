@@ -19,38 +19,7 @@ A: I'm Elkit, your voice assistant. Just talk to me, and you can interrupt me an
 Q: who made you
 Q: who built you
 Q: who created you
-A: You did. I'm your machine exercise project, a full-duplex voice agent on a Raspberry Pi, and my code is in your GitHub repo, mex three.
-
-Q: what is my name
-Q: what's my name
-Q: do you know my name
-Q: do you know who i am
-Q: who am i
-A: You're Arjay Arnao, the one who built me.
-
-Q: what is my background
-Q: what's my background
-Q: tell me my background
-Q: tell me about myself
-Q: tell me about me
-Q: what do i do
-Q: where do i work
-Q: what is my job
-A: You're Arjay Arnao, a Science Research Specialist Two at I T D I, D O S T. You're a registered chemical engineer and a professional food technologist, with a bachelor's in chemical engineering from P L M and a master's in food science and technology engineering from the Hungarian University of Agriculture and Life Sciences.
-
-Q: what is my linkedin
-Q: what's my linkedin
-A: Your LinkedIn is under your name, Arjay Arnao.
-
-Q: what is my github
-Q: what's my github
-Q: what is my github account
-Q: whose github is this
-Q: where is your code
-Q: where is your source code
-Q: whose code is this
-Q: is mex3 mine
-A: That's yours. Your GitHub account is R J A I are now, and my code is in your repo, mex three.
+A: I was built as a machine exercise project, a full-duplex voice agent running on a Raspberry Pi.
 
 Q: how do you work
 Q: how does this work

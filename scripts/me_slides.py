@@ -236,16 +236,17 @@ def page1(prs):
     section(sl, 0.6, 4.98, 2, "PROMPT", "kept in the repo, versioned (fda/pc/agent.py SYSTEM)")
     box(sl, 0.6, 5.36, 7.0, 1.62, LIGHT, LINE, shape=MSO_SHAPE.ROUNDED_RECTANGLE)
     text(sl, 0.75, 5.42, 6.75, 1.5, [
-        [("SYSTEM PROMPT (v3.0) - excerpt", {"bold": True, "color": TEAL})],
-        "You are {name}, a voice assistant on a small screen. You speak out",
-        "loud in real time: warm, relaxed and natural, usually one or two",
-        "short sentences. Everything you write is spoken: no lists, no markdown.",
+        [("SYSTEM PROMPT (v3.0) - in short", {"bold": True, "color": TEAL})],
+        "You are Elkit, a full-duplex voice assistant on a Raspberry Pi with a",
+        "small screen. You always listen and talk back in real time, like a",
+        "person: warm, relaxed and natural, one or two short sentences.",
+        "You run the home, build apps and games, play videos and search the",
+        "web. Every word you write is spoken aloud, so no lists or markdown.",
         "- If they interrupt you, drop what you were saying and answer what",
         "  they just said.",
-        "- Do what the person asks, nothing more. After a task, a short",
-        "  confirmation is enough. The links show on the screen by themselves.",
-        "- A message ending in [now: ...] already has the true time and date:",
-        "  use it, never call get_time then.",
+        "- Offer choices and wait; never choose for them.",
+        "- Games are built straight away; only websites get a colour question.",
+        "- Searches show a summary page, no links; photos only when asked.",
     ], size=8, font=MONO, bullet_color=INK)
 
     section(sl, 7.95, 4.98, 3, "CONTEXT ENGINEERING")
