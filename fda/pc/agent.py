@@ -208,7 +208,8 @@ SLOW_TOOLS: set[str] = {"web_search", "read_page", "get_news", "wikipedia", "pla
 # ---- Interface sub-tabs: every app, video, photo set or search opens its own tab, named so that no two tabs share
 # their key word ("Snake game", "Bakery site", "Davao links", "Tie video"): the person switches by voice ----
 _GAME_WORDS = {"game", "snake", "flappy", "tetris", "pong", "puzzle", "quiz", "maze", "racing", "racer", "shooter",
-               "platformer", "breakout", "memory", "tic", "chess", "runner", "jump", "hop", "arcade", "dodge", "invaders"}
+               "platformer", "breakout", "memory", "tic", "chess", "runner", "jump", "hop", "arcade", "dodge", "invaders",
+               "floppy", "fluffy", "flappybird"}    # "flappy" as speech recognition often hears it (Pi log 2026-11-07)
 _SITE_WORDS = {"website", "site", "landing", "page", "portfolio", "shop", "store", "blog", "homepage", "restaurant",
                "bakery", "business", "company", "studio", "agency", "services", "salon", "cafe"}
 _VIEW_STOP = {"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "at", "by", "with", "from", "my", "me", "your",
@@ -574,15 +575,24 @@ class Agent:
             await runner.cleanup()
             return None
 
-    def _asking_for_game(self) -> bool:
-        """The person's latest words ask for a game (not a website): looked up past the tool-call round."""
+    def _last_words(self) -> set[str]:
+        """The words of the person's latest message, looked up past the tool-call round."""
         for m in reversed(getattr(self.context, "messages", None) or []):
             if isinstance(m, dict) and m.get("role") == "user":
                 c = m.get("content")
                 text = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c or [] if isinstance(p, dict))
-                w = set(re.findall(r"[a-z]+", text.lower()))
-                return bool(w & _GAME_WORDS) and not (w & _SITE_WORDS)
-        return False
+                return set(re.findall(r"[a-z]+", text.lower()))
+        return set()
+
+    def _asking_for_game(self) -> bool:
+        """The person's latest words ask for a game (not a website)."""
+        w = self._last_words()
+        return bool(w & _GAME_WORDS) and not (w & _SITE_WORDS)
+
+    def _asking_for_site(self) -> bool:
+        """The person's latest words ask for a website (and not a game)."""
+        w = self._last_words()
+        return bool(w & _SITE_WORDS) and not (w & _GAME_WORDS)
 
     def _last_user_text(self) -> str | None:
         """What the person just said, if the LLM is answering it (None on a tool-result round)."""
@@ -717,9 +727,12 @@ class Agent:
         if prev:                                       # "show me more": the same kind of thing, the next four
             what, setting, for_new = prev["what"], prev.get("key") or "", prev["for_new"]
         palette = bool(re.search(r"palette|scheme|theme|colou?rs?\b", what, re.I)) and C.group_of(what) is None
-        if palette and for_new and not prev and self._asking_for_game():
-            # colour schemes are for websites only: a new game is built straight away (the user's rule)
-            return {"ok": False, "result": "No colour scheme question for a game: call create_app now and build it."}
+        if palette and for_new and not prev and not self._asking_for_site():
+            # colour schemes are for websites only (the user's rule): a game or any other app is built straight
+            # away. Asked only when the person said website / site / page / shop ...: a misheard game name
+            # ("Create a floppy bird-like app", Pi 2026-11-07) no longer gets the colour question.
+            return {"ok": False, "result": "No colour scheme question: only for websites. Call create_app now "
+                                           "and build it."}
         if palette:
             off = (prev["offset"] + C.SHOW) if prev else 0
             options, key, title = C.palette_choice(off), "", "Colour schemes"

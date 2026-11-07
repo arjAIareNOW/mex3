@@ -947,6 +947,9 @@ def t_choices():
             self.msgs = []
         def add_message(self, m):
             self.msgs.append(m)
+        @property
+        def messages(self):
+            return self.msgs
 
     class Cfg:
         name = "Elkit"
@@ -986,7 +989,17 @@ def t_choices():
         check("agent: live change pushed to the app", any(m.get("type") == "app_set" for m in a.ui.sent), True)
         check("agent: the brain's history knows", "picked: bird = owl" in a.context.msgs[-2]["content"], True)
 
+        # colour schemes only for websites: a game, or a misheard game name, is built straight away
+        for said, want in (("Create a floppy bird-like app.", False), ("Create a Fluffy Bird app.", False),
+                           ("Make me a snake game.", False), ("Create an app for my notes.", False),
+                           ("Make me a website for my bakery.", True), ("Build a landing page.", True)):
+            a = agent()
+            a.context.add_message({"role": "user", "content": said})
+            r = await a._offer("colour scheme", for_new=True)
+            check(f"agent: colour scheme question for {said!r}: {'yes' if want else 'no, built at once'}",
+                  (r["ok"], a.choice is not None), (want, want))
         a = agent()
+        a.context.add_message({"role": "user", "content": "Make me a website for my bakery."})
         await a._offer("colour scheme", for_new=True)
         await a._choice_direct("show me more")
         check("agent: 'show me more' = the next four schemes", [o["name"] for o in a.choice["options"]],
