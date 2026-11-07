@@ -140,8 +140,11 @@ class CloudASR(Backend):
         self.model = model if name == "groq-v3" else (os.environ.get("ASR_MODEL") or model)
         if not self.base or not self.key or not self.model:
             raise RuntimeError(f"set {key_env}" + (", ASR_BASE_URL, ASR_MODEL" if not base else "") + " in .env")
+        # keepalive_expiry: a connection idle > 4 s is not reused. On campus Wi-Fi (DILNET, 2026-11-07) the first
+        # request after 10-25 s of quiet took 5.6 s on the old connection, the next one 0.44 s; a new one ~0.3 s.
         self.http = httpx.Client(timeout=httpx.Timeout(8.0, connect=1.5),
-                                 headers={"Authorization": f"Bearer {self.key}"})
+                                 headers={"Authorization": f"Bearer {self.key}"},
+                                 limits=httpx.Limits(keepalive_expiry=4.0))
 
     def __call__(self, x, rate, language):
         try:
