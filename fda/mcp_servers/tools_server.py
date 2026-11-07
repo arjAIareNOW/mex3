@@ -810,7 +810,7 @@ def build(cfg: Config) -> tuple[MCPServer, Apps]:
     @mcp.tool()
     def web_search(query: str) -> list[dict] | str:
         """Search the web (current facts, prices, flights, schedules, people). Returns the top results with their
-        links; the links are shown on the screen."""
+        links; a summary page of them is shown on the screen."""
         try:
             from ddgs import DDGS
             res = DDGS().text(query, max_results=8)
@@ -1059,7 +1059,7 @@ def room_tools(mcp: MCPServer, cfg: Config):
         return room("volume", change=change, level=level)
 
     @mcp.tool()
-    def call(contact: Annotated[str, Field(description="who, as they said it: wife, mom, dad, John")]) -> dict:
+    def call(contact: Annotated[str, Field(description="who, as they said it: wife, sister, brother; empty if not said")] = "") -> dict:
         """Call someone on the phone in the Virtual Home (a pretend phone: it rings, nobody answers)."""
         return room("call", contact=contact)
 
@@ -1069,7 +1069,7 @@ def room_tools(mcp: MCPServer, cfg: Config):
         return room("end_call")
 
     @mcp.tool()
-    def message(contact: Annotated[str, Field(description="who: wife, mom, dad, a name")],
+    def message(contact: Annotated[str, Field(description="who: wife, sister, brother; empty if not said")] = "",
                 text: Annotated[str, Field(description="the message; empty if they did not say it yet")] = "") -> dict:
         """Send a text from the phone in the Virtual Home (pretend). If they did not say what it should say, leave
         text empty and ask them (the phone shows quick replies)."""

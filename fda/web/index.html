@@ -96,6 +96,23 @@
   .view.links a small { display: block; color: var(--accent); font-size: 12px; margin-top: 2px; }
   .view.links a span { display: block; color: var(--muted); font-size: 12.5px; margin-top: 4px; line-height: 1.35; }
   .view.links .n { color: var(--accent); font-weight: 700; margin-right: 6px; }
+  .view.links .sum { max-width: 760px; margin: 0 auto; padding: 18px 10px 10px; }
+  .view.links .sum .q { font: 600 12px system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .view.links .sum h2 { margin: 6px 0 14px; font: 750 26px/1.2 system-ui, sans-serif; color: var(--text); }
+  .view.links .sum .lead { font: 450 17px/1.55 system-ui, sans-serif; color: var(--text); margin: 0 0 18px;
+                           padding: 14px 16px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 9%, transparent);
+                           border-left: 4px solid var(--accent); }
+  .view.links .sum h5 { margin: 0 0 10px; font: 650 13px system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+  .view.links .sum ol { margin: 0; padding: 0; list-style: none; counter-reset: k; display: flex; flex-direction: column; gap: 10px; }
+  .view.links .sum li { counter-increment: k; display: flex; gap: 12px; align-items: flex-start; font: 450 15.5px/1.45 system-ui, sans-serif; color: var(--text); }
+  .view.links .sum li::before { content: counter(k); flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+                                background: var(--accent); color: #0b0d12; font: 700 12.5px system-ui, sans-serif; margin-top: 1px; }
+  .view.links .sum .src { margin-top: 20px; font: 500 12.5px system-ui, sans-serif; color: var(--muted); }
+  .view.links .sum .wait { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .view.links .sum .wait i { display: block; height: 14px; border-radius: 7px; background: linear-gradient(90deg, #ffffff10, #ffffff22, #ffffff10);
+                             background-size: 200% 100%; animation: sumwait 1.2s linear infinite; }
+  .view.links .sum .wait i:nth-child(2) { width: 88%; } .view.links .sum .wait i:nth-child(3) { width: 72%; }
+  @keyframes sumwait { from { background-position: 200% 0; } to { background-position: 0 0; } }
   @keyframes fadein { from { opacity: 0; } }
   @keyframes rise { from { transform: translateY(12px); opacity: 0; } }
   /* ---- three tabs: Interface (games, websites, videos, links, photos), Virtual Home (the room),
@@ -182,6 +199,15 @@
   #phone .av { width: 82px; height: 82px; border-radius: 50%; margin-top: 18px; display: grid; place-items: center; position: relative;
                background: linear-gradient(135deg, #ffb0c8, #b07aff); font: 800 34px system-ui, sans-serif; color: #fff; }
   #phone .av.dad { background: linear-gradient(135deg, #8fd3ff, #7aa2ff); }
+  #phone .av.sis, #phone .mini.sis { background: linear-gradient(135deg, #ffb3d1, #e879b9); }
+  #phone .av.bro, #phone .mini.bro { background: linear-gradient(135deg, #9be8b4, #3fbf7f); }
+  #phone .people { width: 100%; margin-top: 18px; display: flex; flex-direction: column; gap: 9px; }
+  #phone .people button { display: flex; gap: 9px; align-items: center; text-align: left; padding: 9px 10px; border-radius: 14px;
+                          border: 1px solid #2e3647; background: #151a24; color: #e8ecf2; font: 600 15px system-ui, sans-serif; cursor: pointer; }
+  #phone .people b { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #0b0d12; display: grid;
+                     place-items: center; font-size: 12px; flex: none; }
+  #phone .mini { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; color: #0b0d12;
+                 font: 700 16px system-ui, sans-serif; background: linear-gradient(135deg, #ffb0c8, #b07aff); }
   #phone .av { flex: none; } #phone.compose .av, #phone.sent .av { width: 56px; height: 56px; font-size: 24px; margin-top: 8px; }
   #phone .av i { position: absolute; inset: -6px; border-radius: 50%; border: 2px solid #7aa2ff; opacity: 0; }
   #phone.calling .av i { animation: phring 1.6s ease-out infinite; } #phone.calling .av i + i { animation-delay: .8s; }
@@ -455,6 +481,30 @@ function drawPhoto(v){
   cap[1].textContent = ps.length > 1 ? `${v.phI + 1} / ${ps.length}` : "";
 }
 function drawLinks(v){
+  const d = v.data;
+  if (d.status){                                   // a web search: the summary page
+    const box = document.createElement("div"); box.className = "sum";
+    const q = document.createElement("div"); q.className = "q"; q.textContent = "Search summary";
+    const h = document.createElement("h2"); h.textContent = d.title || "Results";
+    box.append(q, h);
+    if (d.status === "loading"){
+      const w = document.createElement("div"); w.className = "wait"; w.innerHTML = "<i></i><i></i><i></i>";
+      const t = document.createElement("div"); t.className = "src"; t.textContent = "Reading the results…";
+      box.append(w, t);
+    } else {
+      if (d.summary){ const p = document.createElement("p"); p.className = "lead"; p.textContent = d.summary; box.append(p); }
+      if ((d.points || []).length){
+        const k = document.createElement("h5"); k.textContent = "Key points";
+        const ol = document.createElement("ol");
+        for (const pt of d.points){ const li = document.createElement("li"); li.textContent = pt; ol.append(li); }
+        box.append(k, ol);
+      }
+      if (!d.summary && !(d.points || []).length){ const p = document.createElement("p"); p.className = "lead"; p.textContent = "The results did not say much about this."; box.append(p); }
+    }
+    if ((d.sources || []).length){ const s = document.createElement("div"); s.className = "src"; s.textContent = "Sources: " + d.sources.join(" · "); box.append(s); }
+    v.el.textContent = ""; v.el.append(box);
+    return;
+  }
   const ul = v.el.querySelector("ul"); ul.textContent = "";
   v.el.querySelector("h4").textContent = v.data.title ? "Results for: " + v.data.title : "Results";
   (v.data.items || []).forEach((it, n) => {
@@ -868,18 +918,22 @@ function renderRoom(s){
 const PHONE_SVG = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>';
 let phoneKey = "", phoneSince = 0, phoneState = "idle";
 function phEsc(t){ const d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; }
+function avc(n){ return /^sister$/i.test(n) ? " sis" : /^brother$/i.test(n) ? " bro" : /^daddy$/i.test(n) ? " dad" : ""; }
 function drawPhone(p){
   const P = $("phone"), st = p.state || "idle", on = st !== "idle";
   $("phoneSmall").classList.toggle("on", on); $("phoneSmall").classList.toggle("ring", st === "calling");
   phoneState = st; phoneSince = (p.since || 0) * 1000;
-  const key = JSON.stringify([st, p.contact, p.text, p.since]);
+  const key = JSON.stringify([st, p.contact, p.text, p.since, p.action]);
   if (key === phoneKey) return;
   phoneKey = key;
   if (!on){ P.hidden = true; P.className = ""; return; }
-  const who = p.contact || "", ini = (who.trim()[0] || "?").toUpperCase(), dad = /^daddy$/i.test(who) ? " dad" : "";
-  const head = `<div class="av${dad}"><i></i><i></i>${phEsc(ini)}</div><div class="who">${phEsc(who)}</div><div class="num">${phEsc(p.number || "")}</div>`;
+  const who = p.contact || "", ini = (who.trim()[0] || "?").toUpperCase(), dad = "";
+  const head = st === "contacts" ? `<div class="who">Contacts</div><div class="num">${p.action === "message" ? "Who to text?" : "Who to call?"}</div>`
+    : `<div class="av${dad}${avc(who)}"><i></i><i></i>${phEsc(ini)}</div><div class="who">${phEsc(who)}</div><div class="num">${phEsc(p.number || "")}</div>`;
   let body = "";
-  if (st === "calling") body = `<div class="st">Calling…</div><div class="clock" id="phClock">0:00</div><button class="end" title="End call">${PHONE_SVG}</button>`;
+  if (st === "contacts") body = `<div class="people">` + (p.contacts || []).map((c, i) =>
+      `<button data-c="${phEsc(c)}"><b>${i + 1}</b><span class="mini${avc(c)}">${phEsc(c[0])}</span>${phEsc(c)}</button>`).join("") + `</div>`;
+  else if (st === "calling") body = `<div class="st">Calling…</div><div class="clock" id="phClock">0:00</div><button class="end" title="End call">${PHONE_SVG}</button>`;
   else if (st === "no answer") body = `<div class="st bad">No answer</div><div class="hint">${phEsc(who)} didn't pick up</div>`;
   else if (st === "ended") body = `<div class="st">Call ended</div>`;
   else if (st === "compose") body = `<div class="hint">What should it say?</div><div class="quick">` +
@@ -887,6 +941,7 @@ function drawPhone(p){
   else if (st === "sent") body = `<div class="thread"><div class="bubble">${phEsc(p.text)}</div><div class="dlv">Delivered ✓</div></div>`;
   P.className = st.replace(" ", "-"); P.innerHTML = head + body; P.hidden = false;
   const end = P.querySelector(".end"); if (end) end.onclick = () => act({tool: "end_call"});
+  P.querySelectorAll(".people button").forEach(b => b.onclick = () => act({tool: p.action || "call", contact: b.dataset.c, text: ""}));
   P.querySelectorAll(".quick button").forEach(b => b.onclick = () => act({tool: "message", contact: who, text: b.dataset.q}));
   tickPhone();
 }

@@ -25,13 +25,17 @@ _ids = itertools.count(1)
 
 # ---------- the phone in the Virtual Home: a simulation only (no SIM900A, no real calls or texts) ----------
 RING_S = 20.0                      # a call rings this long, then "no answer" (the user's wish: it rings, nobody answers)
-QUICK_REPLIES = ["I'm on my way", "I'll be late", "I'll be there", "I'll be back soon"]     # MEX2's reply phrases
+QUICK_REPLIES = ["I'm on my way.", "I'll be home late.", "I'll call you later."]      # the 3 replies the phone shows
+CONTACTS = ["Mommy", "Sister", "Brother"]          # "make a call": the phone shows these 3, the person picks one
 _RELATION = re.compile(r"^(?:my|our|the)\s+", re.I)
 
 
 # the family's contacts, as on the MEX2 phone ("Call Mommy"): what people say -> the name saved in the phone
 CONTACT_ALIASES = {"Mommy": {"wife", "mom", "mommy", "mother", "mama", "ma", "mum", "mummy", "mamma", "nanay", "misis"},
-                   "Daddy": {"husband", "dad", "daddy", "father", "papa", "pa", "tatay", "mister"}}
+                   "Daddy": {"husband", "dad", "daddy", "father", "papa", "pa", "tatay", "mister"},
+                   "Sister": {"sister", "sis", "ate", "sissy"},
+                   "Brother": {"brother", "bro", "kuya", "bruh"}}
+NO_CONTACT = {"", "unknown", "someone", "somebody", "anyone", "anybody", "a contact", "contact", "contacts"}
 
 
 def contact_name(who: str) -> str:
@@ -423,7 +427,18 @@ class Room:
         self.state["volume"] = v; self.mixer.volume = v / 100
         return {"ok": True, "note": f"volume {v}"}
 
+    def _pick_contact(self, action: str):
+        """No name given: the phone shows the 3 contacts; Elkit asks who (it never picks for the person)."""
+        self._end_call_task()
+        self.state["phone"] = {"state": "contacts", "action": action, "contacts": CONTACTS, "contact": "",
+                               "since": time.time()}
+        asyncio.get_event_loop().call_later(60.0, self._phone_idle, "contacts")
+        verb = "call" if action == "call" else "text"
+        return {"ok": True, "note": f"no contact yet: the phone shows {', '.join(CONTACTS)}. Ask who to {verb}."}
+
     def _do_call(self, a):
+        if (a.get("contact") or "").strip().lower() in NO_CONTACT:
+            return self._pick_contact("call")
         contact = contact_name(a.get("contact", ""))
         self._end_call_task()
         self.state["phone"] = {"state": "calling", "contact": contact, "number": fake_number(contact),
@@ -455,7 +470,7 @@ class Room:
 
     def _do_end_call(self, a):
         p = self.state["phone"]
-        if p.get("state") not in ("calling", "no answer", "compose"):
+        if p.get("state") not in ("calling", "no answer", "compose", "contacts"):
             return {"ok": False, "note": "no call to end"}
         self._end_call_task()
         was = p.get("state")
@@ -469,11 +484,15 @@ class Room:
             self._changed()
 
     def _do_message(self, a):
-        contact = contact_name(a.get("contact", "") or self.state["phone"].get("contact", ""))
+        ph = self.state["phone"]
+        held = ph.get("contact", "") if ph.get("state") in ("calling", "no answer", "compose") else ""
+        if (a.get("contact") or held or "").strip().lower() in NO_CONTACT and not (a.get("text") or "").strip():
+            return self._pick_contact("message")
+        contact = contact_name(a.get("contact", "") or held)
         text = (a.get("text") or "").strip()
         self._end_call_task()
         if not text:
-            # MEX2 asked what to send and showed its four reply phrases: the phone shows them, Elkit asks
+            # Elkit asks what to send; the phone shows the 3 quick replies
             self.state["phone"] = {"state": "compose", "contact": contact, "number": fake_number(contact),
                                    "since": time.time(), "quick": QUICK_REPLIES}
             return {"ok": True, "note": f"text to {contact}: no message yet. Ask what it should say; the phone shows "

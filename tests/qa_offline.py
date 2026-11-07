@@ -1936,11 +1936,66 @@ def t_phone():
           (out["direct"][0], out["direct"][1]["state"], out["direct"][1]["contact"], out["direct"][1]["text"]),
           (True, "sent", "Mommy", "I'm on my way"))
     check("text: no message -> it asks, the phone shows quick replies", out["ask"], (True, "compose"))
-    check("text: 'the second one' -> MEX2's second reply", out["pick"], (True, "I'll be late"))
+    check("text: 'the second one' -> the second quick reply", out["pick"], (True, "I'll be home late."))
     check("text: their own words after the question", out["own"], (True, "Dinner is ready", "Daddy"))
     check("text: 'yes, tell her...' after no answer", out["yes"], (True, "I'll be late"))
     check("text: 'text size bigger' is not a text message", out["app"], False)
     check("text: spoken", said[:2], ["Sent to Mommy: I'm on my way", "What should the message to Mommy say?"])
+
+    check("contacts: sister / brother / ate / kuya", [R.contact_name(x) for x in ["my sister", "kuya", "ate", "bro"]],
+          ["Sister", "Brother", "Sister", "Brother"])
+    check("3 contacts and 3 quick replies", (R.CONTACTS, len(R.QUICK_REPLIES)), (["Mommy", "Sister", "Brother"], 3))
+    check("quick rule: 'call someone' is left to the phone picker", rules.match("call someone", st), None)
+    check("quick rule: 'call my sister'", rules.match("call my sister", st),
+          ([{"tool": "call", "contact": "Sister"}], "Calling Sister."))
+
+    async def picker():
+        old = R.RING_S
+        R.RING_S = 5
+        a, ui = make_agent()
+        a._go_first = lambda tab, speak=True: asyncio.sleep(0, "")
+        said = []
+
+        async def announce(t):
+            said.append(t)
+        a._announce = announce
+        out = {}
+        try:
+            out["make"] = await a._phone_direct("Elkit, make a call"), dict(a.room.state["phone"])
+            out["two"] = await a._phone_direct("number two"), dict(a.room.state["phone"])
+            await a.room.execute({"tool": "end_call"})
+            await a._phone_direct("I want to make a call")
+            out["name"] = await a._phone_direct("my brother"), a.room.state["phone"].get("contact")
+            await a.room.execute({"tool": "end_call"})
+            await a._phone_direct("call")
+            out["no"] = await a._phone_direct("never mind"), a.room.state["phone"]["state"]
+            await a._phone_direct("send a text")
+            out["textpick"] = await a._phone_direct("Mommy"), dict(a.room.state["phone"])
+            out["reply"] = await a._phone_direct("number three"), a.room.state["phone"].get("text")
+            await a._phone_direct("send a message")
+            out["other"] = await a._phone_direct("what's the weather"), a.room.state["phone"]["state"]
+            out["llm"] = await a.room.execute({"tool": "call", "contact": ""})
+            out["llmstate"] = a.room.state["phone"]["state"]
+        finally:
+            a.room._end_call_task()
+            R.RING_S = old
+        return out, said
+    out, said = asyncio.run(picker())
+    check("picker: 'make a call' -> the phone shows the 3 contacts",
+          (out["make"][0], out["make"][1]["state"], out["make"][1]["contacts"], out["make"][1]["action"]),
+          (True, "contacts", ["Mommy", "Sister", "Brother"], "call"))
+    check("picker: Elkit asks who, it never picks", said[0], "Who should I call: Mommy, Sister or Brother?")
+    check("picker: 'number two' -> calls Sister", (out["two"][0], out["two"][1]["state"], out["two"][1]["contact"]),
+          (True, "calling", "Sister"))
+    check("picker: 'my brother' -> calls Brother", out["name"], (True, "Brother"))
+    check("picker: 'never mind' puts the phone away", out["no"], (True, "ended"))
+    check("picker: 'send a text' then 'Mommy' -> compose with 3 replies",
+          (out["textpick"][0], out["textpick"][1]["state"], out["textpick"][1]["contact"], len(out["textpick"][1]["quick"])),
+          (True, "compose", "Mommy", 3))
+    check("picker: 'number three' -> the third reply is sent", out["reply"], (True, "I'll call you later."))
+    check("picker: other words go on to the rest", out["other"], (False, "contacts"))
+    check("picker: the LLM's call with no name shows the contacts too", out["llmstate"], "contacts")
+    check("picker: text spoken", "Who should I text: Mommy, Sister or Brother?" in said, True)
 
 
 def t_jokes():

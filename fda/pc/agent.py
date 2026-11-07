@@ -74,8 +74,9 @@ How you work:
   to build, and do not list what you can do unless they ask. After a task, a short confirmation is enough.
 - Things you can do when asked: build websites, apps and small games live on the screen; the weather and the time
   (get_weather, get_time); the room on the screen: lights, thermostat, timers, alarms, reminders, music and volume,
-  and a pretend phone in the Virtual Home (call, end_call, message: wife and mom are "Mommy", dad is "Daddy";
-  calls ring and nobody answers; it is a simulation, never a real call or text).
+  and a pretend phone in the Virtual Home (call, end_call, message: the 3 contacts are Mommy
+  (wife, mom), Sister and Brother; no name said -> contact empty, the phone shows the 3 and you ask who; calls ring
+  and nobody answers; it is a simulation, never a real call or text).
   A message ending in [now: ...] already has the true time and date: use it, never call get_time then. It is only
   there in case they ask: "the time is up", "a long time" are not questions about the time.
 - Building: when they ask for an app, a website or a game and the idea is clear enough, start at once with create_app
@@ -99,8 +100,9 @@ How you work:
 - Looking things up: for prices, flights, schedules, news, people or anything current or that you are not sure of,
   use web_search (get_news for headlines, wikipedia for background). If the snippets lack a detail they asked for
   (the airline, the exact price, the date), read_page the best link. Then say the answer in one or two sentences:
-  the number, the name, and which site it is from. The links show on the screen by themselves: say "the link is on
-  the screen", never read a web address out loud. If the results do not say it, say so; never make up a price.
+  the number, the name, and which site it is from. A summary page of the results shows on the screen by itself: say
+  "the summary is on the screen", never read a web address out loud. If the results do not say it, say so; never
+  make up a price. With a search, never call show_photo unless they asked to see photos or pictures.
 - Videos: only when they ask for a video and say what it is, play_video with exactly what they asked; never pick
   one they did not ask for. "Play a video" with no subject: ask which. "Open YouTube" means the real YouTube:
   ask what they want to watch, then play_video. Never create_app a copy of YouTube or any real site or app
@@ -223,9 +225,10 @@ _VIEW_STOP = {"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "at"
               "song", "watch", "see", "tell", "let", "lets", "us", "there", "here", "cheapest", "much", "many"}
 _POOL = ["Amber", "Coral", "Maple", "Olive", "Ruby", "Jade", "Cedar", "Pearl", "Indigo", "Saffron", "Willow", "Topaz"]
 _KIND_SAY = {"video": {"video", "youtube", "clip"}, "photos": {"photo", "photos", "picture", "pictures", "pics", "images"},
-             "links": {"links", "link", "search", "results"}, "game": {"game"}, "site": {"site", "website", "page"},
+             "links": {"links", "link", "search", "results", "summary", "news"}, "game": {"game"}, "site": {"site", "website", "page"},
              "app": {"app", "application"}}
 MAX_VIEWS = 8
+_ASKED_PHOTOS = re.compile(r"\b(?:photos?|pictures?|pics?|images?|looks? like)\b", re.I)
 
 
 # real sites and apps: "open YouTube" means the real one, never a copy built with create_app (YouTube itself cannot
@@ -300,9 +303,9 @@ ROOM_TOOLS = {
     "music": "Play, pause, resume, stop or skip the music.",
     "volume": "Change the speaker volume (up/down or a level 0-100).",
     "call": "Call someone on the phone in the Virtual Home (a pretend phone: it rings, nobody answers). contact: "
-            "who, as they said it (wife, mom, John).",
+            "who, as they said it (wife, sister, brother); empty if they did not say who (the phone shows the 3 contacts).",
     "end_call": "Hang up the phone (end the call), or put the phone away.",
-    "message": "Send a text from the phone in the Virtual Home (pretend). contact: who; text: the message. If they "
+    "message": "Send a text from the phone in the Virtual Home (pretend). contact: who (empty if not said); text: the message. If they "
                "did not say what it should say, leave text empty and ask them (the phone shows quick replies).",
 }
 
@@ -366,6 +369,7 @@ class Agent:
         await asyncio.gather(self.asr.start(), self.tts_conn.start(), self.tools_conn.start())
 
         ep = llmlib.make(cfg, cfg.llm_engine, role="agent")
+        self._ep = ep                                  # the search summary page uses it too
         if isinstance(ep, llmlib.LocalEndpoint):
             await asyncio.to_thread(ep._ensure)
             self.local_llm = ep
@@ -993,7 +997,8 @@ class Agent:
     def _sync_views(self):
         if not self.ui:
             return
-        keep = ("id", "kind", "kindword", "label", "v", "url", "title", "video_id", "photos", "i", "items")
+        keep = ("id", "kind", "kindword", "label", "v", "url", "title", "video_id", "photos", "i", "items",
+                "summary", "points", "sources", "status")
         self.ui.send({"type": "views", "active": self.active_view,
                       "views": [{k: x[k] for k in keep if k in x} for x in self.views]})
         if self.active_view is not None:
@@ -1115,6 +1120,11 @@ class Agent:
             d = json.loads(output) if isinstance(output, str) else output
         except (ValueError, TypeError):
             return output
+        heard = self._heard_text()
+        if (isinstance(d, dict) and d.get("photos") and heard and heard == getattr(self, "_search_heard", None)
+                and not _ASKED_PHOTOS.search(heard)):
+            logger.info(f"photos not shown: a web search, no photos asked for ({heard!r})")
+            return json.dumps({"ok": False, "result": "No photos shown: they did not ask for photos. Answer in words."})
         if isinstance(d, dict) and d.get("photos"):
             v = self._open_view("photos", {"photos": d["photos"], "i": 0, "title": d["photos"][0]["title"]},
                                 [self._heard_text(), d["photos"][0]["title"]])
@@ -1157,9 +1167,88 @@ class Agent:
                     items.append({"title": o.get("title") or o.get("headline") or o["link"], "link": o["link"],
                                   "source": o.get("source", ""), "snippet": (o.get("snippet") or "")[:160]})
         if items:
-            v = self._open_view("links", {"items": items[:6], "title": self._heard_text()}, [self._heard_text()])
-            logger.info(f"links -> tab {v['label']!r}")
+            q = self._heard_text()
+            self._search_heard = q
+            names = []
+            for it in items:
+                n = it["source"] or re.sub(r"^www\.", "", re.sub(r"^https?://([^/]+).*$", r"\1", it["link"]))
+                if n and n not in names and "news.google" not in n:
+                    names.append(n)
+            v = self._open_view("links", {"items": [], "title": q, "status": "loading", "summary": "",
+                                          "points": [], "sources": names[:5]}, [q], kindword="summary")
+            logger.info(f"search summary -> tab {v['label']!r}")
+            try:
+                self.tasks.append(asyncio.get_running_loop().create_task(self._summarize(v, items[:6], q)))
+            except RuntimeError:                       # no loop (tests): the points from the snippets
+                v.update(self._snippet_summary(items), status="done")
         return output
+
+    @staticmethod
+    def _snippet_summary(items: list[dict]) -> dict:
+        """No LLM (or it failed): the first sentence of each result's snippet as the key points."""
+        pts = []
+        for it in items:
+            t = re.split(r"(?<=[.!?])\s+", (it.get("snippet") or it.get("title") or "").strip())[0].strip(" .")
+            if len(t) > 25 and t + "." not in pts:
+                pts.append(t[:180] + ".")
+        return {"summary": "", "points": pts[:4]}
+
+    async def _summarize(self, v: dict, items: list[dict], question: str):
+        """Read the top pages and write the summary page (Groq, in the background: the spoken answer is not held)."""
+        import html as _html
+
+        import httpx
+        t0 = time.perf_counter()
+
+        async def page(c, link):
+            if "news.google." in link:
+                return ""
+            try:
+                r = await c.get(link)
+                h = re.sub(r"(?is)<(script|style|noscript|svg|head|template|nav|footer|header|form)\b[^>]*>.*?</\1\s*>",
+                           " ", r.text)
+                return _html.unescape(re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ", h))).strip()[:2200]
+            except Exception:  # noqa: BLE001
+                return ""
+        out = self._snippet_summary(items)
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0), follow_redirects=True,
+                                         headers={"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) Elkit"}) as c:
+                pages = await asyncio.gather(*(page(c, it["link"]) for it in items[:3]))
+            ep = getattr(self, "_ep", None)
+            if ep is not None:
+                src = "\n\n".join(f"[{i + 1}] {it['title']} ({it.get('source') or it['link'][:60]})\n"
+                                   f"{it.get('snippet', '')}\n{pages[i] if i < len(pages) else ''}"
+                                   for i, it in enumerate(items))
+                body = {"model": ep.model, "temperature": 0.2, "max_tokens": 900,
+                        "messages": [{"role": "system", "content":
+                                      "You write a short summary page of web search results for a screen. Use only "
+                                      "the sources. Reply with JSON only: {\"headline\": \"max 8 words\", "
+                                      "\"summary\": \"2 or 3 plain sentences that answer the question\", "
+                                      "\"points\": [\"3 to 5 key facts, max 22 words each, with names, numbers and "
+                                      "dates when the sources give them\"]}. If the sources disagree or do not say, "
+                                      "say so. Never add a date or year the sources do not give. No links, no markdown."},
+                                     {"role": "user", "content": f"Today is {time.strftime('%B %d, %Y')}. "
+                                                                 f"Question: {question}\n\nSources:\n{src[:9000]}"}],
+                        **llmlib.reasoning_extra(ep.model)}
+                async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.post(f"{ep.base_url}/chat/completions", json=body,
+                                     headers={"Authorization": f"Bearer {ep.key}"} if ep.key else {})
+                txt = r.json()["choices"][0]["message"]["content"] or ""
+                m = re.search(r"\{.*\}", txt, re.S)
+                d = json.loads(m.group(0)) if m else {}
+                pts = [str(x).strip() for x in d.get("points") or [] if str(x).strip()][:5]
+                if d.get("summary") or pts:
+                    out = {"summary": str(d.get("summary", "")).strip(), "points": pts}
+                    if d.get("headline"):
+                        out["title"] = str(d["headline"]).strip()[:80]
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"search summary: {e}; the snippets instead")
+        if v in self.views:
+            v.update(out, status="done")
+            v["v"] = v.get("v", 0) + 1
+            self._sync_views()
+            logger.info(f"search summary ready in {time.perf_counter() - t0:.1f} s: {len(out['points'])} points")
 
     async def _video_control(self, params):
         a = params.arguments or {}
@@ -1686,10 +1775,30 @@ class Agent:
                        r"text|message|sms)\s+(?:to\s+)?(?:my |our )?([a-z]+)\b(?:\s*[,:]\s*|\s+(?:that|saying|and "
                        r"(?:say|tell (?:her|him|them))(?: that)?)\s+|\s+)?(.*)$", re.I)
     _YES = re.compile(r"^(?:yes|yeah|yep|sure|okay|ok|please|go ahead|do it|alright|yes please|sure please)\b[\s,.!]*"
-                      r"(?:(?:tell|text|say to) (?:her|him|them|mommy|daddy)(?: that)?\s+)?(.*)$", re.I)
+                      r"(?:(?:tell|text|say to) (?:her|him|them|mommy|daddy|sister|brother)(?: that)?\s+)?(.*)$", re.I)
     _NO = re.compile(r"^(?:no|nope|never mind|nevermind|cancel|forget it|don't|do not|no thanks)\b", re.I)
-    _PICK = {"first": 0, "one": 0, "1": 0, "second": 1, "two": 1, "2": 1, "third": 2, "three": 2, "3": 2,
-             "fourth": 3, "four": 3, "4": 3, "last": 3}
+    _PICK = {"first": 0, "one": 0, "1": 0, "second": 1, "two": 1, "2": 1, "third": 2, "three": 2, "3": 2, "last": 2}
+    # "make a call" / "call someone" / "open the phone" (no name): the phone shows the 3 contacts
+    _CALL_ANY = re.compile(r"^(?:can you |could you |please |hey |i want to |i'd like to |i would like to |let's |let me |"
+                           r"help me )*(?:make|place|do|start) (?:a )?(?:phone )?call(?: for me| please| now)?$|"
+                           r"^(?:can you |could you |please )*(?:call|phone|ring|dial)(?: (?:someone|somebody|anyone|"
+                           r"a contact))?(?: for me| please| now)?$|^(?:open|show|show me|go to) (?:the |my )?(?:phone|"
+                           r"contacts|contact list)(?: please)?$", re.I)
+    _TEXT_ANY = re.compile(r"^(?:can you |could you |please |hey |i want to |i'd like to |i would like to |let's |"
+                           r"let me |help me )*(?:send|write) (?:a )?(?:text|message|sms)(?: message)?(?: to (?:someone|"
+                           r"somebody|anyone))?(?: for me| please| now)?$|^(?:text|message) (?:someone|somebody|"
+                           r"anyone)(?: please)?$", re.I)
+
+    def _pick_index(self, said: str, n: int, extra: set = frozenset()):
+        """"the second one" / "number 2" / "two" -> 1 (None if it is not a pick or out of range)."""
+        w = re.findall(r"[a-z0-9]+", said.lower())
+        if not (0 < len(w) <= 4 and set(w) & set(self._PICK)):
+            return None
+        if set(w) - set(self._PICK) - {"the", "number", "option", "one", "please", "reply", "contact", "call",
+                                        "text", "message", "pick", "choose", *extra}:
+            return None
+        i = next(self._PICK[x] for x in w if x in self._PICK)
+        return i if i < n else None
 
     async def _phone_say(self, text: str, said: str, actions: list[dict]):
         """Do phone actions on the Virtual Home (going there first), say `said`, and keep it in the context."""
@@ -1708,19 +1817,45 @@ class Agent:
         room = getattr(self, "room", None)
         if room is None:
             return False
-        from ..room import QUICK_REPLIES, contact_name
-        said = strip_name(text, self.cfg.name).strip().strip(".!")
+        from ..room import CONTACT_ALIASES, CONTACTS, QUICK_REPLIES, contact_name
+        said = strip_name(text, self.cfg.name).strip().strip(".!?")
         p = room.state.get("phone") or {}
         age = time.time() - float(p.get("since", 0) or 0)
+        names = ", ".join(CONTACTS[:-1]) + " or " + CONTACTS[-1]
+        # "make a call" / "send a text" with no name: the phone shows the 3 contacts and Elkit asks who
+        if self._CALL_ANY.match(said):
+            await self._phone_say(text, f"Who should I call: {names}?", [{"tool": "call", "contact": ""}])
+            return True
+        if self._TEXT_ANY.match(said):
+            await self._phone_say(text, f"Who should I text: {names}?", [{"tool": "message", "contact": "", "text": ""}])
+            return True
+        # the answer to "Who should I call?": a number or a name
+        if p.get("state") == "contacts" and age < 60:
+            if self._NO.match(said):
+                await self._phone_say(text, "Okay.", [{"tool": "end_call"}])
+                return True
+            i = self._pick_index(said, len(CONTACTS), {"person", "her", "him"})
+            who = CONTACTS[i] if i is not None else None
+            if who is None:
+                w = re.sub(r"^(?:(?:call|text|message|phone)\s+)?(?:my |our |the )?", "", said.lower()).strip()
+                w = re.sub(r"\s+(?:please|for me|now)$", "", w)
+                who = contact_name(w) if contact_name(w) in CONTACTS else None
+            if who is None:
+                return False
+            if p.get("action") == "message":
+                await self._phone_say(text, f"What should the message to {who} say?",
+                                      [{"tool": "message", "contact": who, "text": ""}])
+            else:
+                await self._phone_say(text, f"Calling {who}.", [{"tool": "call", "contact": who}])
+            return True
         # the message itself, after "What should it say?"
         if p.get("state") == "compose" and age < 120:
             if self._NO.match(said):
                 await self._phone_say(text, "Okay, I won't send it.", [{"tool": "end_call"}])
                 return True
-            w = re.findall(r"[a-z0-9]+", said.lower())
-            if 0 < len(w) <= 4 and (set(w) & set(self._PICK)) and (set(w) - set(self._PICK) <=
-                                                                   {"the", "number", "reply", "option", "one", "please"}):
-                body = QUICK_REPLIES[next(self._PICK[x] for x in w if x in self._PICK)]
+            i = self._pick_index(said, len(QUICK_REPLIES))
+            if i is not None:
+                body = QUICK_REPLIES[i]
             else:
                 body = re.sub(r"^(?:say|tell (?:her|him|them)|write|send|just say)\s+(?:that\s+)?", "", said, flags=re.I)
             if not body or len(body.split()) > 30:
@@ -1742,7 +1877,7 @@ class Agent:
                 return True
         # "text my wife I'm on my way" / "send a message to mom saying I'll be late" / "text Mommy"
         m = self._TEXT.match(said)
-        known = m and (contact_name(m.group(1)) in ("Mommy", "Daddy") or m.group(1)[:1].isupper() or
+        known = m and (contact_name(m.group(1)) in CONTACT_ALIASES or m.group(1)[:1].isupper() or
                        re.search(rf"\b(?:my|our)\s+{re.escape(m.group(1))}\b", said, re.I))
         if known and m.group(1).lower() not in ("me", "it", "this", "that", "him", "her", "them", "back"):
             who = contact_name(m.group(1))

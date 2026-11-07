@@ -132,7 +132,8 @@ def match(text: str, room: dict) -> tuple[list[dict], str] | None:
         return [{"tool": "list_reminders"}], ""
     m = re.fullmatch(r"(?:(?:can you |could you |please )?(?:call|phone|ring|dial)) (my |our )?([a-z]+(?: [a-z]+)?)"
                      r"(?: please| for me| now)?", t)
-    if m and m.group(2) not in ("it", "me", "that", "this", "the police", "back", "him", "her", "them", "it off"):
+    if m and m.group(2) not in ("it", "me", "that", "this", "the police", "back", "him", "her", "them", "it off",
+                                "someone", "somebody", "anyone", "anybody", "a contact"):
         from .room import contact_name
         who = contact_name(m.group(2))                     # "my wife" -> "Mommy" (the name in the phone)
         return [{"tool": "call", "contact": who}], f"Calling {who}."
