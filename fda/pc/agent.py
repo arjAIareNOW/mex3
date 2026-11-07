@@ -475,8 +475,8 @@ class Agent:
             remote.standard_tools[:] = [t for t in remote.standard_tools if t.name not in ROOM_TOOLS]
             own_room = room_tools(self.room, on_use=lambda: self._move_tab("room"), redirect=self._music_to_video)
         github = FunctionSchema(
-            name="open_github_page", description="Open the owner's GitHub page (github.io: their published games) "
-            "in its own tab. For \"open my github.io\" / \"show my GitHub page\". Games go on it only when they ask "
+            name="open_github_page", description="Open the owner's GitHub page (github.io: what they published) "
+            "in its own tab. For \"open my github.io\" / \"show my GitHub page\". Things go on it only when they ask "
             "(publish_game).",
             properties={}, required=[], handler=self._github_tool)
         prof = FunctionSchema(
@@ -484,7 +484,8 @@ class Agent:
             "for \"what's my GitHub profile\", \"search my GitHub profile\". Then say what it returns.",
             properties={}, required=[], handler=self._profile_tool)
         pub = FunctionSchema(
-            name="publish_game", description="Put the game on the screen on the owner's GitHub page. ONLY when they "
+            name="publish_game", description="Put the game, website or app on the screen on the owner's GitHub page. "
+            "ONLY when they "
             "ask to publish / upload / put it on GitHub; never on your own.", properties={}, required=[],
             handler=self._publish_tool)
         tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick,
@@ -1127,8 +1128,8 @@ class Agent:
         v = self._github_view(url)
         said = "Here's your GitHub page."
         self.context.add_message({"role": "user", "content": text})
-        self.context.add_message({"role": "assistant", "content": f"{said} (tab {v['label']}; a game goes on it only "
-                                                                  f"when they say to publish it)"})
+        self.context.add_message({"role": "assistant", "content": f"{said} (tab {v['label']}; something goes on it only "
+                                                                  f"when they say to publish something)"})
         logger.info(f"github page -> tab {v['label']!r}: {url}")
         await self._announce(said)
         return True
@@ -2305,22 +2306,20 @@ class Agent:
         return output
 
     def _publish_soon(self, job: dict) -> str:
-        """A game goes to the owner's GitHub Pages site (publish_games = true), in the background.
-        Returns "" when it started, else why not (said by the "publish this game" command)."""
+        """A game, website or app goes to the owner's GitHub Pages site (publish_games = true), in the background.
+        Returns "" when it started, else why not (said by the "publish it" command)."""
         cfg = self.cfg
         if not getattr(cfg, "publish_games", False):
             return "Publishing to your GitHub page is turned off on this device."
-        if _app_kind(job.get("title", "")) != "game":
-            return "I only put games on your GitHub page."
         name = (job.get("url") or "").split("?")[0].rsplit("/", 1)[-1]
         d = Path(cfg.apps_dir) if Path(cfg.apps_dir).is_absolute() else ROOT / cfg.apps_dir
         if not name.endswith(".html") or not (d / name).exists():
-            return "I can't find that game's file."
+            return "I can't find that file."
         from .. import publish
 
         async def go():
             try:
-                f = await asyncio.to_thread(publish.publish_game, d / name, Path(cfg.publish_dir), job.get("title", ""))
+                f = await asyncio.to_thread(publish.publish_app, d / name, Path(cfg.publish_dir), job.get("title", ""))
                 logger.info(f"published to GitHub Pages: games/{f}")
                 self._event("published", title=job.get("title"), file=f)
             except Exception as e:  # noqa: BLE001
@@ -2340,29 +2339,28 @@ class Agent:
         self.tasks.append(asyncio.create_task(go()))
         return ""
 
-    def _game_on_screen(self) -> dict | None:
-        """The game they mean by "this game": the one showing, else the newest game tab."""
+    def _app_on_screen(self) -> dict | None:
+        """What they mean by "publish it": the game, website or app showing, else the newest one built."""
         act = next((x for x in self.views if x["id"] == self.active_view), None)
-        if act and act["kind"] == "app" and _app_kind(act.get("title", "")) == "game":
+        if act and act["kind"] == "app":
             return act
-        return next((x for x in reversed(self.views) if x["kind"] == "app" and _app_kind(x.get("title", "")) == "game"),
-                    None)
+        return next((x for x in reversed(self.views) if x["kind"] == "app"), None)
 
     def _publish_now(self) -> str:
-        """ "Publish this game": what Elkit says."""
-        g = self._game_on_screen()
+        """ "Publish it": what Elkit says."""
+        g = self._app_on_screen()
         if g is None:
-            return "There's no game on the screen to publish."
+            return "There's nothing on the screen to publish."
         why = self._publish_soon({"url": g["url"], "title": g.get("title", "")})
-        return why or f"Publishing {g.get('title') or 'the game'} to your GitHub page. It'll be there in about a minute."
+        return why or f"Publishing {g.get('title') or 'it'} to your GitHub page. It'll be there in about a minute."
 
     _PUBLISH = re.compile(r"^(?:(?:please|can you|could you|now|okay|ok|and|then|let's|lets)\s+)*(?:publish|upload|post|"
-                          r"put|share|send)\s+(?:it|this|that|the game|this game|that game|my game|the (?:[a-z]+ )?game|"
-                          r"this one)(?:\s+(?:on|to|onto)\s+(?:my|the)\s+(?:git\s?hub|get\s?hub)(?:\s*(?:\.|dot)?\s*"
+                          r"put|share|send)\s+(?:it|this|that|this one|(?:the|this|that|my) (?:[a-z]+ )?(?:game|site|website|web page|"
+                          r"webpage|page|app|landing page))(?:\s+(?:on|to|onto)\s+(?:my|the)\s+(?:git\s?hub|get\s?hub)(?:\s*(?:\.|dot)?\s*"
                           r"i\.?\s?o\b)?(?:\s+(?:page|site))?)?(?:\s+(?:now|please))?$", re.I)
 
     async def _publish_direct(self, text: str) -> bool:
-        """"Publish this game" / "put it on my GitHub": the game on screen goes to the GitHub page (only when asked)."""
+        """"Publish it" / "put this website on my GitHub": what is on screen goes to the GitHub page (only when asked)."""
         t = strip_name(text, self.cfg.name).strip().strip(".!?")
         m = self._PUBLISH.match(t)
         if not m or (re.match(r"^(?:(?:please|can you|could you|now|okay|ok|and|then|let's|lets)\s+)*(?:put|share|send|post)\b",

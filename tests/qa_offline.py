@@ -1999,7 +1999,7 @@ def t_phone():
 
 
 def t_publish():
-    """New games go to GitHub Pages (publish_games): copied to docs/games, list page rebuilt, committed, pushed."""
+    """New games go to GitHub Pages (publish_games): copied to docs/apps, list page rebuilt, committed, pushed."""
     import subprocess
     import tempfile
     from fda import publish
@@ -2023,11 +2023,11 @@ def t_publish():
         again = publish.publish_game(app, tmp / "site", "Sky Hopper")      # same game again: nothing new
         log = git("--git-dir", str(tmp / "remote.git"), "log", "--format=%s", "main")
         files = git("--git-dir", str(tmp / "remote.git"), "ls-tree", "-r", "--name-only", "main")
-        index = (tmp / "site" / "docs" / "games" / "index.html").read_text(encoding="utf-8")
+        index = (tmp / "site" / "docs" / "apps" / "index.html").read_text(encoding="utf-8")
     check("publish: the game and the list page are pushed",
-          (name, "docs/games/sky-hopper.html" in files, "docs/games/index.html" in files), ("sky-hopper.html", True, True))
-    check("publish: one commit, none for the same game again", (again, log.splitlines()[0], log.count("Publish game")),
-          ("sky-hopper.html", "Publish game: Sky Hopper", 1))
+          (name, "docs/apps/sky-hopper.html" in files, "docs/apps/index.html" in files), ("sky-hopper.html", True, True))
+    check("publish: one commit, none for the same game again", (again, log.splitlines()[0], log.count("Publish:")),
+          ("sky-hopper.html", "Publish: Sky Hopper", 1))
     check("publish: the list page names the game", 'href="sky-hopper.html"><b>Sky Hopper</b>' in index, True)
     with tempfile.TemporaryDirectory() as tmp:
         g = Path(tmp)
@@ -2085,9 +2085,9 @@ def t_publish():
         return none, yes, started, said, no
     none, yes, started, said, no = asyncio.run(pub())
     check("publish: only when asked; no game -> says so", (none, said[0]),
-          (True, "There's no game on the screen to publish."))
-    check("publish: 'put it on my GitHub' -> the game (not the website)", (yes, started),
-          (True, ["Sky Hopper game"]))
+          (True, "There's nothing on the screen to publish."))
+    check("publish: 'put it on my GitHub' -> what is showing (a website too)", (yes, started),
+          (True, ["Bakery website"]))
     check("publish: 'put it on the table' / 'send it' / 'post it' are not a publish", no, [False, False, False])
     from fda.config import Config
     check("publish: never by itself (publish_auto off)", Config().publish_auto, False)

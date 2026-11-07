@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 log = logging.getLogger("fda.publish")
-GAMES = Path("docs") / "games"
+GAMES = Path("docs") / "apps"                  # games, websites and apps
 
 
 def _title(p: Path) -> str:
@@ -35,7 +35,7 @@ def index_page(games: Path) -> str:
                       for f in files)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Elkit games</title>
+<title>Made with Elkit</title>
 <style>
   :root {{ color-scheme: dark; --bg: #0d1017; --card: #161b26; --line: #283041; --text: #e8ecf2; --muted: #8b95a8; --accent: #4de1ff; }}
   body {{ margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }}
@@ -47,10 +47,10 @@ def index_page(games: Path) -> str:
   a:hover {{ border-color: var(--accent); }} a span {{ color: var(--muted); font-size: 14px; white-space: nowrap; }}
 </style></head>
 <body><main>
-  <h1>Elkit games</h1>
-  <p>Games made by talking to Elkit, a voice assistant on a Raspberry Pi.</p>
+  <h1>Made with Elkit</h1>
+  <p>Games, websites and apps made by talking to Elkit, a voice assistant on a Raspberry Pi.</p>
   <div class="list">
-{items or '    <p>No games yet. Ask Elkit to make one.</p>'}
+{items or '    <p>Nothing here yet. Ask Elkit to make something.</p>'}
   </div>
 </main></body></html>
 """
@@ -99,7 +99,7 @@ def _git(repo: Path, *args: str, timeout: float = 60) -> str:
     return r.stdout
 
 
-def publish_game(app_file: Path, repo: Path, title: str = "") -> str:
+def publish_app(app_file: Path, repo: Path, title: str = "") -> str:
     """Copy one game into the site clone, rebuild the list, commit and push. Returns the published file name."""
     repo = Path(repo).expanduser()
     if not (repo / ".git").exists():
@@ -113,6 +113,9 @@ def publish_game(app_file: Path, repo: Path, title: str = "") -> str:
     _git(repo, "add", str(GAMES))
     if not _git(repo, "status", "--porcelain", "--", str(GAMES)).strip():
         return dest.name                                   # the same game again: nothing new to push
-    _git(repo, "commit", "-q", "-m", f"Publish game: {title or app_file.stem}")
+    _git(repo, "commit", "-q", "-m", f"Publish: {title or app_file.stem}")
     _git(repo, "push", "-q", timeout=90)
     return dest.name
+
+
+publish_game = publish_app                          # the old name
