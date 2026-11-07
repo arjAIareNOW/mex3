@@ -177,6 +177,19 @@ game", "restart", "close the game". The settings are room state (`game` tool in 
 `fda/room.py`); the display pushes each change into `fda/games/sky_hop.html`. While the game is open the display
 keeps only the Lights and Music cards so the game fits the 800x480 screen. Offline planner: 12/12 on game commands.
 
+## Publishing to GitHub Pages (only when you say so)
+
+Build something by voice (a website, a game, an app), change it live, then say "publish it" or "put it on my
+GitHub". Elkit pushes it to the **main address of your site, `https://<user>.github.io/`, as the home page**, with
+no extra folder. It uses a folder only when you name one: "publish it in a folder called games" ->
+`https://<user>.github.io/games/`. When the new version is online, Elkit reloads the page on the screen and says
+so; "open my github io" shows it any time. Nothing is published on its own (`publish_auto = false`).
+
+Setup on the Pi (`fda.toml`): `publish_games = true`, `publish_url = "https://<user>.github.io/"`, `publish_dir`
+= a clone of the site repo that can push (a deploy key with write access). GitHub serves the bare
+`<user>.github.io` address only from a repo named `<user>.github.io` (Pages: main branch, `/docs`). Code:
+`fda/publish.py`; the request is `_publish_direct` / the `publish_game` tool in `fda/pc/agent.py`.
+
 ## Windows laptop
 
 1. Install Python 3.12 from python.org (tick "Add python.exe to PATH").
@@ -224,6 +237,7 @@ chains fall back to the offline engines. Engine choices: [ENGINES.md](ENGINES.md
 | `planner_say_first` | `true` | ~190 ms faster first word; `false` = decide actions before speaking |
 | `vcm_fast_path` | `true` | your VCM intent model acts instantly on very confident lights/pause/next/volume commands (undone if the transcript disagrees) |
 | `record_dir` | off | saves `mic`, `ref`, `clean` WAVs for tuning echo cancellation |
+| `publish_games` / `publish_url` / `publish_dir` | off / "" / `~/elkit-site` | "publish it" puts what is on screen on your site's main address (see Publishing) |
 
 ## Commands
 

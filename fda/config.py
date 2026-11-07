@@ -72,7 +72,7 @@ class Config:
     publish_games: bool = False           # what Elkit builds can go to the owner's GitHub Pages (fda/publish.py)
     publish_auto: bool = False            # every new game at once; False: only when they say "publish this game"
     publish_dir: str = "~/elkit-site"     # a clone of the repo that can push (deploy key with write access)
-    publish_url: str = ""                 # the list page on GitHub Pages (.../apps/): "open my github.io" shows it
+    publish_url: str = ""                 # the site's main address (https://<user>.github.io/): "open my github.io"
     profile_url: str = ""                 # a profile page with a JSON block: "what's my GitHub profile?" reads it
     quick_match: float = 0.85             # how close what was heard must be to a question there (0-1)
     filler_after_s: float = 0.7           # no answer yet this long after the turn: a short filler ("On it.") from the

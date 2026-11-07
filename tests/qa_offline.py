@@ -1999,7 +1999,7 @@ def t_phone():
 
 
 def t_publish():
-    """New games go to GitHub Pages (publish_games): copied to docs/apps, list page rebuilt, committed, pushed."""
+    """What they publish goes to GitHub Pages (publish_games): the home page (docs/index.html), or a folder they name."""
     import subprocess
     import tempfile
     from fda import publish
@@ -2019,16 +2019,17 @@ def t_publish():
         git("branch", "-q", "--set-upstream-to=origin/main", cwd=tmp / "site")
         app = tmp / "sky-hopper.html"
         app.write_text("<html><head><title>Sky Hopper</title></head><body>game</body></html>", encoding="utf-8")
-        name = publish.publish_game(app, tmp / "site", "Sky Hopper")
-        again = publish.publish_game(app, tmp / "site", "Sky Hopper")      # same game again: nothing new
+        where, stamp = publish.publish_app(app, tmp / "site", "Sky Hopper")
+        home = (tmp / "site" / "docs" / "index.html").read_text(encoding="utf-8")
+        where2, _ = publish.publish_app(app, tmp / "site", "Sky Hopper", folder="My Games")
         log = git("--git-dir", str(tmp / "remote.git"), "log", "--format=%s", "main")
-        files = git("--git-dir", str(tmp / "remote.git"), "ls-tree", "-r", "--name-only", "main")
-        index = (tmp / "site" / "docs" / "apps" / "index.html").read_text(encoding="utf-8")
-    check("publish: the game and the list page are pushed",
-          (name, "docs/apps/sky-hopper.html" in files, "docs/apps/index.html" in files), ("sky-hopper.html", True, True))
-    check("publish: one commit, none for the same game again", (again, log.splitlines()[0], log.count("Publish:")),
-          ("sky-hopper.html", "Publish: Sky Hopper", 1))
-    check("publish: the list page names the game", 'href="sky-hopper.html"><b>Sky Hopper</b>' in index, True)
+        files = git("--git-dir", str(tmp / "remote.git"), "ls-tree", "-r", "--name-only", "main").split()
+    check("publish: it becomes the home page (main address, no folder)",
+          (where, "docs/index.html" in files, "<title>Sky Hopper</title>" in home, stamp in home), ("", True, True, True))
+    check("publish: a folder only when they name one", (where2, "docs/my-games/index.html" in files),
+          ("my-games/", True))
+    check("publish: one commit each, pushed", log.splitlines()[:2],
+          ["Publish: Sky Hopper (my-games/)", "Publish: Sky Hopper (home page)"])
     with tempfile.TemporaryDirectory() as tmp:
         g = Path(tmp)
         out = publish.with_assets('<img src="/assets/icons/plus.svg"><script>FDA_SAVED={"bird":"/assets/sprites/bird.svg@red"}'
@@ -2082,8 +2083,14 @@ def t_publish():
         a._open_app_view("/apps/bakery.html", "Bakery website")          # a site is showing; the game is newest
         yes = await a._publish_direct("Elkit, put it on my GitHub")
         no = [await a._publish_direct(x) for x in ("put it on the table", "send it", "post it")]
-        return none, yes, started, said, no
-    none, yes, started, said, no = asyncio.run(pub())
+        folders = []
+        a._publish_soon = lambda job: folders.append(job["folder"]) or ""
+        for x in ("publish it", "publish it in a folder called games", "publish this game to the arcade folder",
+                  "put it on my github io under a folder named fun stuff"):
+            await a._publish_direct(x)
+        return none, yes, started, said, no, folders
+    none, yes, started, said, no, folders = asyncio.run(pub())
+    check("publish: main address unless they name a folder", folders, ["", "games", "arcade", "fun stuff"])
     check("publish: only when asked; no game -> says so", (none, said[0]),
           (True, "There's nothing on the screen to publish."))
     check("publish: 'put it on my GitHub' -> what is showing (a website too)", (yes, started),

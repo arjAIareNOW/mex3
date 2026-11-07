@@ -484,9 +484,11 @@ class Agent:
             "for \"what's my GitHub profile\", \"search my GitHub profile\". Then say what it returns.",
             properties={}, required=[], handler=self._profile_tool)
         pub = FunctionSchema(
-            name="publish_game", description="Put the game, website or app on the screen on the owner's GitHub page. "
-            "ONLY when they "
-            "ask to publish / upload / put it on GitHub; never on your own.", properties={}, required=[],
+            name="publish_game", description="Put the game, website or app on the screen on the owner's GitHub page "
+            "(it becomes the home page at their main github.io address). ONLY when they "
+            "ask to publish / upload / put it on GitHub; never on your own.",
+            properties={"folder": {"type": "string", "description": "ONLY if they name a folder for it; else leave "
+                                   "it out (it goes on the main address)"}}, required=[],
             handler=self._publish_tool)
         tools = ToolsSchema(standard_tools=[*remote.standard_tools, *own_room, show, video, nav, subtab, offer, pick,
                                             *([github] if getattr(cfg, "publish_url", "") else []),
@@ -2319,18 +2321,21 @@ class Agent:
 
         async def go():
             try:
-                f = await asyncio.to_thread(publish.publish_app, d / name, Path(cfg.publish_dir), job.get("title", ""))
-                logger.info(f"published to GitHub Pages: games/{f}")
+                f, stamp = await asyncio.to_thread(publish.publish_app, d / name, Path(cfg.publish_dir),
+                                                   job.get("title", ""), job.get("folder", ""))
+                logger.info(f"published to GitHub Pages: /{f} ({'home page' if not f else 'folder'})")
                 self._event("published", title=job.get("title"), file=f)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"publish {name}: {e}")
                 return
             url = getattr(cfg, "publish_url", "")
-            if url and await publish.wait_live(url + f):
+            if url and not url.endswith("/"):
+                url += "/"
+            if url and await publish.wait_live(url + f, expect=stamp):
                 page = next((x for x in self.views if x["kind"] == "page" and x.get("url") == url), None)
                 if page is not None:
                     page["v"] = page.get("v", 0) + 1                # the display reloads it
-                    self._activate(page)                          # and shows it: the new game is on the list
+                    self._activate(page)                          # and shows it: the new home page
                 while self.io.user_speaking or self.io.bot_speaking:
                     await asyncio.sleep(0.3)
                 msg = f"{job.get('title', 'Your game')} is on your GitHub page now."
@@ -2346,18 +2351,22 @@ class Agent:
             return act
         return next((x for x in reversed(self.views) if x["kind"] == "app"), None)
 
-    def _publish_now(self) -> str:
-        """ "Publish it": what Elkit says."""
+    def _publish_now(self, folder: str = "") -> str:
+        """ "Publish it": what Elkit says. It goes on the main address unless they named a folder."""
         g = self._app_on_screen()
         if g is None:
             return "There's nothing on the screen to publish."
-        why = self._publish_soon({"url": g["url"], "title": g.get("title", "")})
-        return why or f"Publishing {g.get('title') or 'it'} to your GitHub page. It'll be there in about a minute."
+        why = self._publish_soon({"url": g["url"], "title": g.get("title", ""), "folder": folder})
+        where = f"in the {folder} folder on your GitHub page" if folder else "to your GitHub page"
+        return why or f"Publishing {g.get('title') or 'it'} {where}. It'll be there in about a minute."
 
     _PUBLISH = re.compile(r"^(?:(?:please|can you|could you|now|okay|ok|and|then|let's|lets)\s+)*(?:publish|upload|post|"
                           r"put|share|send)\s+(?:it|this|that|this one|(?:the|this|that|my) (?:[a-z]+ )?(?:game|site|website|web page|"
                           r"webpage|page|app|landing page))(?:\s+(?:on|to|onto)\s+(?:my|the)\s+(?:git\s?hub|get\s?hub)(?:\s*(?:\.|dot)?\s*"
-                          r"i\.?\s?o\b)?(?:\s+(?:page|site))?)?(?:\s+(?:now|please))?$", re.I)
+                          r"i\.?\s?o\b)?(?:\s+(?:page|site))?)?"
+                          r"(?:\s+(?:in|into|to|under)\s+(?:(?:a|the|my)\s+)?(?:folder|directory)\s+(?:called|named)\s+"
+                          r"(?P<f1>[a-z0-9][a-z0-9 -]{0,29}?)|\s+(?:in|into|to|under)\s+(?:a|the|my)\s+"
+                          r"(?P<f2>[a-z0-9-]{1,20})\s+(?:folder|directory))?(?:\s+(?:now|please))?$", re.I)
 
     async def _publish_direct(self, text: str) -> bool:
         """"Publish it" / "put this website on my GitHub": what is on screen goes to the GitHub page (only when asked)."""
@@ -2366,7 +2375,7 @@ class Agent:
         if not m or (re.match(r"^(?:(?:please|can you|could you|now|okay|ok|and|then|let's|lets)\s+)*(?:put|share|send|post)\b",
                               t, re.I) and not re.search(r"git\s?hub|get\s?hub", t, re.I)):
             return False                       # "put it on" alone is not a publish ("send it" may be a text)
-        said = self._publish_now()
+        said = self._publish_now((m.group("f1") or m.group("f2") or "").strip())
         self.context.add_message({"role": "user", "content": text})
         self.context.add_message({"role": "assistant", "content": said})
         logger.info(f"publish (direct): {text!r} -> {said!r}")
@@ -2374,7 +2383,8 @@ class Agent:
         return True
 
     async def _publish_tool(self, params):
-        await params.result_callback({"ok": True, "result": self._publish_now()})
+        folder = str((params.arguments or {}).get("folder") or "").strip()
+        await params.result_callback({"ok": True, "result": self._publish_now(folder)})
 
     async def _watch_apps(self):
         """When a background build finishes: show it and say so (waits until nobody is talking)."""

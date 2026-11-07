@@ -1,11 +1,11 @@
-"""Put the games Elkit builds on the owner's GitHub Pages site (fda.toml: publish_url, publish_dir).
+"""Put what Elkit builds (a website, game or app) on the owner's GitHub Pages site (fda.toml: publish_url,
+publish_dir), only when they say "publish it".
 
 Off unless fda.toml has `publish_games = true`. Needs a clone of the repo at `publish_dir` that can push (a GitHub
-deploy key with write access on the Pi). Runs in a thread after a game is ready: never holds Elkit up, and a failure
-only goes to the log.
+deploy key with write access on the Pi). Runs in a thread: never holds Elkit up, and a failure only goes to the log.
 
-    publish_dir/docs/games/<name>.html   the game, as built
-    publish_dir/docs/games/index.html    a list of all published games (rebuilt every time)
+    publish_dir/docs/index.html            what they published: the home page (https://<user>.github.io/)
+    publish_dir/docs/<folder>/index.html   only when they name a folder ("publish it in a folder called games")
 """
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ import time
 from pathlib import Path
 
 log = logging.getLogger("fda.publish")
-GAMES = Path("docs") / "apps"                  # games, websites and apps
+SITE = Path("docs")                            # the site root (GitHub Pages: main, /docs)
+GAMES = SITE / "apps"                          # the old list folder (index_page); no longer used
 
 
 def _title(p: Path) -> str:
@@ -56,8 +57,8 @@ def index_page(games: Path) -> str:
 """
 
 
-async def wait_live(url: str, limit_s: float = 240, every_s: float = 8) -> bool:
-    """GitHub Pages takes ~30-90 s to put a push online: True once `url` answers 200."""
+async def wait_live(url: str, limit_s: float = 240, every_s: float = 8, expect: str = "") -> bool:
+    """GitHub Pages takes ~30-90 s to put a push online: True once `url` answers 200 (and shows `expect`)."""
     import asyncio
 
     import httpx
@@ -65,7 +66,8 @@ async def wait_live(url: str, limit_s: float = 240, every_s: float = 8) -> bool:
     async with httpx.AsyncClient(timeout=8, follow_redirects=True) as c:
         while time.monotonic() - t < limit_s:
             try:
-                if (await c.get(url, params={"t": int(time.time())})).status_code == 200:
+                r = await c.get(url, params={"t": int(time.time())})
+                if r.status_code == 200 and expect in r.text:
                     return True
             except Exception:  # noqa: BLE001
                 pass
@@ -99,23 +101,31 @@ def _git(repo: Path, *args: str, timeout: float = 60) -> str:
     return r.stdout
 
 
-def publish_app(app_file: Path, repo: Path, title: str = "") -> str:
-    """Copy one game into the site clone, rebuild the list, commit and push. Returns the published file name."""
+def folder_name(said: str) -> str:
+    """ "My Games" -> "my-games" (a safe folder name), "" if nothing usable."""
+    return re.sub(r"[^a-z0-9]+", "-", (said or "").lower()).strip("-")[:40]
+
+
+def publish_app(app_file: Path, repo: Path, title: str = "", folder: str = "") -> tuple[str, str]:
+    """Put one website, game or app on the site, commit and push. It becomes the home page (docs/index.html), or
+    docs/<folder>/index.html when they named a folder. Returns (its path under the site: "" or "games/", a stamp
+    written into the page so wait_live can tell the new version is online)."""
     repo = Path(repo).expanduser()
     if not (repo / ".git").exists():
         raise RuntimeError(f"no git clone at {repo}")
     _git(repo, "pull", "--rebase", "-q")
-    games = repo / GAMES
-    games.mkdir(parents=True, exist_ok=True)
-    dest = games / app_file.name
-    dest.write_text(with_assets(app_file.read_text(encoding="utf-8"), games), encoding="utf-8")
-    (games / "index.html").write_text(index_page(games), encoding="utf-8")
-    _git(repo, "add", str(GAMES))
-    if not _git(repo, "status", "--porcelain", "--", str(GAMES)).strip():
-        return dest.name                                   # the same game again: nothing new to push
-    _git(repo, "commit", "-q", "-m", f"Publish: {title or app_file.stem}")
+    sub = folder_name(folder)
+    where = repo / SITE / sub if sub else repo / SITE
+    where.mkdir(parents=True, exist_ok=True)
+    stamp = f"elkit-publish {time.strftime('%Y%m%d-%H%M%S')}"
+    page = with_assets(app_file.read_text(encoding="utf-8"), where).rstrip() + f"\n<!-- {stamp} -->\n"
+    (where / "index.html").write_text(page, encoding="utf-8")
+    _git(repo, "add", str((where / "index.html").relative_to(repo)))
+    if (where / "assets").is_dir():
+        _git(repo, "add", str((where / "assets").relative_to(repo)))
+    _git(repo, "commit", "-q", "-m", f"Publish: {title or app_file.stem}" + (f" ({sub}/)" if sub else " (home page)"))
     _git(repo, "push", "-q", timeout=90)
-    return dest.name
+    return (f"{sub}/" if sub else ""), stamp
 
 
 publish_game = publish_app                          # the old name
