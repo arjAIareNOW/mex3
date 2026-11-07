@@ -7,7 +7,7 @@ tests/last_sim_results.json
 offline_models/
 fd-benchmark/
 logs/
-apps/
+/apps/
 reports/
 fda/mcp_servers/node_modules/
 .claude/
